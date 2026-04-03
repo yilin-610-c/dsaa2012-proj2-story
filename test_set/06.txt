@@ -1,0 +1,9 @@
+[SCENE-1] <Jack> and <Sara> sit in a park and talk.
+
+[SEP]
+
+[SCENE-2] They continue talking in a cafe.
+
+[SEP]
+
+[SCENE-3] They look at an exhibition together.

@@ -1,0 +1,9 @@
+[SCENE-1] <Ryan> walks quickly toward a bus.
+
+[SEP]
+
+[SCENE-2] He pauses at the door and looks ahead.
+
+[SEP]
+
+[SCENE-3] He gets inside and sits by the window.

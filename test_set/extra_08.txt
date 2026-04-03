@@ -1,0 +1,9 @@
+[SCENE-1] <Man> waits at a station.
+
+[SEP]
+
+[SCENE-2] A train arrives.
+
+[SEP]
+
+[SCENE-3] He gets on board.

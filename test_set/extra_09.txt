@@ -1,0 +1,9 @@
+[SCENE-1] <Kid> draws on paper.
+
+[SEP]
+
+[SCENE-2] He adds colors.
+
+[SEP]
+
+[SCENE-3] He shows the drawing.

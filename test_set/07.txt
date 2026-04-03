@@ -1,0 +1,9 @@
+[SCENE-1] <Nina> stands in the snow.
+
+[SEP]
+
+[SCENE-2] She meets <Leo> in a crowd.
+
+[SEP]
+
+[SCENE-3] They look at each other quietly.

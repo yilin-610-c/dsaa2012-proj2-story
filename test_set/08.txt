@@ -1,0 +1,9 @@
+[SCENE-1] <Tom> runs down a street.
+
+[SEP]
+
+[SCENE-2] He moves through traffic.
+
+[SEP]
+
+[SCENE-3] He meets his friend and keeps going.

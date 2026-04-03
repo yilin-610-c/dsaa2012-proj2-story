@@ -1,0 +1,9 @@
+[SCENE-1] <Dog> runs across a field.
+
+[SEP]
+
+[SCENE-2] It chases a ball.
+
+[SEP]
+
+[SCENE-3] It returns happily.

@@ -1,0 +1,9 @@
+[SCENE-1] <Bird> sits on a branch.
+
+[SEP]
+
+[SCENE-2] It looks around.
+
+[SEP]
+
+[SCENE-3] It flies away.

@@ -1,0 +1,9 @@
+[SCENE-1] <Milo> sits on the floor with toys.
+
+[SEP]
+
+[SCENE-2] He rolls over and laughs.
+
+[SEP]
+
+[SCENE-3] He lies down and rests.

@@ -1,0 +1,9 @@
+[SCENE-1] <Chef> cuts vegetables in the kitchen.
+
+[SEP]
+
+[SCENE-2] He checks the taste of the food.
+
+[SEP]
+
+[SCENE-3] He serves the finished dish.

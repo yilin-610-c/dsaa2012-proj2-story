@@ -1,0 +1,9 @@
+[SCENE-1] <Girl> runs in the rain.
+
+[SEP]
+
+[SCENE-2] She stands under a roof for cover.
+
+[SEP]
+
+[SCENE-3] She watches the rain slow down.

@@ -1,0 +1,9 @@
+[SCENE-1] <Ben> drives along a road.
+
+[SEP]
+
+[SCENE-2] He looks at the scenery outside.
+
+[SEP]
+
+[SCENE-3] He stops to take a break.

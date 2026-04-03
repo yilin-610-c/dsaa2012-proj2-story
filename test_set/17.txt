@@ -1,0 +1,9 @@
+[SCENE-1] <Artist> paints in front of a canvas.
+
+[SEP]
+
+[SCENE-2] He stops and thinks for a moment.
+
+[SEP]
+
+[SCENE-3] He continues painting.
