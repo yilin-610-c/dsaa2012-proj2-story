@@ -1,0 +1,50 @@
+runtime:
+  input_path: test_set/01.txt
+  output_root: outputs
+  run_name_prefix: baseline
+  device: cuda
+  torch_dtype: float16
+  repo_root: .
+
+model:
+  backend: diffusers_text2img
+  model_id: stabilityai/sdxl-turbo
+  width: 512
+  height: 512
+  guidance_scale: 0.0
+  num_inference_steps: 4
+  enable_attention_slicing: true
+
+prompt:
+  style_prompt: cinematic story illustration, coherent visual style
+  character_prefix: recurring characters:
+  global_context_prefix: shared story context:
+  quality_suffix: clean composition, readable action, consistent framing
+  negative_prompt: blurry, distorted, low detail, bad anatomy, extra limbs, duplicate subjects
+
+generation:
+  candidate_count: 1
+  base_seed: 1234
+
+scoring:
+  type: heuristic
+
+runtime_profiles:
+  smoke_test:
+    model:
+      width: 384
+      height: 384
+      num_inference_steps: 2
+      guidance_scale: 0.0
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  demo_run:
+    model:
+      width: 768
+      height: 768
+      num_inference_steps: 4
+      guidance_scale: 0.0
+    generation:
+      candidate_count: 3
+      base_seed: 2026
