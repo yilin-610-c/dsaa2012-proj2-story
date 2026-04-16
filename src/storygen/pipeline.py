@@ -18,7 +18,7 @@ from storygen.io.results import (
 )
 from storygen.parser import parse_story_file
 from storygen.prompt_builder import PromptBuilder
-from storygen.scoring import HeuristicScorer
+from storygen.scoring import CLIPConsistencyScorer, HeuristicScorer
 from storygen.types import GenerationRequest, RunSummary
 
 
@@ -55,11 +55,13 @@ def _build_generator(config: dict[str, Any]) -> DiffusersTextToImageGenerator:
     return DiffusersTextToImageGenerator(config["model"], config["runtime"])
 
 
-def _build_scorer(config: dict[str, Any]) -> HeuristicScorer:
+def _build_scorer(config: dict[str, Any]):
     scorer_type = config["scoring"].get("type")
-    if scorer_type != "heuristic":
-        raise ValueError(f"Unsupported scorer type: {scorer_type}")
-    return HeuristicScorer()
+    if scorer_type == "heuristic":
+        return HeuristicScorer()
+    if scorer_type == "clip_consistency":
+        return CLIPConsistencyScorer(config["scoring"], config["runtime"])
+    raise ValueError(f"Unsupported scorer type: {scorer_type}")
 
 
 def run_pipeline(config: dict[str, Any]) -> RunSummary:
@@ -140,6 +142,8 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         timestamp=get_timestamp_string(),
         pipeline_version=__version__,
         model_id=config["model"]["model_id"],
+        scorer_type=config["scoring"]["type"],
+        scorer_config=config["scoring"],
         git_commit_id=_get_git_commit_id(repo_root),
         input_story_path=story.source_path,
         output_root=str(run_context.output_root),

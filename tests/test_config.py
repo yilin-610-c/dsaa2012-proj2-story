@@ -12,6 +12,7 @@ def test_resolve_config_applies_runtime_profile_and_overrides() -> None:
     )
 
     assert config["runtime"]["profile"] == "demo_run"
-    assert config["generation"]["candidate_count"] == 3
+    assert config["generation"]["candidate_count"] == 4
     assert config["generation"]["base_seed"] == 999
     assert config["model"]["width"] == 768
+    assert config["scoring"]["type"] == "clip_consistency"

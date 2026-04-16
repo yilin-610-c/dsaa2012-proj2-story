@@ -82,6 +82,8 @@ def build_manifest(summary: RunSummary) -> dict[str, Any]:
         "timestamp": summary.timestamp,
         "runtime_profile": summary.runtime_profile,
         "model_id": summary.model_id,
+        "scorer_type": summary.scorer_type,
+        "scorer_config": summary.scorer_config,
         "scene_count": len(summary.scene_results),
         "run_directory": summary.run_directory,
         "config_path": str(Path(summary.run_directory) / "config_resolved.yaml"),

@@ -90,6 +90,8 @@ class RunSummary:
     timestamp: str
     pipeline_version: str
     model_id: str
+    scorer_type: str
+    scorer_config: dict[str, Any]
     git_commit_id: str | None
     input_story_path: str
     output_root: str
