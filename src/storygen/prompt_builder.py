@@ -62,9 +62,13 @@ class PromptBuilder:
     ) -> PromptSpec:
         story_context = story_context or self._build_story_context(story)
         style_prompt = self.prompt_config.get("style_prompt", "").strip()
-        local_prompt = self._build_local_prompt(scene, story_context)
+        scene_text = self._build_base_scene_text(scene, story_context)
+        local_prompt = self._build_local_prompt(scene_text)
+        action_prompt = self._build_action_prompt(scene_text)
+        generation_prompt = self._build_generation_prompt(scene, scene_text, action_prompt, story_context)
         character_prompt = self._build_character_prompt(story, scene, story_context)
         global_context_prompt = self._build_global_context_prompt(story, story_context)
+        scoring_prompt = self._build_scoring_prompt(scene, scene_text, story_context)
         negative_prompt = self.prompt_config.get("negative_prompt", "").strip()
         full_prompt = self._compose_full_prompt(
             style_prompt=style_prompt,
@@ -72,6 +76,10 @@ class PromptBuilder:
             global_context_prompt=global_context_prompt,
             local_prompt=local_prompt,
         )
+        generation_prompt = self._apply_prompt_rewriter("generation", generation_prompt)
+        scoring_prompt = self._apply_prompt_rewriter("scoring", scoring_prompt)
+        action_prompt = self._apply_prompt_rewriter("action", action_prompt)
+        full_prompt = self._apply_prompt_rewriter("full", full_prompt)
 
         return PromptSpec(
             scene_id=scene.scene_id,
@@ -79,6 +87,9 @@ class PromptBuilder:
             character_prompt=character_prompt,
             global_context_prompt=global_context_prompt,
             local_prompt=local_prompt,
+            action_prompt=action_prompt,
+            generation_prompt=generation_prompt,
+            scoring_prompt=scoring_prompt,
             full_prompt=full_prompt,
             negative_prompt=negative_prompt,
         )
@@ -145,24 +156,128 @@ class PromptBuilder:
 
         return ", ".join(part for part in parts if part)
 
-    def _build_local_prompt(
+    def _build_base_scene_text(
         self,
         scene: Scene,
         story_context: dict[str, str | list[str] | None],
     ) -> str:
-        local_prompt = scene.clean_text
+        scene_text = scene.clean_text
         primary_entity = str(story_context.get("primary_entity") or "").strip()
 
         if self.prompt_config.get("replace_leading_pronouns", True) and primary_entity:
-            local_prompt = LEADING_PRONOUN_PATTERN.sub(primary_entity, local_prompt, count=1)
+            scene_text = LEADING_PRONOUN_PATTERN.sub(primary_entity, scene_text, count=1)
+        return scene_text
 
-        action_emphasis_prompt = self._build_action_emphasis_prompt(local_prompt)
+    def _build_local_prompt(self, scene_text: str) -> str:
+        action_emphasis_prompt = self._build_action_emphasis_prompt(scene_text)
         scene_composition_prompt = self.prompt_config.get("scene_composition_prompt", "").strip()
         local_prompt_suffix = self.prompt_config.get("local_prompt_suffix", "").strip()
         return ", ".join(
             part
-            for part in [local_prompt, action_emphasis_prompt, scene_composition_prompt, local_prompt_suffix]
+            for part in [scene_text, action_emphasis_prompt, scene_composition_prompt, local_prompt_suffix]
             if part
+        )
+
+    def _build_action_prompt(self, scene_text: str) -> str:
+        action_text = self._extract_main_action(scene_text)
+        if not action_text:
+            action_text = scene_text
+        return self._shorten_prompt_text(
+            action_text,
+            max_words=int(self.prompt_config.get("scoring_max_words", 20)),
+            max_chars=int(self.prompt_config.get("scoring_max_chars", 160)),
+        )
+
+    def _build_generation_prompt(
+        self,
+        scene: Scene,
+        scene_text: str,
+        action_prompt: str,
+        story_context: dict[str, str | list[str] | None],
+    ) -> str:
+        subject = self._extract_scoring_subject(scene, story_context)
+        setting_clause = self._extract_setting_clause(scene_text)
+        style_clause = ""
+        global_context_clause = ""
+        quality_clause = ""
+        composition_clause = ""
+
+        if self.prompt_config.get("generation_include_style", True):
+            short_style = self._extract_short_style_prompt()
+            if short_style:
+                style_clause = f", {short_style}"
+
+        if self.prompt_config.get("generation_include_global_context", False):
+            short_global_context = self._extract_short_global_context(story_context)
+            if short_global_context:
+                global_context_clause = f", {short_global_context}"
+
+        if self.prompt_config.get("generation_include_quality_suffix", False):
+            short_quality = self._extract_short_quality_prompt()
+            if short_quality:
+                quality_clause = f", {short_quality}"
+
+        if self.prompt_config.get("generation_include_scene_composition", False):
+            short_composition = self._extract_short_scene_composition_prompt()
+            if short_composition:
+                composition_clause = f", {short_composition}"
+
+        template = self.prompt_config.get(
+            "generation_template",
+            "{subject}, {action}{setting_clause}{style_clause}",
+        ).strip()
+        generation_prompt = template.format(
+            subject=subject,
+            action=action_prompt,
+            setting_clause=setting_clause,
+            style_clause=style_clause,
+            global_context_clause=global_context_clause,
+            quality_clause=quality_clause,
+            composition_clause=composition_clause,
+        ).strip(" ,")
+        if global_context_clause:
+            generation_prompt = ", ".join([generation_prompt, global_context_clause.strip(", ")])
+        if quality_clause:
+            generation_prompt = ", ".join([generation_prompt, quality_clause.strip(", ")])
+        if composition_clause:
+            generation_prompt = ", ".join([generation_prompt, composition_clause.strip(", ")])
+
+        return self._shorten_prompt_text(
+            generation_prompt,
+            max_words=int(self.prompt_config.get("generation_max_words", 28)),
+            max_chars=int(self.prompt_config.get("generation_max_chars", 220)),
+        )
+
+    def _build_scoring_prompt(
+        self,
+        scene: Scene,
+        scene_text: str,
+        story_context: dict[str, str | list[str] | None],
+    ) -> str:
+        subject = self._extract_scoring_subject(scene, story_context)
+        action = self._extract_main_action(scene_text)
+        setting_clause = self._extract_setting_clause(scene_text)
+        template = self.prompt_config.get("scoring_template", "{subject}, {action}{setting_clause}").strip()
+        scoring_prompt = template.format(
+            subject=subject,
+            action=action,
+            setting_clause=setting_clause,
+        ).strip(" ,")
+
+        if self.prompt_config.get("scoring_include_global_context", False):
+            global_context = str(story_context.get("location_anchor") or "").strip()
+            if global_context:
+                scoring_prompt = ", ".join([scoring_prompt, global_context])
+
+        if self.prompt_config.get("scoring_include_style", False):
+            style_prompt = self.prompt_config.get("style_prompt", "").strip()
+            if style_prompt:
+                scoring_prompt = ", ".join([scoring_prompt, style_prompt])
+
+        return self._shorten_prompt_text(
+            scoring_prompt,
+            max_words=int(self.prompt_config.get("scoring_max_words", 20)),
+            max_chars=int(self.prompt_config.get("scoring_max_chars", 160)),
         )
 
     def _compose_full_prompt(
@@ -250,6 +365,86 @@ class PromptBuilder:
                     return template.format(action_phrase=action_phrase, action_key=action_key)
                 return str(action_phrase).strip()
         return self.prompt_config.get("default_action_prompt", "").strip()
+
+    def _extract_scoring_subject(
+        self,
+        scene: Scene,
+        story_context: dict[str, str | list[str] | None],
+    ) -> str:
+        effective_entities = scene.entities or self._scene_fallback_entities(scene, story_context)
+        if effective_entities:
+            return effective_entities[0]
+        primary_entity = str(story_context.get("primary_entity") or "").strip()
+        if primary_entity:
+            return primary_entity
+        return "main subject"
+
+    def _extract_short_style_prompt(self) -> str:
+        style_prompt = self.prompt_config.get("style_prompt", "").strip()
+        if not style_prompt:
+            return ""
+        first_fragment = style_prompt.split(",")[0]
+        return self._shorten_prompt_text(first_fragment, max_words=8, max_chars=64)
+
+    def _extract_short_global_context(self, story_context: dict[str, str | list[str] | None]) -> str:
+        location_anchor = str(story_context.get("location_anchor") or "").strip()
+        if not location_anchor:
+            return ""
+        return self._shorten_prompt_text(location_anchor, max_words=8, max_chars=64)
+
+    def _extract_short_quality_prompt(self) -> str:
+        quality_prompt = self.prompt_config.get("quality_suffix", "").strip()
+        if not quality_prompt:
+            return ""
+        first_fragment = quality_prompt.split(",")[0]
+        return self._shorten_prompt_text(first_fragment, max_words=6, max_chars=48)
+
+    def _extract_short_scene_composition_prompt(self) -> str:
+        composition_prompt = self.prompt_config.get("scene_composition_prompt", "").strip()
+        if not composition_prompt:
+            return ""
+        return self._shorten_prompt_text(composition_prompt, max_words=8, max_chars=64)
+
+    def _extract_main_action(self, scene_text: str) -> str:
+        action_text = scene_text
+        setting_match = LOCATION_PATTERN.search(action_text)
+        if setting_match:
+            action_text = action_text[: setting_match.start()].strip(" ,.;")
+
+        pronoun_match = LEADING_PRONOUN_PATTERN.match(action_text)
+        if pronoun_match:
+            action_text = action_text[pronoun_match.end() :].strip(" ,.;")
+        else:
+            words = action_text.split(maxsplit=1)
+            if len(words) == 2 and words[0][:1].isupper():
+                action_text = words[1].strip(" ,.;")
+
+        return self._normalize_fragment(action_text) or self._normalize_fragment(scene_text)
+
+    def _extract_setting_clause(self, scene_text: str) -> str:
+        match = LOCATION_PATTERN.search(scene_text)
+        if not match:
+            return ""
+        setting_phrase = self._normalize_fragment(match.group(0))
+        if not setting_phrase:
+            return ""
+        return f", {setting_phrase}"
+
+    def _shorten_prompt_text(self, text: str, *, max_words: int, max_chars: int) -> str:
+        normalized = self._normalize_fragment(text)
+        words = normalized.split()
+        if max_words > 0 and len(words) > max_words:
+            normalized = " ".join(words[:max_words])
+        if max_chars > 0 and len(normalized) > max_chars:
+            normalized = normalized[:max_chars].rstrip(" ,.;")
+        return normalized
+
+    def _apply_prompt_rewriter(self, layer_name: str, text: str) -> str:
+        rewriter_config = self.prompt_config.get("rewriter", {})
+        rewriter_type = str(rewriter_config.get("type", "rule_based")).strip()
+        if rewriter_type in {"", "rule_based"}:
+            return text
+        raise ValueError(f"Unsupported prompt rewriter type for layer '{layer_name}': {rewriter_type}")
 
     @staticmethod
     def _normalize_fragment(value: str) -> str:

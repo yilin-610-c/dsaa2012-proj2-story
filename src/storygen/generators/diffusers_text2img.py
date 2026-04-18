@@ -48,7 +48,7 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
         started_at = time.time()
         generator = torch.Generator(device=self.device).manual_seed(request.seed)
         result = self.pipeline(
-            prompt=request.prompt_spec.full_prompt,
+            prompt=request.prompt_spec.generation_prompt,
             negative_prompt=request.prompt_spec.negative_prompt or None,
             width=request.width,
             height=request.height,

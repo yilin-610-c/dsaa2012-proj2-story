@@ -39,8 +39,8 @@ class CLIPConsistencyScorer(BaseScorer):
         del story, scene
 
         previous_image_path = previous_results[-1].selected_image_path if previous_results else None
-        text_alignment = self._text_alignment_score(candidate.image_path, self._build_full_alignment_text(prompt_spec))
-        action_alignment = self._text_alignment_score(candidate.image_path, prompt_spec.local_prompt)
+        text_alignment = self._text_alignment_score(candidate.image_path, self._build_scoring_text(prompt_spec))
+        action_alignment = self._text_alignment_score(candidate.image_path, self._build_action_text(prompt_spec))
         previous_image_consistency = self._image_consistency_score(candidate.image_path, previous_image_path)
 
         configured_weights = {
@@ -181,6 +181,21 @@ class CLIPConsistencyScorer(BaseScorer):
         self.model = self.model.to(self._resolved_device())
         self.model.eval()
 
+    def _build_scoring_text(self, prompt_spec: PromptSpec) -> str:
+        scoring_prompt = getattr(prompt_spec, "scoring_prompt", "").strip()
+        if scoring_prompt:
+            return scoring_prompt
+        generation_prompt = getattr(prompt_spec, "generation_prompt", "").strip()
+        if generation_prompt:
+            return generation_prompt
+        return self._build_full_alignment_text(prompt_spec)
+
+    def _build_action_text(self, prompt_spec: PromptSpec) -> str:
+        action_prompt = getattr(prompt_spec, "action_prompt", "").strip()
+        if action_prompt:
+            return action_prompt
+        return prompt_spec.local_prompt
+
     def _build_full_alignment_text(self, prompt_spec: PromptSpec) -> str:
         fragments = [
             prompt_spec.local_prompt,
@@ -199,9 +214,13 @@ class CLIPConsistencyScorer(BaseScorer):
         return "cuda" if torch.cuda.is_available() else "cpu"
 
     def _max_text_length(self) -> int:
+        configured_length = self.scoring_config.get("clip_max_text_length")
+        if isinstance(configured_length, int) and 0 < configured_length <= 256:
+            return configured_length
+
         tokenizer = getattr(self.processor, "tokenizer", None)
         model_max_length = getattr(tokenizer, "model_max_length", None)
-        if isinstance(model_max_length, int) and model_max_length > 0:
+        if isinstance(model_max_length, int) and 0 < model_max_length <= 256:
             return model_max_length
         return 77
 

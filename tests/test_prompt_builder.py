@@ -16,6 +16,7 @@ def test_prompt_builder_builds_separated_prompt_fields() -> None:
     )
     builder = PromptBuilder(
         {
+            "rewriter": {"type": "rule_based"},
             "style_prompt": "cinematic illustration",
             "subject_prefix": "main subject:",
             "global_context_prefix": "shared story context:",
@@ -28,6 +29,18 @@ def test_prompt_builder_builds_separated_prompt_fields() -> None:
             "action_emphasis_template": "key action: {action_phrase}",
             "default_action_prompt": "show the action clearly",
             "scene_composition_prompt": "keep the pose easy to read",
+            "generation_include_style": True,
+            "generation_include_global_context": False,
+            "generation_include_quality_suffix": False,
+            "generation_include_scene_composition": False,
+            "generation_max_words": 28,
+            "generation_max_chars": 220,
+            "generation_template": "{subject}, {action}{setting_clause}{style_clause}",
+            "scoring_template": "{subject}, {action}{setting_clause}",
+            "scoring_include_style": False,
+            "scoring_include_global_context": False,
+            "scoring_max_words": 20,
+            "scoring_max_chars": 160,
             "action_emphasis_map": {"runs": "active running pose"},
             "quality_suffix": "clean composition",
             "negative_prompt": "blurry",
@@ -39,8 +52,12 @@ def test_prompt_builder_builds_separated_prompt_fields() -> None:
     assert prompt_spec.style_prompt == "cinematic illustration"
     assert prompt_spec.character_prompt == "main subject: Hero, same person across all scenes"
     assert prompt_spec.global_context_prompt == "shared story context: Hero, keep the same lighting and palette"
+    assert prompt_spec.action_prompt == "runs"
+    assert prompt_spec.generation_prompt == "Hero, runs, cinematic illustration"
+    assert prompt_spec.scoring_prompt == "Hero, runs"
     assert prompt_spec.local_prompt == "Hero runs., key action: active running pose, keep the pose easy to read"
     assert "cinematic illustration" in prompt_spec.full_prompt
+    assert len(prompt_spec.generation_prompt) < len(prompt_spec.full_prompt)
     assert prompt_spec.negative_prompt == "blurry"
 
 
@@ -70,6 +87,7 @@ def test_prompt_builder_reuses_primary_entity_for_pronoun_only_scenes() -> None:
     )
     builder = PromptBuilder(
         {
+            "rewriter": {"type": "rule_based"},
             "style_prompt": "cinematic illustration",
             "subject_prefix": "main subject:",
             "global_context_prefix": "shared story context:",
@@ -82,6 +100,18 @@ def test_prompt_builder_reuses_primary_entity_for_pronoun_only_scenes() -> None:
             "action_emphasis_template": "key action: {action_phrase}",
             "default_action_prompt": "show the action clearly",
             "scene_composition_prompt": "keep the pose easy to read",
+            "generation_include_style": True,
+            "generation_include_global_context": False,
+            "generation_include_quality_suffix": False,
+            "generation_include_scene_composition": False,
+            "generation_max_words": 28,
+            "generation_max_chars": 220,
+            "generation_template": "{subject}, {action}{setting_clause}{style_clause}",
+            "scoring_template": "{subject}, {action}{setting_clause}",
+            "scoring_include_style": False,
+            "scoring_include_global_context": False,
+            "scoring_max_words": 20,
+            "scoring_max_chars": 160,
             "action_emphasis_map": {"looks out": "looking out through the window"},
             "quality_suffix": "clean composition",
             "negative_prompt": "blurry",
@@ -94,6 +124,9 @@ def test_prompt_builder_reuses_primary_entity_for_pronoun_only_scenes() -> None:
     assert prompt_spec.global_context_prompt == (
         "shared story context: Lily, recurring setting: the kitchen, keep the same lighting and palette"
     )
+    assert prompt_spec.action_prompt == "looks out the window quietly"
+    assert prompt_spec.scoring_prompt == "Lily, looks out the window quietly"
+    assert prompt_spec.generation_prompt == "Lily, looks out the window quietly, cinematic illustration"
     assert prompt_spec.local_prompt == (
         "Lily looks out the window quietly., key action: looking out through the window, keep the pose easy to read"
     )
@@ -113,6 +146,7 @@ def test_prompt_builder_uses_animal_continuity_rules() -> None:
     )
     builder = PromptBuilder(
         {
+            "rewriter": {"type": "rule_based"},
             "style_prompt": "storybook illustration",
             "subject_prefix": "main subject:",
             "global_context_prefix": "shared story context:",
@@ -125,6 +159,18 @@ def test_prompt_builder_uses_animal_continuity_rules() -> None:
             "action_emphasis_template": "key action: {action_phrase}",
             "default_action_prompt": "show the action clearly",
             "scene_composition_prompt": "keep the pose easy to read",
+            "generation_include_style": True,
+            "generation_include_global_context": False,
+            "generation_include_quality_suffix": False,
+            "generation_include_scene_composition": False,
+            "generation_max_words": 28,
+            "generation_max_chars": 220,
+            "generation_template": "{subject}, {action}{setting_clause}{style_clause}",
+            "scoring_template": "{subject}, {action}{setting_clause}",
+            "scoring_include_style": False,
+            "scoring_include_global_context": False,
+            "scoring_max_words": 20,
+            "scoring_max_chars": 160,
             "action_emphasis_map": {"chases": "chasing motion"},
             "quality_suffix": "clean composition",
             "negative_prompt": "blurry",
@@ -134,6 +180,9 @@ def test_prompt_builder_uses_animal_continuity_rules() -> None:
     prompt_spec = builder.build_prompt_for_scene(story, story.scenes[1])
 
     assert prompt_spec.character_prompt == "main subject: Dog, same animal across all scenes"
+    assert prompt_spec.action_prompt == "chases a ball"
+    assert prompt_spec.generation_prompt == "Dog, chases a ball, storybook illustration"
+    assert prompt_spec.scoring_prompt == "Dog, chases a ball"
     assert prompt_spec.local_prompt == "Dog chases a ball., key action: chasing motion, keep the pose easy to read"
 
 
@@ -148,6 +197,7 @@ def test_prompt_builder_adds_action_prompt_for_sitting_scene() -> None:
     )
     builder = PromptBuilder(
         {
+            "rewriter": {"type": "rule_based"},
             "style_prompt": "cinematic illustration",
             "subject_prefix": "main subject:",
             "global_context_prefix": "shared story context:",
@@ -160,6 +210,18 @@ def test_prompt_builder_adds_action_prompt_for_sitting_scene() -> None:
             "action_emphasis_template": "key action: {action_phrase}",
             "default_action_prompt": "show the action clearly",
             "scene_composition_prompt": "keep the pose easy to read",
+            "generation_include_style": True,
+            "generation_include_global_context": False,
+            "generation_include_quality_suffix": False,
+            "generation_include_scene_composition": False,
+            "generation_max_words": 28,
+            "generation_max_chars": 220,
+            "generation_template": "{subject}, {action}{setting_clause}{style_clause}",
+            "scoring_template": "{subject}, {action}{setting_clause}",
+            "scoring_include_style": False,
+            "scoring_include_global_context": False,
+            "scoring_max_words": 20,
+            "scoring_max_chars": 160,
             "action_emphasis_map": {"sits down": "clearly seated pose"},
             "quality_suffix": "clean composition",
             "negative_prompt": "blurry",
@@ -169,3 +231,162 @@ def test_prompt_builder_adds_action_prompt_for_sitting_scene() -> None:
     prompt_spec = builder.build_prompt_for_scene(story, story.scenes[0])
 
     assert "key action: clearly seated pose" in prompt_spec.local_prompt
+    assert prompt_spec.action_prompt == "sits down to eat"
+    assert prompt_spec.generation_prompt == "Lily, sits down to eat, cinematic illustration"
+    assert prompt_spec.scoring_prompt == "Lily, sits down to eat"
+
+
+def test_prompt_builder_adds_short_setting_to_scoring_prompt() -> None:
+    story = Story(
+        source_path="story.txt",
+        raw_text="",
+        scenes=[Scene("SCENE-1", 0, "<Lily> makes breakfast in the kitchen.", "Lily makes breakfast in the kitchen.", ["Lily"])],
+        all_entities=["Lily"],
+        recurring_entities=["Lily"],
+        entity_to_scene_ids={"Lily": ["SCENE-1"]},
+    )
+    builder = PromptBuilder(
+        {
+            "rewriter": {"type": "rule_based"},
+            "style_prompt": "cinematic illustration",
+            "subject_prefix": "main subject:",
+            "global_context_prefix": "shared story context:",
+            "setting_prefix": "recurring setting:",
+            "replace_leading_pronouns": True,
+            "human_identity_prompt": "same person across all scenes",
+            "animal_identity_prompt": "same animal across all scenes",
+            "generic_identity_prompt": "same subject across all scenes",
+            "scene_continuity_prompt": "keep the same lighting and palette",
+            "action_emphasis_template": "key action: {action_phrase}",
+            "default_action_prompt": "show the action clearly",
+            "scene_composition_prompt": "keep the pose easy to read",
+            "generation_include_style": True,
+            "generation_include_global_context": False,
+            "generation_include_quality_suffix": False,
+            "generation_include_scene_composition": False,
+            "generation_max_words": 28,
+            "generation_max_chars": 220,
+            "generation_template": "{subject}, {action}{setting_clause}{style_clause}",
+            "scoring_template": "{subject}, {action}{setting_clause}",
+            "scoring_include_style": False,
+            "scoring_include_global_context": False,
+            "scoring_max_words": 20,
+            "scoring_max_chars": 160,
+            "action_emphasis_map": {"makes breakfast": "preparing breakfast"},
+            "quality_suffix": "clean composition",
+            "negative_prompt": "blurry",
+        }
+    )
+
+    prompt_spec = builder.build_prompt_for_scene(story, story.scenes[0])
+
+    assert prompt_spec.action_prompt == "makes breakfast"
+    assert prompt_spec.generation_prompt == "Lily, makes breakfast, in the kitchen, cinematic illustration"
+    assert prompt_spec.scoring_prompt == "Lily, makes breakfast, in the kitchen"
+
+
+def test_generation_prompt_is_shorter_and_avoids_verbose_continuity_phrases() -> None:
+    story = Story(
+        source_path="story.txt",
+        raw_text="",
+        scenes=[
+            Scene(
+                "SCENE-1",
+                0,
+                "<Lily> makes breakfast in the kitchen.",
+                "Lily makes breakfast in the kitchen.",
+                ["Lily"],
+            )
+        ],
+        all_entities=["Lily"],
+        recurring_entities=["Lily"],
+        entity_to_scene_ids={"Lily": ["SCENE-1"]},
+    )
+    builder = PromptBuilder(
+        {
+            "rewriter": {"type": "rule_based"},
+            "style_prompt": "cinematic story illustration, coherent visual style",
+            "subject_prefix": "main subject:",
+            "global_context_prefix": "shared story context:",
+            "setting_prefix": "recurring setting:",
+            "replace_leading_pronouns": True,
+            "human_identity_prompt": "same person across all scenes, consistent face, hairstyle, outfit, accessories, and body proportions",
+            "animal_identity_prompt": "same animal across all scenes",
+            "generic_identity_prompt": "same subject across all scenes",
+            "scene_continuity_prompt": "maintain a consistent background identity, lighting direction, color palette, and visual tone across the sequence unless the text clearly changes them",
+            "action_emphasis_template": "key action: {action_phrase}",
+            "default_action_prompt": "show the action clearly with an unambiguous pose",
+            "scene_composition_prompt": "keep the full pose and scene relationship easy to read",
+            "generation_include_style": True,
+            "generation_include_global_context": False,
+            "generation_include_quality_suffix": False,
+            "generation_include_scene_composition": False,
+            "generation_max_words": 28,
+            "generation_max_chars": 220,
+            "generation_template": "{subject}, {action}{setting_clause}{style_clause}",
+            "scoring_template": "{subject}, {action}{setting_clause}",
+            "scoring_include_style": False,
+            "scoring_include_global_context": False,
+            "scoring_max_words": 20,
+            "scoring_max_chars": 160,
+            "action_emphasis_map": {"makes breakfast": "preparing breakfast with food and kitchen tools visible"},
+            "quality_suffix": "clean composition, readable action, consistent framing",
+            "negative_prompt": "blurry",
+        }
+    )
+
+    prompt_spec = builder.build_prompt_for_scene(story, story.scenes[0])
+
+    assert len(prompt_spec.generation_prompt) < len(prompt_spec.full_prompt)
+    assert len(prompt_spec.scoring_prompt) < len(prompt_spec.generation_prompt)
+    assert "consistent background identity" not in prompt_spec.generation_prompt
+    assert "clean composition" not in prompt_spec.generation_prompt
+    assert "full pose and scene relationship" not in prompt_spec.generation_prompt
+
+
+def test_generation_prompt_respects_budget() -> None:
+    story = Story(
+        source_path="story.txt",
+        raw_text="",
+        scenes=[Scene("SCENE-1", 0, "<Artist> paints in front of a canvas.", "Artist paints in front of a canvas.", ["Artist"])],
+        all_entities=["Artist"],
+        recurring_entities=["Artist"],
+        entity_to_scene_ids={"Artist": ["SCENE-1"]},
+    )
+    builder = PromptBuilder(
+        {
+            "rewriter": {"type": "rule_based"},
+            "style_prompt": "cinematic story illustration, coherent visual style",
+            "subject_prefix": "main subject:",
+            "global_context_prefix": "shared story context:",
+            "setting_prefix": "recurring setting:",
+            "replace_leading_pronouns": True,
+            "human_identity_prompt": "same person across all scenes",
+            "animal_identity_prompt": "same animal across all scenes",
+            "generic_identity_prompt": "same subject across all scenes",
+            "scene_continuity_prompt": "keep the same lighting and palette",
+            "action_emphasis_template": "key action: {action_phrase}",
+            "default_action_prompt": "show the action clearly",
+            "scene_composition_prompt": "keep the pose easy to read",
+            "generation_include_style": True,
+            "generation_include_global_context": False,
+            "generation_include_quality_suffix": False,
+            "generation_include_scene_composition": False,
+            "generation_max_words": 4,
+            "generation_max_chars": 24,
+            "generation_template": "{subject}, {action}{setting_clause}{style_clause}",
+            "scoring_template": "{subject}, {action}{setting_clause}",
+            "scoring_include_style": False,
+            "scoring_include_global_context": False,
+            "scoring_max_words": 20,
+            "scoring_max_chars": 160,
+            "action_emphasis_map": {"paints": "painting action clearly shown"},
+            "quality_suffix": "clean composition",
+            "negative_prompt": "blurry",
+        }
+    )
+
+    prompt_spec = builder.build_prompt_for_scene(story, story.scenes[0])
+
+    assert len(prompt_spec.generation_prompt.split()) <= 4
+    assert len(prompt_spec.generation_prompt) <= 24

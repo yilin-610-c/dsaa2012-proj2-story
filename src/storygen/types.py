@@ -31,6 +31,9 @@ class PromptSpec:
     character_prompt: str
     global_context_prompt: str
     local_prompt: str
+    action_prompt: str
+    generation_prompt: str
+    scoring_prompt: str
     full_prompt: str
     negative_prompt: str
 

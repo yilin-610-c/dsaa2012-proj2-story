@@ -16,6 +16,8 @@ model:
   enable_attention_slicing: true
 
 prompt:
+  rewriter:
+    type: rule_based
   style_prompt: cinematic story illustration, coherent visual style
   subject_prefix: "main subject:"
   global_context_prefix: "shared story context:"
@@ -28,6 +30,18 @@ prompt:
   action_emphasis_template: "key action: {action_phrase}"
   default_action_prompt: show the action clearly with an unambiguous pose
   scene_composition_prompt: keep the full pose and scene relationship easy to read
+  generation_include_style: true
+  generation_include_global_context: false
+  generation_include_quality_suffix: false
+  generation_include_scene_composition: false
+  generation_max_words: 28
+  generation_max_chars: 220
+  generation_template: "{subject}, {action}{setting_clause}{style_clause}"
+  scoring_template: "{subject}, {action}{setting_clause}"
+  scoring_include_style: false
+  scoring_include_global_context: false
+  scoring_max_words: 20
+  scoring_max_chars: 160
   action_emphasis_map:
     makes breakfast: preparing breakfast with food and kitchen tools visible
     looks out: looking out through the window, gaze directed outside, quiet contemplative pose
@@ -50,6 +64,7 @@ generation:
 scoring:
   type: clip_consistency
   clip_model_id: openai/clip-vit-base-patch32
+  clip_max_text_length: 77
   text_image_weight: 0.45
   consistency_weight: 0.35
   action_weight: 0.2

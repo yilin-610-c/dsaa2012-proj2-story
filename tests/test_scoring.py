@@ -52,6 +52,9 @@ def _prompt_spec() -> PromptSpec:
         character_prompt="character",
         global_context_prompt="context",
         local_prompt="action prompt",
+        action_prompt="short action prompt",
+        generation_prompt="short generation prompt",
+        scoring_prompt="short scoring prompt",
         full_prompt="full prompt",
         negative_prompt="negative",
     )
@@ -146,3 +149,27 @@ def test_clip_scorer_selects_highest_weighted_candidate() -> None:
     )
 
     assert selection.selected_candidate_index == 0
+
+
+def test_clip_scorer_prefers_short_fields_and_falls_back_only_when_missing() -> None:
+    scorer = FakeCLIPConsistencyScorer()
+    prompt_spec = _prompt_spec()
+
+    assert scorer._build_scoring_text(prompt_spec) == "short scoring prompt"
+    assert scorer._build_action_text(prompt_spec) == "short action prompt"
+
+    fallback_prompt_spec = PromptSpec(
+        scene_id="SCENE-1",
+        style_prompt="style",
+        character_prompt="character",
+        global_context_prompt="context",
+        local_prompt="local fallback",
+        action_prompt="",
+        generation_prompt="generation fallback",
+        scoring_prompt="",
+        full_prompt="full fallback",
+        negative_prompt="negative",
+    )
+
+    assert scorer._build_scoring_text(fallback_prompt_spec) == "generation fallback"
+    assert scorer._build_action_text(fallback_prompt_spec) == "local fallback"
