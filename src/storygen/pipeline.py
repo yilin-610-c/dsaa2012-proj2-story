@@ -24,6 +24,7 @@ from storygen.io.results import (
 )
 from storygen.parser import parse_story_file
 from storygen.prompt_pipelines import build_prompt_pipeline
+from storygen.routing import choose_scene_route
 from storygen.scoring import CLIPConsistencyScorer, HeuristicScorer
 from storygen.types import GenerationRequest, PromptBundle, RunContext, RunSummary, Story, StoryGenerationRequest
 
@@ -141,6 +142,8 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
     prompt_specs = prompt_bundle.scene_prompts
     generator = build_generation_backend(config["model"], config["runtime"])
     backend_metadata = build_backend_metadata(config["model"], config["runtime"])
+    backend_metadata["img2img_enabled"] = bool(config.get("generation", {}).get("routing", {}).get("img2img_enabled", False))
+    backend_metadata["route_policy"] = config.get("generation", {}).get("routing", {}).get("route_policy", "disabled")
     save_json(run_context.logs_directory / "generation_backend.json", backend_metadata)
     append_event(
         run_context,
@@ -175,9 +178,32 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         candidate_records = []
         candidate_scores = []
         previous_selected_path = previous_results[-1].selected_image_path if previous_results else None
+        previous_scene = story.scenes[scene.index - 1] if scene.index > 0 else None
 
         for candidate_index in range(candidate_count):
             seed = _seed_for_candidate(base_seed, scene.index, candidate_index)
+            route_decision = choose_scene_route(
+                story=story,
+                scene=scene,
+                previous_scene=previous_scene,
+                previous_selected_image_path=previous_selected_path,
+                routing_config=config.get("generation", {}).get("routing", {}),
+            )
+            route_options = {
+                "generation_mode": route_decision.generation_mode,
+                "route_policy": route_decision.route_policy,
+                "route_reason": route_decision.route_reason,
+                "init_image_path": route_decision.init_image_path,
+                "img2img_strength": route_decision.img2img_strength,
+            }
+            append_event(
+                run_context,
+                "generation_route_selected",
+                stage="generation",
+                scene_id=scene.scene_id,
+                candidate_index=candidate_index,
+                **route_options,
+            )
             request = GenerationRequest(
                 scene_id=scene.scene_id,
                 candidate_index=candidate_index,
@@ -189,6 +215,7 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 num_inference_steps=int(config["model"]["num_inference_steps"]),
                 reference_image_path=None,
                 previous_selected_image_path=previous_selected_path,
+                extra_options=route_options,
             )
             candidate = generator.generate_scene(request)
             candidate.image_path = save_candidate_image(candidate.image, run_context, scene.index, candidate_index, seed)

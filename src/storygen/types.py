@@ -71,6 +71,39 @@ class GenerationRequest:
 
 
 @dataclass(slots=True)
+class CharacterSpec:
+    character_id: str
+    age_band: str | None = None
+    gender_presentation: str | None = None
+    hair_color: str | None = None
+    hairstyle: str | None = None
+    skin_tone: str | None = None
+    body_build: str | None = None
+    signature_outfit: str | None = None
+    signature_accessory: str | None = None
+    profession_marker: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class AnchorSpec:
+    character_id: str
+    portrait_path: str | None = None
+    half_body_path: str | None = None
+    full_body_path: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class SceneRouteDecision:
+    generation_mode: str
+    route_policy: str
+    route_reason: str
+    init_image_path: str | None = None
+    img2img_strength: float | None = None
+
+
+@dataclass(slots=True)
 class StoryGenerationRequest:
     story_id: str
     seed: int

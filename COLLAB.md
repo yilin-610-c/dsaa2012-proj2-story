@@ -114,6 +114,7 @@ Intended meaning:
 - `generation_prompt`: shorter prompt actually passed into the text-to-image generator
 - `scoring_prompt`: short prompt used for CLIP text-image scoring
 - `action_prompt`: short action-only prompt used for action-sensitive scoring
+- `negative_prompt`: passed to both text2img and img2img generation calls as the negative conditioning text
 
 Any change to these semantics must be coordinated because prompting, generation, scoring, and output inspection all depend on them.
 
@@ -134,6 +135,12 @@ Story-level generator contract:
 Implemented generation backends:
 - `diffusers_text2img`: scene-level baseline backend
 - `storydiffusion_direct`: story-level placeholder only; it raises `NotImplementedError`
+
+`diffusers_text2img` now supports two generation routes:
+- `text2img`: default route and baseline behavior
+- `img2img`: optional continuity route using the previous selected scene image as the init image
+
+Img2img is a route inside the scene-level backend, not a replacement backend. Scene 1 must remain text2img. Portrait or anchor images must not be used as scene 1 init images.
 
 Do not implement StoryDiffusion by changing `diffusers_text2img` or by treating StoryDiffusion as only another `model_id`. StoryDiffusion should be implemented behind `storydiffusion_direct` because its execution unit is the whole story, not one scene candidate.
 
@@ -201,8 +208,27 @@ Possible extensions:
 - `linked_scene_ids`
 
 Current mapping:
-- not yet an active dataclass
-- future generation-side work should introduce it without breaking the baseline interfaces
+- active placeholder dataclass exists for future anchor bank paths
+- no anchor generation or IP-Adapter conditioning is implemented yet
+- future generation-side work should use it without breaking the baseline interfaces
+
+### `CharacterSpec` (planned)
+
+Purpose:
+- stable identity attributes for recurring characters only
+
+Intended fields:
+- age band
+- gender presentation
+- hair color and hairstyle
+- skin tone
+- body build
+- signature outfit
+- signature accessory
+- persistent profession marker when visually relevant
+
+Rule:
+- do not put scene-specific action, pose, emotion, object state, or transient lighting into `CharacterSpec`
 
 ### `ScoringSpec` (planned)
 
@@ -245,6 +271,9 @@ Current base profiles:
 - `cloud_strong_backbone`: scene-level diffusers profile reserved for stronger cloud backbones
 - `cloud_storydiffusion`: story-level StoryDiffusion placeholder; currently not runnable for real generation
 - `llm_prompt_smoke`: optional LLM-assisted prompt planning profile
+- `llm_prompt_text2img`: LLM prompts with text2img only
+- `rule_prompt_img2img`: rule prompts with conservative img2img routing
+- `llm_prompt_img2img`: LLM prompts with conservative img2img routing
 
 Expected comparison workflow:
 - baseline path
@@ -258,9 +287,8 @@ Rule:
 
 Current config pattern already supports this style. Prefer adding switches under existing YAML sections, for example:
 - `prompt.rewriter.type`
-- future `generation.mode`
-- future `anchor.enabled`
-- future `reference_conditioning.enabled`
+- `generation.routing.img2img_enabled`
+- future `generation.identity_conditioning.enabled`
 - future `scoring.type`
 
 ## Output and Logging Conventions
@@ -314,10 +342,13 @@ Implemented:
 - minimal run logs under `outputs/<run_name>/logs/`
 - local prompt cache under `.cache/prompt_builder/`
 - shareable prompt artifacts under `prompt_artifacts/`
+- optional conservative img2img routing through `generation.routing`
 
 Not implemented:
 - real StoryDiffusion generation
 - training-free attention/reference/latent components
+- anchor generation / anchor bank population
+- IP-Adapter identity conditioning
 
 The current baseline behavior should remain unchanged for `smoke_test`, `demo_run`, and any profile using `diffusers_text2img + scene`.
 
@@ -329,6 +360,17 @@ The current baseline behavior should remain unchanged for `smoke_test`, `demo_ru
 - To reuse teammate prompts, set `prompt.artifact.path`; this bypasses API calls.
 - API keys must come from environment variables and must never be written into configs, cache records, artifacts, or docs.
 - LLM-assisted prompting is for structured extraction and short prompt rewriting only; it does not own image generation or scoring.
+- Human-character LLM prompts may augment `negative_prompt` with animal/pet suppression terms to avoid human-to-animal substitutions.
+
+### Img2Img Routing Rules
+
+- `generation.routing.img2img_enabled=false` preserves text2img-only behavior.
+- `route_policy=conservative` may use img2img for scene 2+ when a previous selected image exists and the scene appears to be a small continuity-preserving change.
+- large scene transitions should route back to text2img.
+- route decisions are logged as `generation_route_selected`.
+- candidate metadata must preserve `generation_mode`, `route_reason`, `init_image_path`, and `img2img_strength`.
+- current img2img init source is only the previous selected scene image.
+- future anchors and IP-Adapter conditioning should remain separately switchable for ablations.
 
 ## Controlled Experiment Expectations
 

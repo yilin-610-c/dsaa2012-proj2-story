@@ -26,7 +26,7 @@ prompt:
   artifact:
     path: null
     export_enabled: false
-    export_dir: prompt_artifacts/llm_assisted_v1
+    export_dir: prompt_artifacts/llm_assisted_v3
   llm:
     provider: openai
     model: gpt-4o-2024-08-06
@@ -35,7 +35,7 @@ prompt:
     max_output_tokens: 800
     timeout_seconds: 30
     schema_version: v1
-    builder_version: llm_assisted_v1
+    builder_version: llm_assisted_v3
     fallback_to_rule_based: true
   style_prompt: cinematic story illustration, coherent visual style
   subject_prefix: "main subject:"
@@ -79,6 +79,23 @@ prompt:
 generation:
   candidate_count: 3
   base_seed: 1234
+  routing:
+    img2img_enabled: false
+    route_policy: disabled
+    use_previous_selected_as_init: true
+    img2img_strength: 0.45
+    large_change_keywords:
+      - meanwhile
+      - later
+      - next day
+      - in another
+      - at a different
+      - arrives
+      - leaves
+  identity_conditioning:
+    enabled: false
+    adapter_type: ip_adapter
+    anchor_source: character_anchor_bank
 
 scoring:
   type: clip_consistency
@@ -141,3 +158,34 @@ runtime_profiles:
       run_name_prefix: llm_prompt
     prompt:
       pipeline: llm_assisted
+  llm_prompt_text2img:
+    runtime:
+      run_name_prefix: llm_text2img
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: false
+        route_policy: disabled
+  rule_prompt_img2img:
+    runtime:
+      run_name_prefix: rule_img2img
+    prompt:
+      pipeline: rule_based
+    generation:
+      routing:
+        img2img_enabled: true
+        route_policy: conservative
+        use_previous_selected_as_init: true
+        img2img_strength: 0.45
+  llm_prompt_img2img:
+    runtime:
+      run_name_prefix: llm_img2img
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: true
+        route_policy: conservative
+        use_previous_selected_as_init: true
+        img2img_strength: 0.45

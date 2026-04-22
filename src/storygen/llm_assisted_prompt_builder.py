@@ -64,6 +64,78 @@ def _join_parts(parts: list[str]) -> str:
     return ", ".join(output)
 
 
+def _strip_leading_prompt_verb(text: str) -> str:
+    cleaned = _normalize_text(text)
+    cleaned = re.sub(
+        r"^(illustrate|show|depict|create|generate|draw|paint|render)\s+",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    return cleaned
+
+
+def _strip_question_frame(text: str) -> str:
+    cleaned = _normalize_text(text).rstrip(" ?")
+    patterns = [
+        r"^does the image show\s+",
+        r"^does the image capture\s+",
+        r"^is there\s+",
+        r"^is the image of\s+",
+    ]
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
+def _filter_repeated_style_cues(style_cues: list[str], style_prompt: str) -> list[str]:
+    style_parts = {_normalize_text(part).lower() for part in style_prompt.split(",") if _normalize_text(part)}
+    style_full = _normalize_text(style_prompt).lower()
+    filtered = []
+    for cue in style_cues:
+        cue_key = cue.lower()
+        if cue_key in style_parts or cue_key == style_full:
+            continue
+        filtered.append(cue)
+    return filtered
+
+
+def _contains_human_identity(character_prompt: str) -> bool:
+    lowered = character_prompt.lower()
+    human_terms = [
+        "woman",
+        "girl",
+        "man",
+        "boy",
+        "person",
+        "human",
+        "lady",
+        "male",
+        "female",
+    ]
+    return any(term in lowered for term in human_terms)
+
+
+def _ensure_human_identity(character_prompt: str) -> str:
+    if not character_prompt:
+        return character_prompt
+    if _contains_human_identity(character_prompt):
+        return character_prompt
+    return _join_parts(["human person", character_prompt])
+
+
+def _merge_identity_into_generation_prompt(character_prompt: str, generation_prompt: str, max_words: int, max_chars: int) -> str:
+    identity_prompt = _ensure_human_identity(character_prompt)
+    merged = _join_parts([identity_prompt, generation_prompt])
+    return _trim_text(merged, max_words=max_words, max_chars=max_chars)
+
+
+def _merge_human_negative_prompt(character_prompt: str, negative_prompt: str) -> str:
+    if not _contains_human_identity(_ensure_human_identity(character_prompt)):
+        return negative_prompt
+    return _join_parts([negative_prompt, "cat, dog, animal, pet, non-human subject"])
+
+
 class LLMAssistedPromptBuilder:
     def __init__(
         self,
@@ -100,7 +172,7 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v1"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v3"),
             "cache_enabled": bool(self.cache_config.get("enabled", True)),
             "artifact_path": self.artifact_config.get("path"),
         }
@@ -164,10 +236,21 @@ class LLMAssistedPromptBuilder:
         system_prompt = (
             "You generate short, structured prompt planning JSON for a story image pipeline. "
             "Return only fields matching the schema. Keep prompts concise and literal. "
-            "Do not invent long artistic prose."
+            "Do not invent long artistic prose. Do not directly generate the final PromptSpec. "
+            "The local pipeline will assemble style_prompt, negative_prompt, character_prompt, "
+            "global_context_prompt, local_prompt, and full_prompt."
         )
         user_prompt = (
             "Extract shared identity, setting, and short scene prompts from this story.\n"
+            "Rules:\n"
+            "- identity_cues must be visual and reusable across panels, not personality traits.\n"
+            "- If the main character is human, state that clearly in identity_cues using terms like human woman, human girl, human man, or human person.\n"
+            "- Never substitute an animal or pet for a human character.\n"
+            "- generation_prompt must be a short image description phrase, not a command; do not start with "
+            "Illustrate, Show, Depict, Create, Generate, Draw, Paint, or Render.\n"
+            "- scoring_prompt must be a short descriptive phrase for CLIP-style matching, not a question.\n"
+            "- action_prompt must be action-only and concise, not a sentence that starts with Show or Depict.\n"
+            "- style_cues should only include extra visual style details not already present in the local style prompt.\n"
             f"Style prompt from local config: {self.prompt_config.get('style_prompt', '')}\n"
             f"Scenes:\n{scene_lines}"
         )
@@ -240,17 +323,17 @@ class LLMAssistedPromptBuilder:
             if not isinstance(scene_payload, dict):
                 raise LLMPromptError("Each LLM scene entry must be an object")
             generation_prompt = _trim_text(
-                scene_payload.get("generation_prompt"),
+                _strip_leading_prompt_verb(scene_payload.get("generation_prompt")),
                 max_words=int(self.prompt_config.get("generation_max_words", 28)),
                 max_chars=int(self.prompt_config.get("generation_max_chars", 220)),
             )
             scoring_prompt = _trim_text(
-                scene_payload.get("scoring_prompt"),
+                _strip_question_frame(scene_payload.get("scoring_prompt")),
                 max_words=int(self.prompt_config.get("scoring_max_words", 20)),
                 max_chars=int(self.prompt_config.get("scoring_max_chars", 160)),
             )
             action_prompt = _trim_text(
-                scene_payload.get("action_prompt"),
+                _strip_leading_prompt_verb(scene_payload.get("action_prompt")),
                 max_words=int(self.prompt_config.get("scoring_max_words", 20)),
                 max_chars=int(self.prompt_config.get("scoring_max_chars", 160)),
             )
@@ -285,9 +368,10 @@ class LLMAssistedPromptBuilder:
         main_character = global_payload.get("main_character", "")
         identity_cues = global_payload.get("identity_cues", [])
         shared_setting = global_payload.get("shared_setting", [])
-        style_cues = global_payload.get("style_cues", [])
+        style_cues = _filter_repeated_style_cues(global_payload.get("style_cues", []), style_prompt)
         scene_continuity = _normalize_text(self.prompt_config.get("scene_continuity_prompt", ""))
         character_prompt = _join_parts([main_character, *identity_cues])
+        character_prompt = _ensure_human_identity(character_prompt)
         global_context_prompt = _join_parts([*shared_setting, *style_cues, scene_continuity])
 
         prompt_specs = {}
@@ -301,6 +385,13 @@ class LLMAssistedPromptBuilder:
                 ]
             )
             full_prompt = _join_parts([style_prompt, character_prompt, global_context_prompt, local_prompt])
+            generation_prompt = _merge_identity_into_generation_prompt(
+                character_prompt,
+                scene_payload["generation_prompt"],
+                max_words=int(self.prompt_config.get("generation_max_words", 28)),
+                max_chars=int(self.prompt_config.get("generation_max_chars", 220)),
+            )
+            negative_prompt_for_scene = _merge_human_negative_prompt(character_prompt, negative_prompt)
             prompt_specs[scene.scene_id] = PromptSpec(
                 scene_id=scene.scene_id,
                 style_prompt=style_prompt,
@@ -308,10 +399,10 @@ class LLMAssistedPromptBuilder:
                 global_context_prompt=global_context_prompt,
                 local_prompt=local_prompt,
                 action_prompt=scene_payload["action_prompt"],
-                generation_prompt=scene_payload["generation_prompt"],
+                generation_prompt=generation_prompt,
                 scoring_prompt=scene_payload["scoring_prompt"],
                 full_prompt=full_prompt,
-                negative_prompt=negative_prompt,
+                negative_prompt=negative_prompt_for_scene,
             )
         return prompt_specs
 
@@ -325,7 +416,7 @@ class LLMAssistedPromptBuilder:
     def _export_artifact_if_enabled(self, story: Story, cache_key: str, record: dict[str, Any]) -> None:
         if not self.artifact_config.get("export_enabled", False):
             return
-        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v1"))
+        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v3"))
         story_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(story.source_path).stem).strip("_") or "story"
         model_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.llm_config.get("model", "model")).strip("_")
         schema_version = self.llm_config.get("schema_version", "v1")
@@ -347,7 +438,7 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v1"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v3"),
         }
 
     def _log(self, event: str, **metadata: Any) -> None:

@@ -82,7 +82,7 @@ def _prompt_config(tmp_path: Path, *, fallback: bool = True, cache_enabled: bool
             "max_output_tokens": 800,
             "timeout_seconds": 30,
             "schema_version": "v1",
-            "builder_version": "llm_assisted_v1",
+            "builder_version": "llm_assisted_v3",
             "fallback_to_rule_based": fallback,
         },
     }
@@ -94,7 +94,7 @@ def _llm_payload() -> dict:
             "main_character": "Hero",
             "identity_cues": ["same red jacket"],
             "shared_setting": ["city park"],
-            "style_cues": ["clean storyboard frame"],
+            "style_cues": ["cinematic illustration", "clean storyboard frame"],
         },
         "scenes": [
             {
@@ -127,9 +127,11 @@ def test_llm_builder_cache_miss_calls_client_and_writes_cache(tmp_path: Path) ->
 
     assert client.calls == 1
     assert (tmp_path / "cache" / f"{cache_key}.json").exists()
-    assert prompts["SCENE-1"].generation_prompt == "Hero runs along the path"
+    assert prompts["SCENE-1"].generation_prompt == "human person, Hero, same red jacket, Hero runs"
     assert prompts["SCENE-1"].scoring_prompt == "Hero runs"
     assert prompts["SCENE-1"].action_prompt == "running"
+    assert prompts["SCENE-1"].global_context_prompt == "city park, clean storyboard frame, keep the same lighting and palette"
+    assert "cat, dog, animal, pet, non-human subject" in prompts["SCENE-1"].negative_prompt
     assert prompts["SCENE-1"].full_prompt
 
 
@@ -143,7 +145,7 @@ def test_llm_builder_cache_hit_skips_client(tmp_path: Path) -> None:
 
     assert first_client.calls == 1
     assert second_client.calls == 0
-    assert prompts["SCENE-2"].generation_prompt == "Hero stops on the path"
+    assert prompts["SCENE-2"].generation_prompt == "human person, Hero, same red jacket, Hero stops"
 
 
 def test_prompt_cache_key_changes_when_story_or_model_changes(tmp_path: Path) -> None:
@@ -168,7 +170,7 @@ def test_llm_builder_loads_artifact_without_calling_client(tmp_path: Path) -> No
     prompts = LLMAssistedPromptBuilder(config, llm_client=client).build_story_prompts(_story())
 
     assert client.calls == 0
-    assert prompts["SCENE-1"].generation_prompt == "Hero runs along the path"
+    assert prompts["SCENE-1"].generation_prompt == "human person, Hero, same red jacket, Hero runs"
 
 
 def test_llm_builder_exports_artifact_after_api_success(tmp_path: Path) -> None:
@@ -223,5 +225,31 @@ def test_llm_builder_trims_long_prompts(tmp_path: Path) -> None:
 
     prompts = builder.build_story_prompts(_story())
 
-    assert prompts["SCENE-1"].generation_prompt == "one two three four five six seven eight"
+    assert prompts["SCENE-1"].generation_prompt == "human person, Hero, same red jacket, one two"
     assert prompts["SCENE-1"].scoring_prompt == "one two three four five"
+
+
+def test_llm_builder_normalizes_prompt_instruction_phrasing(tmp_path: Path) -> None:
+    payload = _llm_payload()
+    payload["scenes"][0]["generation_prompt"] = "Illustrate Hero running through the park"
+    payload["scenes"][0]["scoring_prompt"] = "Does the image show Hero running through the park?"
+    payload["scenes"][0]["action_prompt"] = "Show Hero running"
+    builder = LLMAssistedPromptBuilder(_prompt_config(tmp_path, cache_enabled=False), llm_client=FakeLLMClient(payload))
+
+    prompts = builder.build_story_prompts(_story())
+
+    assert prompts["SCENE-1"].generation_prompt == "human person, Hero, same red jacket, Hero running"
+    assert prompts["SCENE-1"].scoring_prompt == "Hero running through the park"
+    assert prompts["SCENE-1"].action_prompt == "Hero running"
+
+
+def test_llm_builder_preserves_explicit_human_identity_without_duplicate_prefix(tmp_path: Path) -> None:
+    payload = _llm_payload()
+    payload["global"]["identity_cues"] = ["human woman", "long brown hair", "blue pajamas"]
+    payload["scenes"][0]["generation_prompt"] = "Lily gazing out the window"
+    builder = LLMAssistedPromptBuilder(_prompt_config(tmp_path, cache_enabled=False), llm_client=FakeLLMClient(payload))
+
+    prompts = builder.build_story_prompts(_story())
+
+    assert prompts["SCENE-1"].character_prompt == "Hero, human woman, long brown hair, blue pajamas"
+    assert prompts["SCENE-1"].generation_prompt.startswith("Hero, human woman, long brown hair")

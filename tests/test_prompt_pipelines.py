@@ -50,7 +50,7 @@ def _prompt_config(pipeline: str = "rule_based") -> dict:
         "quality_suffix": "clean composition",
         "negative_prompt": "blurry",
         "cache": {"enabled": False, "cache_dir": ".cache/prompt_builder"},
-        "artifact": {"path": None, "export_enabled": False, "export_dir": "prompt_artifacts/llm_assisted_v1"},
+        "artifact": {"path": None, "export_enabled": False, "export_dir": "prompt_artifacts/llm_assisted_v3"},
         "llm": {
             "provider": "openai",
             "model": "gpt-4o-2024-08-06",
@@ -59,7 +59,7 @@ def _prompt_config(pipeline: str = "rule_based") -> dict:
             "max_output_tokens": 800,
             "timeout_seconds": 30,
             "schema_version": "v1",
-            "builder_version": "llm_assisted_v1",
+            "builder_version": "llm_assisted_v3",
             "fallback_to_rule_based": True,
         },
     }

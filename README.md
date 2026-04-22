@@ -63,6 +63,9 @@ Available profiles in the base config:
 - `cloud_strong_backbone`: scene-level `diffusers_text2img` profile reserved for stronger cloud models; override `--model-id` or edit the profile for the target machine.
 - `cloud_storydiffusion`: story-level `storydiffusion_direct` placeholder for future StoryDiffusion integration. It is intentionally not implemented yet.
 - `llm_prompt_smoke`: optional LLM-assisted prompt planning profile. It calls the configured LLM only when there is no prompt artifact or local cache hit.
+- `llm_prompt_text2img`: LLM-assisted prompts with text-to-image generation only.
+- `rule_prompt_img2img`: rule-based prompts with conservative img2img continuity routing.
+- `llm_prompt_img2img`: LLM-assisted prompts with conservative img2img continuity routing.
 
 ## LLM-Assisted Prompts
 
@@ -74,6 +77,8 @@ prompt:
 ```
 
 The LLM-assisted path asks the model for strict JSON containing shared identity, setting, and short per-scene prompts. It does not generate images, score candidates, or write long freeform artistic prompts. The final downstream contract is still `PromptSpec`, so generators use `generation_prompt` and scorers use `scoring_prompt` / `action_prompt` exactly as before.
+
+For generation, `negative_prompt` is passed directly into both text2img and img2img diffusers calls. In the LLM-assisted path, human-character prompts may add animal/pet suppression terms to reduce failures where a human character is replaced by a pet or animal.
 
 API keys are read only from environment variables:
 
@@ -93,8 +98,28 @@ To reuse a shared artifact without calling the API:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v1/example.json
+    path: prompt_artifacts/llm_assisted_v3/example.json
 ```
+
+## Ablation Runs
+
+Use profiles to switch major components without code edits:
+
+```bash
+# Rule-based prompt + text2img baseline
+PYTHONPATH=src python3 -m storygen.cli --profile smoke_test --input test_set/01.txt
+
+# LLM-assisted prompt + text2img only
+PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_text2img --input test_set/01.txt
+
+# Rule-based prompt + conservative img2img routing
+PYTHONPATH=src python3 -m storygen.cli --profile rule_prompt_img2img --input test_set/01.txt
+
+# LLM-assisted prompt + conservative img2img routing
+PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_img2img --input test_set/01.txt
+```
+
+Img2img routing is disabled by default. When enabled, scene 1 always uses text2img. Later scenes use img2img only when the conservative route policy finds a small continuity-preserving change and a previous selected image is available. Route decisions are logged in `logs/events.jsonl` as `generation_route_selected`.
 
 ## Outputs
 
@@ -123,5 +148,6 @@ The run metadata includes the resolved config, runtime profile, model id, timest
 - `prompt.pipeline=llm_assisted` uses structured OpenAI prompt planning with validation, cache, artifacts, and rule-based fallback.
 - `prompt.pipeline=api` is kept as a compatibility alias for `llm_assisted`.
 - `model.backend=storydiffusion_direct` is a story-level placeholder and raises `NotImplementedError` until the StoryDiffusion backend is implemented.
-- `reference_image_path` and `previous_selected_image_path` are reserved in the request contract but unused by the generator backend.
+- `previous_selected_image_path` is used by the optional img2img continuity route when enabled.
+- `reference_image_path` is reserved for future anchor/IP-Adapter conditioning.
 - The scoring layer now includes a CLIP-based reranker for prompt adherence and previous-frame consistency, while remaining replaceable for future scorers.
