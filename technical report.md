@@ -126,6 +126,27 @@ Mitigations added after route-level underestimation and over-similarity rerankin
 - Route-aware scoring reduces previous-image consistency weight for `medium` and `large` changes, and applies an over-similarity penalty when the candidate remains too close to the previous panel.
 - The LLM builder version was bumped to `llm_assisted_v5`, so old v4 cached route judgments are not reused.
 
+Observed failure after v5 guided routing:
+
+- Run inspected: `outputs/llm_img2img_guided_2026-04-22T13-12-58+00-00`.
+- v5 routing and route-aware scoring were active: scene 2 and scene 3 were classified as `medium`, used `img2img_strength=0.65`, and received over-similarity penalties during reranking.
+- Despite this, generated panels still stayed close to the original cooking/breakfast composition.
+- This shows the bottleneck was candidate generation, not only reranking: all candidates were under-changed, so the scorer had no clearly correct candidate to select.
+- The practical conclusion is that previous-frame img2img should be reserved for composition-preserving continuity. If `route_factors.composition_change_needed=true`, the next route should be text2img, with identity continuity handled by prompt/rerank now and later by anchors or IP-Adapter.
+
+Mitigation planned from this observation:
+
+- Guided routing should treat `route_factors.composition_change_needed=true` as a text2img route, even when the route level is `medium`.
+- Previous-frame img2img is reserved for composition-preserving continuity; composition-changing panels should use text2img until identity anchors or IP-Adapter conditioning are available.
+
+Observed result after composition-aware routing:
+
+- Run inspected: `outputs/llm_img2img_guided_2026-04-22T13-53-57+00-00`.
+- Scene 2 and scene 3 had `route_factors.composition_change_needed=true`, so both were routed to text2img with `llm_guided_composition_change_text2img`.
+- This fixed the strongest under-change failure: the later panels no longer stayed in the same breakfast/cooking composition.
+- The new failure mode is weaker character identity consistency across text2img panels. This is expected because identity is now maintained only through prompt text and reranking, not visual conditioning.
+- This motivates the next phase: use identity anchors or IP-Adapter so composition-changing text2img scenes can preserve the character without using the previous panel as an init image.
+
 ## Data / External Resources / Compliance
 
 这部分必须认真写：

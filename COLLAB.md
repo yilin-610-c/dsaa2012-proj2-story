@@ -450,6 +450,65 @@ Known next-step considerations:
 - route-aware scoring reduces over-similar selections but does not regenerate failed candidates
 - no per-story hardcoded route keywords should be added for released unseen examples
 
+### 2026-04-22: Guided Img2Img V5 Failure Observation
+
+Observed run:
+- `outputs/llm_img2img_guided_2026-04-22T13-12-58+00-00`
+
+What worked:
+- `llm_assisted_v5` was active
+- route factors were logged in `prompt_pipeline.json` and `prompt_bundle.json`
+- scene 2 and scene 3 were no longer classified as `small`; both were classified as `medium`
+- `img2img_strength=0.65` was used for medium scenes
+- route-aware scoring was active and applied over-similarity penalties
+
+Failure:
+- scene 2 and scene 3 still visually stayed close to the cooking/breakfast composition
+- the generated candidates did not create enough composition change for looking out the window or sitting with a book
+- scorer could only rerank available candidates; it could not fix the fact that all candidates were under-changed
+
+Conclusion:
+- previous-frame img2img is still too restrictive when `route_factors.composition_change_needed=true`
+- medium-strength img2img is not sufficient for composition-changing panels with the current SDXL Turbo setup
+- identity continuity should not depend on previous-frame img2img for composition-changing scenes; use text2img now, and later use anchors/IP-Adapter for identity conditioning
+
+Recommended next change:
+- keep `small -> img2img`
+- route `composition_change_needed=true -> text2img`
+- keep `large -> text2img`
+- optionally allow `medium -> img2img` only when `composition_change_needed=false`
+
+### 2026-04-22: Composition-Aware Guided Routing
+
+Implemented:
+- added `generation.routing.text2img_when_composition_change_needed`
+- enabled it in `llm_prompt_img2img_guided`
+- guided routing now sends `route_factors.composition_change_needed=true` scenes to text2img
+- composition-preserving `medium` scenes may still use img2img with medium strength
+- route metadata and event logs still preserve `route_factors`, final mode, and route reason
+
+Behavior preserved:
+- baseline, text2img-only, rule-based img2img, and conservative LLM img2img profiles keep existing behavior
+- no story-specific keyword route overrides were added
+- `PromptSpec` remains unchanged
+
+Validation:
+- `conda run -n storygen env PYTHONPATH=src pytest -q`
+- result: `67 passed`
+
+Observed run after this change:
+- `outputs/llm_img2img_guided_2026-04-22T13-53-57+00-00`
+
+What changed in the run:
+- scene 2 and scene 3 had `route_factors.composition_change_needed=true`
+- both scenes were routed to `text2img` with route reason `llm_guided_composition_change_text2img`
+- previous-frame img2img no longer locked scene 2 and scene 3 into the breakfast/cooking composition
+
+Remaining limitation:
+- character identity consistency became weaker across text2img composition-changing scenes
+- scene 3 captured the book/reading composition better than the eating action
+- this supports the next phase: identity anchors or IP-Adapter for text2img scenes, rather than using previous-frame img2img as the identity mechanism
+
 ## Shared Code Rules
 
 When modifying shared code:

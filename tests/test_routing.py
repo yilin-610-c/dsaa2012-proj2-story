@@ -26,6 +26,7 @@ def _guided_routing() -> dict:
         "img2img_enabled": True,
         "route_policy": "llm_guided_conservative",
         "use_previous_selected_as_init": True,
+        "text2img_when_composition_change_needed": False,
         "img2img_strength": 0.45,
         "strength_by_change_level": {"small": 0.35, "medium": 0.65, "large": 0.85},
         "execution_by_change_level": {"small": "img2img", "medium": "img2img", "large": "text2img"},
@@ -159,6 +160,66 @@ def test_llm_guided_medium_change_uses_higher_strength_img2img() -> None:
         previous_selected_image_path="prev.png",
         routing_config=_guided_routing(),
         route_hint=_hint("medium"),
+        previous_route_hint=_hint("large", "text2img"),
+    )
+
+    assert decision.generation_mode == "img2img"
+    assert decision.img2img_strength == 0.65
+    assert decision.route_change_level == "medium"
+
+
+def test_llm_guided_medium_composition_preserving_change_uses_img2img_when_enabled() -> None:
+    story = _story()
+    routing_config = _guided_routing()
+    routing_config["text2img_when_composition_change_needed"] = True
+
+    decision = choose_scene_route(
+        story=story,
+        scene=story.scenes[1],
+        previous_scene=story.scenes[0],
+        previous_selected_image_path="prev.png",
+        routing_config=routing_config,
+        route_hint=_hint("medium", route_factors={"composition_change_needed": False}),
+        previous_route_hint=_hint("large", "text2img"),
+    )
+
+    assert decision.generation_mode == "img2img"
+    assert decision.img2img_strength == 0.65
+    assert decision.route_change_level == "medium"
+
+
+def test_llm_guided_composition_change_uses_text2img_when_config_enabled() -> None:
+    story = _story()
+    routing_config = _guided_routing()
+    routing_config["text2img_when_composition_change_needed"] = True
+
+    decision = choose_scene_route(
+        story=story,
+        scene=story.scenes[1],
+        previous_scene=story.scenes[0],
+        previous_selected_image_path="prev.png",
+        routing_config=routing_config,
+        route_hint=_hint("medium", route_factors={"composition_change_needed": True}),
+        previous_route_hint=_hint("large", "text2img"),
+    )
+
+    assert decision.generation_mode == "text2img"
+    assert decision.img2img_strength is None
+    assert decision.route_change_level == "medium"
+    assert decision.route_factors == {"composition_change_needed": True}
+    assert decision.route_reason.startswith("llm_guided_composition_change_text2img:")
+
+
+def test_llm_guided_composition_change_config_disabled_preserves_old_medium_img2img_behavior() -> None:
+    story = _story()
+
+    decision = choose_scene_route(
+        story=story,
+        scene=story.scenes[1],
+        previous_scene=story.scenes[0],
+        previous_selected_image_path="prev.png",
+        routing_config=_guided_routing(),
+        route_hint=_hint("medium", route_factors={"composition_change_needed": True}),
         previous_route_hint=_hint("large", "text2img"),
     )
 

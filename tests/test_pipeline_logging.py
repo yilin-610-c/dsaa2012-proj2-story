@@ -53,7 +53,7 @@ class FakeGuidedPromptPipeline:
                     "llm_route_change_level": "small",
                     "route_change_level": "medium",
                     "route_level_adjustment_reason": "small_inconsistent_with_route_factors",
-                    "route_factors": {"primary_action_change": True},
+                    "route_factors": {"primary_action_change": True, "composition_change_needed": True},
                     "route_reason": "same subject with visible action change",
                 },
             },
@@ -161,16 +161,21 @@ def test_run_pipeline_logs_llm_guided_route_metadata(tmp_path, monkeypatch) -> N
     events = [json.loads(line) for line in (run_dir / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()]
     route_events = [event for event in events if event["event"] == "generation_route_selected"]
 
-    assert candidate_metadata["generation_mode"] == "img2img"
+    assert candidate_metadata["generation_mode"] == "text2img"
     assert candidate_metadata["route_change_level"] == "medium"
     assert candidate_metadata["continuity_subject_ids"] == ["Lily"]
     assert candidate_metadata["continuity_route_hint"] == "img2img"
     assert candidate_metadata["llm_route_change_level"] == "small"
     assert candidate_metadata["route_level_adjustment_reason"] == "small_inconsistent_with_route_factors"
-    assert candidate_metadata["route_factors"] == {"primary_action_change": True}
-    assert candidate_metadata["img2img_strength"] == 0.65
-    assert prompt_log["scene_route_hints"]["SCENE-2"]["route_factors"] == {"primary_action_change": True}
+    assert candidate_metadata["route_factors"] == {"primary_action_change": True, "composition_change_needed": True}
+    assert candidate_metadata["img2img_strength"] is None
+    assert candidate_metadata["route_reason"].startswith("llm_guided_composition_change_text2img:")
+    assert prompt_log["scene_route_hints"]["SCENE-2"]["route_factors"] == {
+        "primary_action_change": True,
+        "composition_change_needed": True,
+    }
     assert prompt_bundle_log["scene_route_hints"]["SCENE-2"]["route_change_level"] == "medium"
     assert route_events[1]["route_change_level"] == "medium"
     assert route_events[1]["continuity_subject_ids"] == ["Lily"]
     assert route_events[1]["llm_route_change_level"] == "small"
+    assert route_events[1]["generation_mode"] == "text2img"

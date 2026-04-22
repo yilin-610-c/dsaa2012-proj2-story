@@ -83,6 +83,7 @@ generation:
     img2img_enabled: false
     route_policy: disabled
     use_previous_selected_as_init: true
+    text2img_when_composition_change_needed: false
     img2img_strength: 0.45
     strength_by_change_level:
       small: 0.35
@@ -222,6 +223,7 @@ runtime_profiles:
         img2img_enabled: true
         route_policy: llm_guided_conservative
         use_previous_selected_as_init: true
+        text2img_when_composition_change_needed: true
         strength_by_change_level:
           small: 0.35
           medium: 0.65

@@ -125,9 +125,11 @@ PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_img2img_guided --inp
 
 Img2img routing is disabled by default. When enabled, scene 1 always uses text2img. Later scenes use img2img only when the conservative route policy finds a small continuity-preserving change and a previous selected image is available. Route decisions are logged in `logs/events.jsonl` as `generation_route_selected`.
 
-The guided route policy uses LLM metadata as a planning signal, not as a backend replacement. For each scene, the LLM-assisted prompt pipeline can provide `continuity_subject_ids`, `continuity_route_hint`, `route_change_level`, `route_reason`, and structured `route_factors`. Local routing still makes the final execution decision. By default, `small` uses low-strength img2img, `medium` uses higher-strength img2img, and `large` falls back to text2img.
+The guided route policy uses LLM metadata as a planning signal, not as a backend replacement. For each scene, the LLM-assisted prompt pipeline can provide `continuity_subject_ids`, `continuity_route_hint`, `route_change_level`, `route_reason`, and structured `route_factors`. Local routing still makes the final execution decision. By default, `small` uses low-strength img2img, composition-preserving `medium` uses higher-strength img2img, and `large` falls back to text2img. In the guided profile, `route_factors.composition_change_needed=true` also routes to text2img because previous-frame img2img tends to lock the old layout.
 
 The guided profile also enables route-aware scoring. For medium/large changes, previous-image consistency is downweighted and excessive similarity can be penalized, so reranking does not automatically prefer the image that is most similar to the previous panel.
+
+This composition-aware route improves action/layout changes but does not solve character identity by itself. For composition-changing text2img scenes, identity consistency currently comes from prompt text and reranking; future anchor/IP-Adapter work should handle stronger identity conditioning.
 
 ## Outputs
 

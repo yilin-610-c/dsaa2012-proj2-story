@@ -32,6 +32,7 @@ def test_resolve_config_supports_extension_profiles() -> None:
     assert guided["prompt"]["pipeline"] == "llm_assisted"
     assert guided["generation"]["routing"]["route_policy"] == "llm_guided_conservative"
     assert guided["generation"]["routing"]["strength_by_change_level"]["medium"] == 0.65
+    assert guided["generation"]["routing"]["text2img_when_composition_change_needed"] is True
     assert guided["prompt"]["llm"]["builder_version"] == "llm_assisted_v5"
     assert guided["scoring"]["route_aware"]["enabled"] is True
 

@@ -80,6 +80,13 @@ def _execution_for_change_level(routing_config: dict[str, Any], change_level: st
     return route_hint or "text2img"
 
 
+def _should_force_text2img_for_composition_change(routing_config: dict[str, Any], route_hint: dict[str, Any]) -> bool:
+    if not routing_config.get("text2img_when_composition_change_needed", False):
+        return False
+    route_factors = route_hint.get("route_factors", {})
+    return isinstance(route_factors, dict) and bool(route_factors.get("composition_change_needed"))
+
+
 def choose_scene_route(
     *,
     story: Story,
@@ -118,6 +125,13 @@ def choose_scene_route(
         execution_mode = _execution_for_change_level(routing_config, change_level, hint_mode)
         hint_metadata = _route_hint_metadata(route_hint)
         route_reason = route_hint.get("route_reason") or "llm_guided_route_hint"
+        if _should_force_text2img_for_composition_change(routing_config, route_hint):
+            return SceneRouteDecision(
+                "text2img",
+                route_policy,
+                f"llm_guided_composition_change_text2img:{route_reason}",
+                **hint_metadata,
+            )
         if execution_mode == "text2img":
             return SceneRouteDecision(
                 "text2img",
