@@ -38,6 +38,10 @@ def _normalize_list(value: Any) -> list[str]:
     return normalized
 
 
+def _normalize_bool(value: Any) -> bool:
+    return bool(value) if isinstance(value, bool) else False
+
+
 def _trim_words(text: str, max_words: int | None) -> str:
     if not max_words:
         return text
@@ -136,6 +140,31 @@ def _merge_human_negative_prompt(character_prompt: str, negative_prompt: str) ->
     return _join_parts([negative_prompt, "cat, dog, animal, pet, non-human subject"])
 
 
+def _normalize_route_factors(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise LLMPromptError("LLM route_factors must be an object")
+    return {
+        "same_subject": _normalize_bool(value.get("same_subject")),
+        "same_setting": _normalize_bool(value.get("same_setting")),
+        "body_state_change": _normalize_bool(value.get("body_state_change")),
+        "primary_action_change": _normalize_bool(value.get("primary_action_change")),
+        "new_key_objects": _normalize_list(value.get("new_key_objects")),
+        "composition_change_needed": _normalize_bool(value.get("composition_change_needed")),
+    }
+
+
+def _adjust_route_change_level(route_change_level: str, route_factors: dict[str, Any]) -> tuple[str, str | None]:
+    if not route_factors.get("same_setting", True) and route_factors.get("composition_change_needed"):
+        return "large", "setting_change_and_composition_change_needed"
+    if route_change_level == "small" and (
+        route_factors.get("body_state_change")
+        or route_factors.get("primary_action_change")
+        or route_factors.get("composition_change_needed")
+    ):
+        return "medium", "small_inconsistent_with_route_factors"
+    return route_change_level, None
+
+
 class LLMAssistedPromptBuilder:
     def __init__(
         self,
@@ -151,15 +180,18 @@ class LLMAssistedPromptBuilder:
         self.rule_based_builder = PromptBuilder(prompt_config)
         self.llm_client = llm_client
         self.event_logger = event_logger
+        self.last_route_hints: dict[str, dict[str, Any]] = {}
 
     def build_story_prompts(self, story: Story) -> dict[str, PromptSpec]:
         try:
             structured_output = self._load_or_generate_structured_output(story)
+            self.last_route_hints = self._build_route_hints(structured_output)
             return self._build_prompt_specs(story, structured_output)
         except Exception as exc:
             self._log("llm_prompt_validation_failed", error=str(exc))
             if self.llm_config.get("fallback_to_rule_based", True):
                 self._log("llm_prompt_fallback_to_rule_based", error=str(exc))
+                self.last_route_hints = {}
                 return self.rule_based_builder.build_story_prompts(story)
             if isinstance(exc, LLMPromptError):
                 raise
@@ -172,9 +204,10 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v3"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v5"),
             "cache_enabled": bool(self.cache_config.get("enabled", True)),
             "artifact_path": self.artifact_config.get("path"),
+            "scene_route_hints": self.last_route_hints,
         }
 
     def _load_or_generate_structured_output(self, story: Story) -> dict[str, Any]:
@@ -251,6 +284,15 @@ class LLMAssistedPromptBuilder:
             "- scoring_prompt must be a short descriptive phrase for CLIP-style matching, not a question.\n"
             "- action_prompt must be action-only and concise, not a sentence that starts with Show or Depict.\n"
             "- style_cues should only include extra visual style details not already present in the local style prompt.\n"
+            "- continuity_subject_ids must list recurring visual subjects that should stay consistent with the previous panel.\n"
+            "- continuity_route_hint must be text2img or img2img. It is only a hint; the local router makes the final decision.\n"
+            "- route_change_level must be small, medium, or large compared with the previous scene.\n"
+            "- Use small only when all are true: same subject, same setting, very similar camera framing/composition, same body state, and only local gaze, expression, hand, or small-object changes.\n"
+            "- Use medium when the same subject continues but action, body pose/state, subject-object relationship, key objects, or readable composition changes noticeably.\n"
+            "- Use large when location, time, story beat, layout, camera framing, or required pose/props change substantially, or when the previous image would prevent the current scene from being shown correctly.\n"
+            "- Same character plus same setting is not enough for small. If unsure between small and medium, choose medium. If unsure between medium and large, choose large when local edits would not make the current action readable.\n"
+            "- route_factors must explain the route judgment with booleans for same_subject, same_setting, body_state_change, primary_action_change, composition_change_needed, and a short new_key_objects list.\n"
+            "- route_reason must be a short explanation of the scene-to-previous-scene routing judgment.\n"
             f"Style prompt from local config: {self.prompt_config.get('style_prompt', '')}\n"
             f"Scenes:\n{scene_lines}"
         )
@@ -270,6 +312,11 @@ class LLMAssistedPromptBuilder:
                 "generation_prompt",
                 "scoring_prompt",
                 "action_prompt",
+                "continuity_subject_ids",
+                "continuity_route_hint",
+                "route_change_level",
+                "route_factors",
+                "route_reason",
             ],
             "properties": {
                 "scene_id": {"type": "string"},
@@ -278,6 +325,30 @@ class LLMAssistedPromptBuilder:
                 "generation_prompt": {"type": "string"},
                 "scoring_prompt": {"type": "string"},
                 "action_prompt": {"type": "string"},
+                "continuity_subject_ids": {"type": "array", "items": {"type": "string"}},
+                "continuity_route_hint": {"type": "string", "enum": ["text2img", "img2img"]},
+                "route_change_level": {"type": "string", "enum": ["small", "medium", "large"]},
+                "route_factors": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "same_subject",
+                        "same_setting",
+                        "body_state_change",
+                        "primary_action_change",
+                        "new_key_objects",
+                        "composition_change_needed",
+                    ],
+                    "properties": {
+                        "same_subject": {"type": "boolean"},
+                        "same_setting": {"type": "boolean"},
+                        "body_state_change": {"type": "boolean"},
+                        "primary_action_change": {"type": "boolean"},
+                        "new_key_objects": {"type": "array", "items": {"type": "string"}},
+                        "composition_change_needed": {"type": "boolean"},
+                    },
+                },
+                "route_reason": {"type": "string"},
             },
         }
         return {
@@ -339,6 +410,21 @@ class LLMAssistedPromptBuilder:
             )
             if not generation_prompt or not scoring_prompt or not action_prompt:
                 raise LLMPromptError(f"LLM prompt fields are missing or empty for {scene_payload.get('scene_id')}")
+            continuity_route_hint = _normalize_text(scene_payload.get("continuity_route_hint")).lower()
+            route_change_level = _normalize_text(scene_payload.get("route_change_level")).lower()
+            route_reason = _trim_text(
+                scene_payload.get("route_reason"),
+                max_words=24,
+                max_chars=180,
+            )
+            if continuity_route_hint not in {"text2img", "img2img"}:
+                raise LLMPromptError(f"Invalid continuity_route_hint for {scene_payload.get('scene_id')}: {continuity_route_hint}")
+            if route_change_level not in {"small", "medium", "large"}:
+                raise LLMPromptError(f"Invalid route_change_level for {scene_payload.get('scene_id')}: {route_change_level}")
+            if not route_reason:
+                raise LLMPromptError(f"LLM route_reason is missing or empty for {scene_payload.get('scene_id')}")
+            route_factors = _normalize_route_factors(scene_payload.get("route_factors"))
+            adjusted_route_change_level, adjustment_reason = _adjust_route_change_level(route_change_level, route_factors)
             normalized_scenes.append(
                 {
                     "scene_id": scene_payload["scene_id"],
@@ -347,6 +433,13 @@ class LLMAssistedPromptBuilder:
                     "generation_prompt": generation_prompt,
                     "scoring_prompt": scoring_prompt,
                     "action_prompt": action_prompt,
+                    "continuity_subject_ids": _normalize_list(scene_payload.get("continuity_subject_ids")),
+                    "continuity_route_hint": continuity_route_hint,
+                    "llm_route_change_level": route_change_level,
+                    "route_change_level": adjusted_route_change_level,
+                    "route_level_adjustment_reason": adjustment_reason,
+                    "route_factors": route_factors,
+                    "route_reason": route_reason,
                 }
             )
 
@@ -359,6 +452,23 @@ class LLMAssistedPromptBuilder:
             },
             "scenes": normalized_scenes,
         }
+
+    def _build_route_hints(self, structured_output: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        hints = {}
+        for scene_payload in structured_output.get("scenes", []):
+            scene_id = scene_payload.get("scene_id")
+            if not scene_id:
+                continue
+            hints[scene_id] = {
+                "continuity_subject_ids": list(scene_payload.get("continuity_subject_ids", [])),
+                "continuity_route_hint": scene_payload.get("continuity_route_hint"),
+                "llm_route_change_level": scene_payload.get("llm_route_change_level"),
+                "route_change_level": scene_payload.get("route_change_level"),
+                "route_level_adjustment_reason": scene_payload.get("route_level_adjustment_reason"),
+                "route_factors": dict(scene_payload.get("route_factors", {})),
+                "route_reason": scene_payload.get("route_reason"),
+            }
+        return hints
 
     def _build_prompt_specs(self, story: Story, structured_output: dict[str, Any]) -> dict[str, PromptSpec]:
         global_payload = structured_output["global"]
@@ -416,7 +526,7 @@ class LLMAssistedPromptBuilder:
     def _export_artifact_if_enabled(self, story: Story, cache_key: str, record: dict[str, Any]) -> None:
         if not self.artifact_config.get("export_enabled", False):
             return
-        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v3"))
+        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v5"))
         story_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(story.source_path).stem).strip("_") or "story"
         model_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.llm_config.get("model", "model")).strip("_")
         schema_version = self.llm_config.get("schema_version", "v1")
@@ -438,7 +548,7 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v3"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v5"),
         }
 
     def _log(self, event: str, **metadata: Any) -> None:

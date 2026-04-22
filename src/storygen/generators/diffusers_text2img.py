@@ -113,6 +113,12 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
                 "route_reason": request.extra_options.get("route_reason"),
                 "init_image_path": request.extra_options.get("init_image_path"),
                 "img2img_strength": request.extra_options.get("img2img_strength"),
+                "route_change_level": request.extra_options.get("route_change_level"),
+                "continuity_subject_ids": request.extra_options.get("continuity_subject_ids"),
+                "continuity_route_hint": request.extra_options.get("continuity_route_hint"),
+                "llm_route_change_level": request.extra_options.get("llm_route_change_level"),
+                "route_level_adjustment_reason": request.extra_options.get("route_level_adjustment_reason"),
+                "route_factors": request.extra_options.get("route_factors"),
             },
         )
 
@@ -165,5 +171,11 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
                 "route_reason": request.extra_options.get("route_reason"),
                 "init_image_path": init_image_path,
                 "img2img_strength": strength,
+                "route_change_level": request.extra_options.get("route_change_level"),
+                "continuity_subject_ids": request.extra_options.get("continuity_subject_ids"),
+                "continuity_route_hint": request.extra_options.get("continuity_route_hint"),
+                "llm_route_change_level": request.extra_options.get("llm_route_change_level"),
+                "route_level_adjustment_reason": request.extra_options.get("route_level_adjustment_reason"),
+                "route_factors": request.extra_options.get("route_factors"),
             },
         )

@@ -101,6 +101,12 @@ class SceneRouteDecision:
     route_reason: str
     init_image_path: str | None = None
     img2img_strength: float | None = None
+    route_change_level: str | None = None
+    continuity_subject_ids: list[str] = field(default_factory=list)
+    continuity_route_hint: str | None = None
+    llm_route_change_level: str | None = None
+    route_level_adjustment_reason: str | None = None
+    route_factors: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

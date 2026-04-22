@@ -66,6 +66,7 @@ Available profiles in the base config:
 - `llm_prompt_text2img`: LLM-assisted prompts with text-to-image generation only.
 - `rule_prompt_img2img`: rule-based prompts with conservative img2img continuity routing.
 - `llm_prompt_img2img`: LLM-assisted prompts with conservative img2img continuity routing.
+- `llm_prompt_img2img_guided`: LLM-assisted prompts with LLM-guided small/medium/large route execution.
 
 ## LLM-Assisted Prompts
 
@@ -98,7 +99,7 @@ To reuse a shared artifact without calling the API:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v3/example.json
+    path: prompt_artifacts/llm_assisted_v5/example.json
 ```
 
 ## Ablation Runs
@@ -117,9 +118,16 @@ PYTHONPATH=src python3 -m storygen.cli --profile rule_prompt_img2img --input tes
 
 # LLM-assisted prompt + conservative img2img routing
 PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_img2img --input test_set/01.txt
+
+# LLM-assisted prompt + LLM-guided multi-level img2img routing
+PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_img2img_guided --input test_set/01.txt
 ```
 
 Img2img routing is disabled by default. When enabled, scene 1 always uses text2img. Later scenes use img2img only when the conservative route policy finds a small continuity-preserving change and a previous selected image is available. Route decisions are logged in `logs/events.jsonl` as `generation_route_selected`.
+
+The guided route policy uses LLM metadata as a planning signal, not as a backend replacement. For each scene, the LLM-assisted prompt pipeline can provide `continuity_subject_ids`, `continuity_route_hint`, `route_change_level`, `route_reason`, and structured `route_factors`. Local routing still makes the final execution decision. By default, `small` uses low-strength img2img, `medium` uses higher-strength img2img, and `large` falls back to text2img.
+
+The guided profile also enables route-aware scoring. For medium/large changes, previous-image consistency is downweighted and excessive similarity can be penalized, so reranking does not automatically prefer the image that is most similar to the previous panel.
 
 ## Outputs
 

@@ -274,6 +274,7 @@ Current base profiles:
 - `llm_prompt_text2img`: LLM prompts with text2img only
 - `rule_prompt_img2img`: rule prompts with conservative img2img routing
 - `llm_prompt_img2img`: LLM prompts with conservative img2img routing
+- `llm_prompt_img2img_guided`: LLM prompts with guided small/medium/large route execution
 
 Expected comparison workflow:
 - baseline path
@@ -343,6 +344,7 @@ Implemented:
 - local prompt cache under `.cache/prompt_builder/`
 - shareable prompt artifacts under `prompt_artifacts/`
 - optional conservative img2img routing through `generation.routing`
+- optional LLM-guided multi-level routing through `route_policy=llm_guided_conservative`
 
 Not implemented:
 - real StoryDiffusion generation
@@ -361,15 +363,18 @@ The current baseline behavior should remain unchanged for `smoke_test`, `demo_ru
 - API keys must come from environment variables and must never be written into configs, cache records, artifacts, or docs.
 - LLM-assisted prompting is for structured extraction and short prompt rewriting only; it does not own image generation or scoring.
 - Human-character LLM prompts may augment `negative_prompt` with animal/pet suppression terms to avoid human-to-animal substitutions.
+- LLM route metadata is a planning signal only. It may provide `continuity_subject_ids`, `continuity_route_hint`, `route_change_level`, and `route_reason`, but local routing still owns the final generation mode and strength.
 
 ### Img2Img Routing Rules
 
 - `generation.routing.img2img_enabled=false` preserves text2img-only behavior.
 - `route_policy=conservative` may use img2img for scene 2+ when a previous selected image exists and the scene appears to be a small continuity-preserving change.
-- large scene transitions should route back to text2img.
+- `route_policy=llm_guided_conservative` may use LLM-resolved continuity subjects to recover pronoun-only scenes that parser entities miss.
+- guided routing uses `route_change_level`: `small` uses low-strength img2img, `medium` uses higher-strength img2img, and `large` routes back to text2img by default.
 - route decisions are logged as `generation_route_selected`.
-- candidate metadata must preserve `generation_mode`, `route_reason`, `init_image_path`, and `img2img_strength`.
+- candidate metadata must preserve `generation_mode`, `route_reason`, `route_change_level`, `continuity_subject_ids`, `continuity_route_hint`, `init_image_path`, and `img2img_strength`.
 - current img2img init source is only the previous selected scene image.
+- img2img is a route execution choice inside the scene backend, not a replacement for `diffusers_text2img`.
 - future anchors and IP-Adapter conditioning should remain separately switchable for ablations.
 
 ## Controlled Experiment Expectations
@@ -386,6 +391,64 @@ That means:
 - baseline behavior must remain runnable
 - improved variants should be toggled through config where possible
 - collaborators should avoid hard-coded one-off experiment branches inside shared modules
+
+## Recent Implementation Notes
+
+### 2026-04-22: LLM-Guided Multi-Level Img2Img Routing
+
+Implemented:
+- added LLM route metadata fields: `continuity_subject_ids`, `continuity_route_hint`, `route_change_level`, and `route_reason`
+- added `PromptBundle.metadata["scene_route_hints"]` as the carrier for route hints
+- added `route_policy=llm_guided_conservative`
+- added small/medium/large route execution levels through `strength_by_change_level` and `execution_by_change_level`
+- added `llm_prompt_img2img_guided` profile for LLM prompts with guided multi-level routing
+- bumped the LLM prompt builder/cache/artifact namespace to `llm_assisted_v4`
+- extended route event logs and candidate metadata with route hint fields
+
+Behavior preserved:
+- `smoke_test`, `demo_run`, and text2img-only profiles remain baseline-compatible
+- `PromptSpec` is unchanged
+- `diffusers_text2img` remains the scene backend; img2img is a route inside that backend
+- `large` guided changes default to text2img instead of high-strength img2img retry
+
+Validation:
+- `conda run -n storygen env PYTHONPATH=src pytest -q`
+- result: `57 passed`
+
+Known next-step considerations:
+- old `llm_assisted_v3` cache/artifacts do not contain route metadata; use v4 artifacts for guided routing
+- if medium-strength img2img still under-changes a scene, the next likely fix is semantic failure detection or scorer weight adjustment, not IP-Adapter yet
+- anchor bank and IP-Adapter remain future, separately switchable components
+
+### 2026-04-22: LLM Routing Rubric And Route-Aware Scoring
+
+Implemented:
+- bumped the LLM prompt builder/cache/artifact namespace to `llm_assisted_v5`
+- added structured `route_factors` to LLM-assisted route metadata
+- tightened the LLM route rubric so `small` requires nearly unchanged subject, setting, framing, body state, and action
+- added generic self-consistency correction from route factors, without story-specific keyword route overrides
+- added route-aware CLIP consistency scoring for guided routing
+- fixed prompt metadata logging so route hints are visible after prompt build
+
+Defaults:
+- guided route-aware scoring is enabled only in `llm_prompt_img2img_guided`
+- `small` keeps continuity-heavy scoring and has no over-similarity penalty by default
+- `medium` uses previous-image consistency weight `0.10` and penalty threshold `0.90`
+- `large` uses previous-image consistency weight `0.0` and penalty threshold `0.85`
+
+Behavior preserved:
+- baseline and text2img-only profiles keep the old scoring behavior unless route-aware scoring is explicitly enabled
+- `PromptSpec` remains unchanged
+- anchor bank, IP-Adapter, ControlNet, and automatic regeneration loops remain out of scope
+
+Validation:
+- `conda run -n storygen env PYTHONPATH=src pytest -q`
+- result: `64 passed`
+
+Known next-step considerations:
+- old `llm_assisted_v4` cache/artifacts do not include route factors; use v5 artifacts for route-aware guided experiments
+- route-aware scoring reduces over-similar selections but does not regenerate failed candidates
+- no per-story hardcoded route keywords should be added for released unseen examples
 
 ## Shared Code Rules
 

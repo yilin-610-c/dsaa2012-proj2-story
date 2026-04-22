@@ -131,7 +131,6 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         config["prompt"],
         event_logger=lambda event, **metadata: append_event(run_context, event, stage="prompt", **metadata),
     )
-    save_json(run_context.logs_directory / "prompt_pipeline.json", prompt_pipeline.metadata())
     append_event(
         run_context,
         "prompt_pipeline_selected",
@@ -139,7 +138,10 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         prompt_pipeline=prompt_pipeline.metadata().get("pipeline"),
     )
     prompt_bundle = prompt_pipeline.build(story)
+    save_json(run_context.logs_directory / "prompt_pipeline.json", prompt_pipeline.metadata())
+    save_json(run_context.logs_directory / "prompt_bundle.json", prompt_bundle.metadata)
     prompt_specs = prompt_bundle.scene_prompts
+    scene_route_hints = prompt_bundle.metadata.get("scene_route_hints", {})
     generator = build_generation_backend(config["model"], config["runtime"])
     backend_metadata = build_backend_metadata(config["model"], config["runtime"])
     backend_metadata["img2img_enabled"] = bool(config.get("generation", {}).get("routing", {}).get("img2img_enabled", False))
@@ -179,6 +181,12 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         candidate_scores = []
         previous_selected_path = previous_results[-1].selected_image_path if previous_results else None
         previous_scene = story.scenes[scene.index - 1] if scene.index > 0 else None
+        route_hint = scene_route_hints.get(scene.scene_id) if isinstance(scene_route_hints, dict) else None
+        previous_route_hint = (
+            scene_route_hints.get(previous_scene.scene_id)
+            if isinstance(scene_route_hints, dict) and previous_scene is not None
+            else None
+        )
 
         for candidate_index in range(candidate_count):
             seed = _seed_for_candidate(base_seed, scene.index, candidate_index)
@@ -188,6 +196,8 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 previous_scene=previous_scene,
                 previous_selected_image_path=previous_selected_path,
                 routing_config=config.get("generation", {}).get("routing", {}),
+                route_hint=route_hint,
+                previous_route_hint=previous_route_hint,
             )
             route_options = {
                 "generation_mode": route_decision.generation_mode,
@@ -195,6 +205,12 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 "route_reason": route_decision.route_reason,
                 "init_image_path": route_decision.init_image_path,
                 "img2img_strength": route_decision.img2img_strength,
+                "route_change_level": route_decision.route_change_level,
+                "continuity_subject_ids": route_decision.continuity_subject_ids,
+                "continuity_route_hint": route_decision.continuity_route_hint,
+                "llm_route_change_level": route_decision.llm_route_change_level,
+                "route_level_adjustment_reason": route_decision.route_level_adjustment_reason,
+                "route_factors": route_decision.route_factors,
             }
             append_event(
                 run_context,

@@ -26,7 +26,7 @@ prompt:
   artifact:
     path: null
     export_enabled: false
-    export_dir: prompt_artifacts/llm_assisted_v3
+    export_dir: prompt_artifacts/llm_assisted_v5
   llm:
     provider: openai
     model: gpt-4o-2024-08-06
@@ -35,7 +35,7 @@ prompt:
     max_output_tokens: 800
     timeout_seconds: 30
     schema_version: v1
-    builder_version: llm_assisted_v3
+    builder_version: llm_assisted_v5
     fallback_to_rule_based: true
   style_prompt: cinematic story illustration, coherent visual style
   subject_prefix: "main subject:"
@@ -84,6 +84,14 @@ generation:
     route_policy: disabled
     use_previous_selected_as_init: true
     img2img_strength: 0.45
+    strength_by_change_level:
+      small: 0.35
+      medium: 0.65
+      large: 0.85
+    execution_by_change_level:
+      small: img2img
+      medium: img2img
+      large: text2img
     large_change_keywords:
       - meanwhile
       - later
@@ -104,6 +112,21 @@ scoring:
   text_image_weight: 0.45
   consistency_weight: 0.35
   action_weight: 0.2
+  route_aware:
+    enabled: false
+    consistency_weight_by_change_level:
+      small: 0.30
+      medium: 0.10
+      large: 0.0
+    over_similarity_penalty:
+      enabled: true
+      threshold_by_change_level:
+        small: null
+        medium: 0.90
+        large: 0.85
+      penalty_weight_by_change_level:
+        medium: 0.15
+        large: 0.25
 
 runtime_profiles:
   smoke_test:
@@ -189,3 +212,24 @@ runtime_profiles:
         route_policy: conservative
         use_previous_selected_as_init: true
         img2img_strength: 0.45
+  llm_prompt_img2img_guided:
+    runtime:
+      run_name_prefix: llm_img2img_guided
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: true
+        route_policy: llm_guided_conservative
+        use_previous_selected_as_init: true
+        strength_by_change_level:
+          small: 0.35
+          medium: 0.65
+          large: 0.85
+        execution_by_change_level:
+          small: img2img
+          medium: img2img
+          large: text2img
+    scoring:
+      route_aware:
+        enabled: true

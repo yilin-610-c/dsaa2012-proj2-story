@@ -13,5 +13,5 @@ To reuse an artifact, set:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v3/example.json
+    path: prompt_artifacts/llm_assisted_v5/example.json
 ```

@@ -6,6 +6,7 @@ import pytest
 from storygen.llm_assisted_prompt_builder import LLMAssistedPromptBuilder, LLMPromptError
 from storygen.llm_client import LLMResponse
 from storygen.prompt_cache import build_prompt_cache_key
+from storygen.prompt_pipelines import build_prompt_pipeline
 from storygen.types import Scene, Story
 
 
@@ -82,9 +83,28 @@ def _prompt_config(tmp_path: Path, *, fallback: bool = True, cache_enabled: bool
             "max_output_tokens": 800,
             "timeout_seconds": 30,
             "schema_version": "v1",
-            "builder_version": "llm_assisted_v3",
+            "builder_version": "llm_assisted_v5",
             "fallback_to_rule_based": fallback,
         },
+    }
+
+
+def _route_factors(
+    *,
+    same_subject: bool = True,
+    same_setting: bool = True,
+    body_state_change: bool = False,
+    primary_action_change: bool = False,
+    new_key_objects: list[str] | None = None,
+    composition_change_needed: bool = False,
+) -> dict:
+    return {
+        "same_subject": same_subject,
+        "same_setting": same_setting,
+        "body_state_change": body_state_change,
+        "primary_action_change": primary_action_change,
+        "new_key_objects": new_key_objects or [],
+        "composition_change_needed": composition_change_needed,
     }
 
 
@@ -104,6 +124,11 @@ def _llm_payload() -> dict:
                 "generation_prompt": "Hero runs along the path",
                 "scoring_prompt": "Hero runs",
                 "action_prompt": "running",
+                "continuity_subject_ids": ["Hero"],
+                "continuity_route_hint": "text2img",
+                "route_change_level": "large",
+                "route_factors": _route_factors(),
+                "route_reason": "First scene establishes the frame.",
             },
             {
                 "scene_id": "SCENE-2",
@@ -112,6 +137,11 @@ def _llm_payload() -> dict:
                 "generation_prompt": "Hero stops on the path",
                 "scoring_prompt": "Hero stops",
                 "action_prompt": "stopping",
+                "continuity_subject_ids": ["Hero"],
+                "continuity_route_hint": "img2img",
+                "route_change_level": "small",
+                "route_factors": _route_factors(),
+                "route_reason": "Same subject and path, only the action changes.",
             },
         ],
     }
@@ -133,6 +163,50 @@ def test_llm_builder_cache_miss_calls_client_and_writes_cache(tmp_path: Path) ->
     assert prompts["SCENE-1"].global_context_prompt == "city park, clean storyboard frame, keep the same lighting and palette"
     assert "cat, dog, animal, pet, non-human subject" in prompts["SCENE-1"].negative_prompt
     assert prompts["SCENE-1"].full_prompt
+
+
+def test_llm_pipeline_metadata_includes_route_hints(tmp_path: Path) -> None:
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient()
+
+    bundle = pipeline.build(_story())
+
+    route_hints = bundle.metadata["scene_route_hints"]
+    assert route_hints["SCENE-2"]["continuity_subject_ids"] == ["Hero"]
+    assert route_hints["SCENE-2"]["continuity_route_hint"] == "img2img"
+    assert route_hints["SCENE-2"]["route_change_level"] == "small"
+    assert route_hints["SCENE-2"]["llm_route_change_level"] == "small"
+    assert route_hints["SCENE-2"]["route_factors"]["same_subject"] is True
+
+
+def test_llm_route_factors_adjust_small_to_medium(tmp_path: Path) -> None:
+    payload = _llm_payload()
+    payload["scenes"][1]["route_change_level"] = "small"
+    payload["scenes"][1]["route_factors"] = _route_factors(primary_action_change=True)
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path, cache_enabled=False), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient(payload)
+
+    bundle = pipeline.build(_story())
+    route_hint = bundle.metadata["scene_route_hints"]["SCENE-2"]
+
+    assert route_hint["llm_route_change_level"] == "small"
+    assert route_hint["route_change_level"] == "medium"
+    assert route_hint["route_level_adjustment_reason"] == "small_inconsistent_with_route_factors"
+
+
+def test_llm_route_factors_adjust_setting_and_composition_change_to_large(tmp_path: Path) -> None:
+    payload = _llm_payload()
+    payload["scenes"][1]["route_change_level"] = "small"
+    payload["scenes"][1]["route_factors"] = _route_factors(same_setting=False, composition_change_needed=True)
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path, cache_enabled=False), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient(payload)
+
+    bundle = pipeline.build(_story())
+    route_hint = bundle.metadata["scene_route_hints"]["SCENE-2"]
+
+    assert route_hint["llm_route_change_level"] == "small"
+    assert route_hint["route_change_level"] == "large"
+    assert route_hint["route_level_adjustment_reason"] == "setting_change_and_composition_change_needed"
 
 
 def test_llm_builder_cache_hit_skips_client(tmp_path: Path) -> None:
@@ -196,6 +270,27 @@ def test_llm_builder_exports_artifact_after_api_success(tmp_path: Path) -> None:
         {
             **_llm_payload(),
             "scenes": [{**_llm_payload()["scenes"][0], "generation_prompt": ""}, _llm_payload()["scenes"][1]],
+        },
+        {
+            **_llm_payload(),
+            "scenes": [
+                {**_llm_payload()["scenes"][0], "continuity_route_hint": "bad_hint"},
+                _llm_payload()["scenes"][1],
+            ],
+        },
+        {
+            **_llm_payload(),
+            "scenes": [
+                {**_llm_payload()["scenes"][0], "route_change_level": "tiny"},
+                _llm_payload()["scenes"][1],
+            ],
+        },
+        {
+            **_llm_payload(),
+            "scenes": [
+                {**_llm_payload()["scenes"][0], "route_factors": "missing"},
+                _llm_payload()["scenes"][1],
+            ],
         },
     ],
 )

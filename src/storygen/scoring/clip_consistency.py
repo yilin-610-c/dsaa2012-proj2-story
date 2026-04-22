@@ -42,12 +42,16 @@ class CLIPConsistencyScorer(BaseScorer):
         text_alignment = self._text_alignment_score(candidate.image_path, self._build_scoring_text(prompt_spec))
         action_alignment = self._text_alignment_score(candidate.image_path, self._build_action_text(prompt_spec))
         previous_image_consistency = self._image_consistency_score(candidate.image_path, previous_image_path)
+        route_change_level = candidate.metadata.get("route_change_level")
 
         configured_weights = {
             "text_alignment": float(self.scoring_config.get("text_image_weight", 0.45)),
             "action_alignment": float(self.scoring_config.get("action_weight", 0.2)),
             "previous_image_consistency": float(self.scoring_config.get("consistency_weight", 0.35)),
         }
+        active_route_aware_config = self._route_aware_config(route_change_level)
+        if active_route_aware_config is not None and previous_image_path is not None:
+            configured_weights["previous_image_consistency"] = active_route_aware_config["consistency_weight"]
 
         component_values = {
             "text_alignment": text_alignment,
@@ -61,22 +65,73 @@ class CLIPConsistencyScorer(BaseScorer):
         }
         total_weight = sum(active_weights.values()) or 1.0
         weighted_score = sum(component_values[name] * weight for name, weight in active_weights.items()) / total_weight
+        over_similarity_penalty = self._over_similarity_penalty(
+            previous_image_consistency,
+            active_route_aware_config,
+            previous_image_available=previous_image_path is not None,
+        )
+        final_score = weighted_score - over_similarity_penalty
 
         return CandidateScore(
             scene_id=candidate.scene_id,
             candidate_index=candidate.candidate_index,
             seed=candidate.seed,
-            score=round(float(weighted_score), 6),
+            score=round(float(final_score), 6),
             scorer_name=self.scorer_name,
-            components={key: round(float(value), 6) for key, value in component_values.items()},
+            components={
+                **{key: round(float(value), 6) for key, value in component_values.items()},
+                "over_similarity_penalty": round(float(over_similarity_penalty), 6),
+            },
             metadata={
                 "clip_model_id": self.model_id,
                 "device": self._resolved_device(),
                 "weights": configured_weights,
+                "raw_weighted_score": round(float(weighted_score), 6),
+                "final_score": round(float(final_score), 6),
                 "previous_image_available": previous_image_path is not None,
                 "previous_image_path": previous_image_path,
+                "route_change_level": route_change_level,
+                "route_aware": active_route_aware_config or {"enabled": False},
             },
         )
+
+    def _route_aware_config(self, route_change_level: Any) -> dict[str, Any] | None:
+        route_aware = self.scoring_config.get("route_aware", {})
+        if not route_aware.get("enabled", False) or route_change_level not in {"small", "medium", "large"}:
+            return None
+
+        consistency_weights = route_aware.get("consistency_weight_by_change_level", {})
+        threshold_by_level = route_aware.get("over_similarity_penalty", {}).get("threshold_by_change_level", {})
+        penalty_weight_by_level = route_aware.get("over_similarity_penalty", {}).get("penalty_weight_by_change_level", {})
+        return {
+            "enabled": True,
+            "route_change_level": route_change_level,
+            "consistency_weight": float(
+                consistency_weights.get(route_change_level, self.scoring_config.get("consistency_weight", 0.35))
+            ),
+            "penalty_enabled": bool(route_aware.get("over_similarity_penalty", {}).get("enabled", False)),
+            "over_similarity_threshold": threshold_by_level.get(route_change_level),
+            "over_similarity_penalty_weight": float(penalty_weight_by_level.get(route_change_level, 0.0)),
+        }
+
+    def _over_similarity_penalty(
+        self,
+        previous_image_consistency: float,
+        route_aware_config: dict[str, Any] | None,
+        *,
+        previous_image_available: bool,
+    ) -> float:
+        if not previous_image_available or route_aware_config is None or not route_aware_config.get("penalty_enabled"):
+            return 0.0
+        threshold = route_aware_config.get("over_similarity_threshold")
+        penalty_weight = float(route_aware_config.get("over_similarity_penalty_weight", 0.0))
+        if threshold is None or penalty_weight <= 0:
+            return 0.0
+        threshold = float(threshold)
+        if previous_image_consistency <= threshold or threshold >= 1.0:
+            return 0.0
+        excess = (previous_image_consistency - threshold) / (1.0 - threshold)
+        return penalty_weight * excess
 
     def select_best(
         self,

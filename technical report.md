@@ -45,8 +45,10 @@ Implemented Phase 1 route:
 
 - Baseline: text2img for every scene, multi-candidate generation, CLIP-based reranking.
 - New optional route: conservative img2img continuity for scene 2+.
+- New optional guided route: LLM-assisted route metadata with small/medium/large execution levels.
 - Scene 1 always uses text2img so the first frame establishes the story composition.
 - For small-change scenes, img2img uses the previous selected image as init image plus the current scene prompt.
+- For medium-change scenes, guided routing can use higher-strength img2img.
 - For large-change scenes, routing falls back to text2img.
 
 Design principle:
@@ -75,12 +77,15 @@ Core ablations:
   `PYTHONPATH=src python3 -m storygen.cli --profile rule_prompt_img2img --input test_set/01.txt`
 - LLM prompt + img2img routing:
   `PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_img2img --input test_set/01.txt`
+- LLM prompt + guided multi-level img2img routing:
+  `PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_img2img_guided --input test_set/01.txt`
 
 What each comparison isolates:
 
 - LLM prompt effect without generation-route changes.
 - Img2img continuity effect without LLM prompt changes.
 - Combined prompt + generation-time continuity effect.
+- Guided route planning and small/medium/large img2img execution effect.
 
 ## Qualitative Results
 
@@ -96,6 +101,7 @@ Observed and expected failure categories:
 - Pronoun-only scenes can confuse routing and prompting. If the parser does not attach `Lily` to a scene like "She looks out the window quietly", conservative routing may miss the connection to the previous scene.
 - CLIP reranking can overvalue image-to-image similarity. A visually coherent but semantically wrong frame may be selected if previous-image consistency is high.
 - Scene changes can break continuity when text2img is needed, while img2img can over-preserve layout when the new scene should change composition.
+- Img2img under-change failure: scene2 to scene3 may be routed to img2img but use too little strength, so the previous composition is preserved and the required new action, posture, or layout does not happen.
 - Common object priors can override weak character prompts. Window-gazing images often bias toward pets or animals unless the prompt explicitly says human/person and negative prompts suppress animal substitutions.
 
 Mitigations added after the cat failure:
@@ -104,6 +110,21 @@ Mitigations added after the cat failure:
 - The local prompt assembler merges stable identity into the actual `generation_prompt`.
 - Human-character scenes append `cat, dog, animal, pet, non-human subject` to the `negative_prompt`.
 - The LLM builder version was bumped to `llm_assisted_v3`, so old cached prompts that caused the failure are not reused.
+
+Mitigations added after the img2img under-change failure:
+
+- LLM-assisted prompt planning now records route metadata: `continuity_subject_ids`, `continuity_route_hint`, `route_change_level`, and `route_reason`.
+- Routing can use LLM-resolved continuity subjects instead of relying only on parser entities, which helps pronoun-only scenes such as "She looks out the window."
+- Guided routing separates execution by change level: `small` uses low-strength img2img, `medium` uses higher-strength img2img, and `large` falls back to text2img.
+- The LLM builder version was bumped to `llm_assisted_v4`, so old cached prompts without route metadata are not reused.
+
+Mitigations added after route-level underestimation and over-similarity reranking:
+
+- The LLM route rubric was tightened: `small` requires nearly unchanged subject, setting, framing, body state, and action; same subject plus same setting is no longer sufficient.
+- LLM-assisted prompt planning now records structured `route_factors`, including body-state change, primary-action change, new key objects, and composition-change need.
+- Local code performs only generic self-consistency correction from the LLM's own route factors; no story-specific keyword route overrides are added.
+- Route-aware scoring reduces previous-image consistency weight for `medium` and `large` changes, and applies an over-similarity penalty when the candidate remains too close to the previous panel.
+- The LLM builder version was bumped to `llm_assisted_v5`, so old v4 cached route judgments are not reused.
 
 ## Data / External Resources / Compliance
 
