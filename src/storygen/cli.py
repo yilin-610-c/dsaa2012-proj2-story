@@ -10,7 +10,7 @@ from storygen.pipeline import run_pipeline
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Minimal story image generation baseline")
     parser.add_argument("--config", default="configs/base.yaml", help="Path to YAML config")
-    parser.add_argument("--profile", default="smoke_test", choices=["smoke_test", "demo_run"])
+    parser.add_argument("--profile", default="smoke_test", help="Runtime profile name from the YAML config")
     parser.add_argument("--input", dest="input_path", help="Story input file")
     parser.add_argument("--output-root", help="Output root directory")
     parser.add_argument("--run-name", help="Explicit run name")

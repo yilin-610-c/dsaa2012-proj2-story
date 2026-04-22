@@ -60,6 +60,7 @@ Current working layout:
 - `src/storygen/parser.py`: scene text parsing
 - `src/storygen/types.py`: active internal contracts
 - `src/storygen/prompt_builder.py`: rule-based prompt construction
+- `src/storygen/prompt_pipelines.py`: prompt pipeline selector and placeholders
 - `src/storygen/generators/`: generation backends and wrappers
 - `src/storygen/scoring/`: scoring and reranking backends
 - `src/storygen/pipeline.py`: end-to-end orchestration
@@ -68,7 +69,7 @@ Current working layout:
 - `scripts/run_demo.py`: demo entrypoint
 - `outputs/<run_name>/...`: run artifacts
 
-Current active internal contracts are still `Scene`, `Story`, and `PromptSpec`. Future collaboration-facing abstractions should be stabilized as `SceneSpec`, `AnchorSpec`, and `ScoringSpec`, but they are not yet the primary live interfaces in code.
+Current active internal contracts are still `Scene`, `Story`, and `PromptSpec`. The repo now also has minimal extensibility contracts for `PromptBundle`, `StoryPromptSpec`, `StoryGenerationRequest`, and `StoryGenerationResult`, but the live baseline still runs through scene-level `PromptSpec` generation.
 
 ## Active Interfaces
 
@@ -122,9 +123,19 @@ Current source of truth:
 - `src/storygen/generators/base.py`
 - `src/storygen/scoring/base.py`
 
-Generator contract:
+Scene-level generator contract:
 - consumes `GenerationRequest`
 - returns `GenerationCandidate`
+
+Story-level generator contract:
+- consumes `StoryGenerationRequest`
+- returns `StoryGenerationResult`
+
+Implemented generation backends:
+- `diffusers_text2img`: scene-level baseline backend
+- `storydiffusion_direct`: story-level placeholder only; it raises `NotImplementedError`
+
+Do not implement StoryDiffusion by changing `diffusers_text2img` or by treating StoryDiffusion as only another `model_id`. StoryDiffusion should be implemented behind `storydiffusion_direct` because its execution unit is the whole story, not one scene candidate.
 
 Scorer contract:
 - consumes `Story`, `Scene`, `PromptSpec`, `GenerationCandidate`, and previous selected results
@@ -132,6 +143,16 @@ Scorer contract:
 - selects one `SceneSelectionResult`
 
 This contract should stay stable while generation/scoring implementations change underneath.
+
+### Prompt pipeline contracts
+
+Current source of truth: `src/storygen/prompt_pipelines.py`
+
+Implemented prompt pipelines:
+- `rule_based`: wraps the existing `PromptBuilder` and preserves baseline behavior
+- `api`: placeholder only; it raises `NotImplementedError`
+
+`prompt.pipeline` is the config switch. Future API prompt work should implement the `api` pipeline without changing the rule-based baseline.
 
 ## Planned Stable Interfaces
 
@@ -215,6 +236,14 @@ PYTHONPATH=src python3 -m storygen --config configs/base.yaml --profile demo_run
 PYTHONPATH=src python3 scripts/run_demo.py --profile demo_run --input test_set/01.txt
 ```
 
+Profiles are dynamic and validated from `configs/base.yaml`; the CLI does not hard-code the profile list.
+
+Current base profiles:
+- `smoke_test`: cheap scene-level baseline
+- `demo_run`: fuller scene-level baseline
+- `cloud_strong_backbone`: scene-level diffusers profile reserved for stronger cloud backbones
+- `cloud_storydiffusion`: story-level StoryDiffusion placeholder; currently not runnable for real generation
+
 Expected comparison workflow:
 - baseline path
 - prompt-improved path
@@ -243,6 +272,10 @@ outputs/<run_name>/
   config_resolved.yaml
   manifest.json
   run_summary.json
+  logs/
+    prompt_pipeline.json
+    generation_backend.json
+    events.jsonl
   scenes/
     scene_001/
       prompt.json
@@ -258,11 +291,31 @@ Required collaboration rule:
 
 Each run should continue to preserve:
 - resolved config
+- prompt pipeline metadata
+- generation backend metadata
+- event log
 - prompt artifacts
 - candidate images
 - selected images
 - scores and selection metadata
 - summary metadata for reproducibility
+
+## Current Extensibility Status
+
+Implemented:
+- dynamic runtime profiles from YAML
+- `prompt.pipeline=rule_based`
+- `prompt.pipeline=api` placeholder
+- `model.backend=diffusers_text2img` with `model.granularity=scene`
+- `model.backend=storydiffusion_direct` placeholder with `model.granularity=story`
+- minimal run logs under `outputs/<run_name>/logs/`
+
+Not implemented:
+- real API prompt generation
+- real StoryDiffusion generation
+- training-free attention/reference/latent components
+
+The current baseline behavior should remain unchanged for `smoke_test`, `demo_run`, and any profile using `diffusers_text2img + scene`.
 
 ## Controlled Experiment Expectations
 

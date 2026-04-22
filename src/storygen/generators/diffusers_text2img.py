@@ -40,7 +40,7 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
             pipeline.enable_attention_slicing()
         self.pipeline = pipeline
 
-    def generate(self, request: GenerationRequest) -> GenerationCandidate:
+    def generate_scene(self, request: GenerationRequest) -> GenerationCandidate:
         self.load()
 
         import torch

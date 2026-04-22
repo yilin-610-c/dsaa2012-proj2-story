@@ -15,12 +15,15 @@ def create_run_context(output_root: str | Path, run_name: str) -> RunContext:
     output_root_path = Path(output_root)
     run_directory = output_root_path / run_name
     scenes_directory = run_directory / "scenes"
+    logs_directory = run_directory / "logs"
     scenes_directory.mkdir(parents=True, exist_ok=True)
+    logs_directory.mkdir(parents=True, exist_ok=True)
     return RunContext(
         run_name=run_name,
         output_root=output_root_path,
         run_directory=run_directory,
         scenes_directory=scenes_directory,
+        logs_directory=logs_directory,
     )
 
 
@@ -70,6 +73,18 @@ def save_json(path: str | Path, payload: Any) -> None:
         json.dump(serializable, handle, indent=2, ensure_ascii=True)
 
 
+def append_event(run_context: RunContext, event: str, **metadata: Any) -> None:
+    payload = {
+        "timestamp": get_timestamp_string(),
+        "event": event,
+        **_to_serializable(metadata),
+    }
+    event_path = run_context.logs_directory / "events.jsonl"
+    event_path.parent.mkdir(parents=True, exist_ok=True)
+    with event_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+
 def save_resolved_config(path: str | Path, config: dict[str, Any]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with Path(path).open("w", encoding="utf-8") as handle:
@@ -82,6 +97,9 @@ def build_manifest(summary: RunSummary) -> dict[str, Any]:
         "timestamp": summary.timestamp,
         "runtime_profile": summary.runtime_profile,
         "model_id": summary.model_id,
+        "prompt_pipeline": summary.prompt_pipeline,
+        "generation_backend": summary.generation_backend,
+        "generation_granularity": summary.generation_granularity,
         "scorer_type": summary.scorer_type,
         "scorer_config": summary.scorer_config,
         "scene_count": len(summary.scene_results),

@@ -16,7 +16,7 @@ outputs/        generated runs
 
 ## Setup
 
-Use Python 3.10+ inside WSL on the machine that can access your NVIDIA GPU.
+Use Python 3.10+ on a machine that can access the target compute device. For local WSL/GPU work, make sure the NVIDIA driver, CUDA-compatible PyTorch build, and GPU visibility are already working before running image generation.
 
 ```bash
 python3 -m venv .venv
@@ -29,6 +29,8 @@ Pick a model id that works on your local setup. The default in `configs/base.yam
 The default scorer is `clip_consistency`. It compares each candidate image against the current scene prompt and, for scenes after the first, also compares it with the previous selected frame. This is the first real cross-scene consistency mechanism in the pipeline; prompt wording alone remains a soft bias.
 
 ## Run
+
+Profiles are read dynamically from `configs/base.yaml`; the CLI no longer hard-codes the available profile names.
 
 Cheap smoke test:
 
@@ -48,6 +50,19 @@ Demo script:
 PYTHONPATH=src python3 scripts/run_demo.py --profile demo_run --input test_set/01.txt
 ```
 
+Run unit tests after installing requirements:
+
+```bash
+PYTHONPATH=src pytest -q
+```
+
+Available profiles in the base config:
+
+- `smoke_test`: cheap local baseline run.
+- `demo_run`: fuller local baseline run.
+- `cloud_strong_backbone`: scene-level `diffusers_text2img` profile reserved for stronger cloud models; override `--model-id` or edit the profile for the target machine.
+- `cloud_storydiffusion`: story-level `storydiffusion_direct` placeholder for future StoryDiffusion integration. It is intentionally not implemented yet.
+
 ## Outputs
 
 Each run writes to `outputs/<run_name>/` and includes:
@@ -55,6 +70,9 @@ Each run writes to `outputs/<run_name>/` and includes:
 - `config_resolved.yaml`
 - `manifest.json`
 - `run_summary.json`
+- `logs/prompt_pipeline.json`
+- `logs/generation_backend.json`
+- `logs/events.jsonl`
 - `scenes/scene_XXX/prompt.json`
 - `scenes/scene_XXX/candidates/*.png`
 - `scenes/scene_XXX/scene_result.json`
@@ -67,6 +85,9 @@ The run metadata includes the resolved config, runtime profile, model id, timest
 ## Notes
 
 - Prompt building is strictly rule-based and template-based in v1.
-- The backend is pure text-to-image only in v1.
+- The default backend is pure text-to-image.
+- `prompt.pipeline=rule_based` is implemented and preserves the baseline prompt behavior.
+- `prompt.pipeline=api` is an interface stub and raises `NotImplementedError` until the API prompt pipeline is implemented.
+- `model.backend=storydiffusion_direct` is a story-level placeholder and raises `NotImplementedError` until the StoryDiffusion backend is implemented.
 - `reference_image_path` and `previous_selected_image_path` are reserved in the request contract but unused by the generator backend.
 - The scoring layer now includes a CLIP-based reranker for prompt adherence and previous-frame consistency, while remaining replaceable for future scorers.

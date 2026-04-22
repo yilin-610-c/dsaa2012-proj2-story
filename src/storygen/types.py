@@ -39,6 +39,23 @@ class PromptSpec:
 
 
 @dataclass(slots=True)
+class StoryPromptSpec:
+    character_description: str
+    panel_prompts: list[str]
+    num_identity_panels: int
+    style_name: str | None = None
+    negative_prompt: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class PromptBundle:
+    scene_prompts: dict[str, PromptSpec]
+    story_prompt: StoryPromptSpec | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class GenerationRequest:
     scene_id: str
     candidate_index: int
@@ -54,6 +71,21 @@ class GenerationRequest:
 
 
 @dataclass(slots=True)
+class StoryGenerationRequest:
+    story_id: str
+    seed: int
+    character_description: str
+    panel_prompts: list[str]
+    num_identity_panels: int
+    style_name: str | None
+    negative_prompt: str
+    width: int
+    height: int
+    reference_image_path: str | None = None
+    extra_options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class GenerationCandidate:
     scene_id: str
     candidate_index: int
@@ -61,6 +93,24 @@ class GenerationCandidate:
     prompt_spec: PromptSpec
     image: Any | None
     image_path: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class PanelGenerationOutput:
+    scene_id: str
+    panel_index: int
+    prompt: str
+    image: Any | None
+    image_path: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class StoryGenerationResult:
+    backend: str
+    seed: int
+    panel_outputs: list[PanelGenerationOutput]
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -93,6 +143,9 @@ class RunSummary:
     timestamp: str
     pipeline_version: str
     model_id: str
+    prompt_pipeline: str
+    generation_backend: str
+    generation_granularity: str
     scorer_type: str
     scorer_config: dict[str, Any]
     git_commit_id: str | None
@@ -111,3 +164,4 @@ class RunContext:
     output_root: Path
     run_directory: Path
     scenes_directory: Path
+    logs_directory: Path
