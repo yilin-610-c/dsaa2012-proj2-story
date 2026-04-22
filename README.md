@@ -62,6 +62,39 @@ Available profiles in the base config:
 - `demo_run`: fuller local baseline run.
 - `cloud_strong_backbone`: scene-level `diffusers_text2img` profile reserved for stronger cloud models; override `--model-id` or edit the profile for the target machine.
 - `cloud_storydiffusion`: story-level `storydiffusion_direct` placeholder for future StoryDiffusion integration. It is intentionally not implemented yet.
+- `llm_prompt_smoke`: optional LLM-assisted prompt planning profile. It calls the configured LLM only when there is no prompt artifact or local cache hit.
+
+## LLM-Assisted Prompts
+
+The default prompt pipeline remains `rule_based`. To use OpenAI-assisted structured prompt planning, select:
+
+```yaml
+prompt:
+  pipeline: llm_assisted
+```
+
+The LLM-assisted path asks the model for strict JSON containing shared identity, setting, and short per-scene prompts. It does not generate images, score candidates, or write long freeform artistic prompts. The final downstream contract is still `PromptSpec`, so generators use `generation_prompt` and scorers use `scoring_prompt` / `action_prompt` exactly as before.
+
+API keys are read only from environment variables:
+
+```bash
+export OPENAI_API_KEY=...
+PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_smoke --input test_set/01.txt
+```
+
+Prompt reuse has two layers:
+
+- `.cache/prompt_builder/`: local disk cache for avoiding repeated API calls on the same machine. This directory is ignored by git.
+- `prompt_artifacts/`: shareable, reviewed prompt JSON files for teammates. These can be committed or sent directly.
+
+To reuse a shared artifact without calling the API:
+
+```yaml
+prompt:
+  pipeline: llm_assisted
+  artifact:
+    path: prompt_artifacts/llm_assisted_v1/example.json
+```
 
 ## Outputs
 
@@ -87,7 +120,8 @@ The run metadata includes the resolved config, runtime profile, model id, timest
 - Prompt building is strictly rule-based and template-based in v1.
 - The default backend is pure text-to-image.
 - `prompt.pipeline=rule_based` is implemented and preserves the baseline prompt behavior.
-- `prompt.pipeline=api` is an interface stub and raises `NotImplementedError` until the API prompt pipeline is implemented.
+- `prompt.pipeline=llm_assisted` uses structured OpenAI prompt planning with validation, cache, artifacts, and rule-based fallback.
+- `prompt.pipeline=api` is kept as a compatibility alias for `llm_assisted`.
 - `model.backend=storydiffusion_direct` is a story-level placeholder and raises `NotImplementedError` until the StoryDiffusion backend is implemented.
 - `reference_image_path` and `previous_selected_image_path` are reserved in the request contract but unused by the generator backend.
 - The scoring layer now includes a CLIP-based reranker for prompt adherence and previous-frame consistency, while remaining replaceable for future scorers.

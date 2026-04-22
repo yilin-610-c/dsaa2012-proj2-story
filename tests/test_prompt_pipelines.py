@@ -1,6 +1,6 @@
 import pytest
 
-from storygen.prompt_pipelines import ApiPromptPipeline, RuleBasedPromptPipeline, build_prompt_pipeline
+from storygen.prompt_pipelines import ApiPromptPipeline, LLMAssistedPromptPipeline, RuleBasedPromptPipeline, build_prompt_pipeline
 from storygen.types import Scene, Story
 
 
@@ -49,6 +49,19 @@ def _prompt_config(pipeline: str = "rule_based") -> dict:
         "action_emphasis_map": {"runs": "active running pose"},
         "quality_suffix": "clean composition",
         "negative_prompt": "blurry",
+        "cache": {"enabled": False, "cache_dir": ".cache/prompt_builder"},
+        "artifact": {"path": None, "export_enabled": False, "export_dir": "prompt_artifacts/llm_assisted_v1"},
+        "llm": {
+            "provider": "openai",
+            "model": "gpt-4o-2024-08-06",
+            "api_key_env": "OPENAI_API_KEY",
+            "temperature": 0.0,
+            "max_output_tokens": 800,
+            "timeout_seconds": 30,
+            "schema_version": "v1",
+            "builder_version": "llm_assisted_v1",
+            "fallback_to_rule_based": True,
+        },
     }
 
 
@@ -63,13 +76,18 @@ def test_rule_based_prompt_pipeline_builds_scene_prompt_bundle() -> None:
     assert bundle.metadata["pipeline"] == "rule_based"
 
 
-def test_api_prompt_pipeline_is_placeholder() -> None:
+def test_llm_assisted_prompt_pipeline_is_selected() -> None:
+    pipeline = build_prompt_pipeline(_prompt_config("llm_assisted"))
+
+    assert isinstance(pipeline, LLMAssistedPromptPipeline)
+    assert pipeline.metadata()["implemented"] is True
+
+
+def test_api_prompt_pipeline_is_alias_for_llm_assisted() -> None:
     pipeline = build_prompt_pipeline(_prompt_config("api"))
 
     assert isinstance(pipeline, ApiPromptPipeline)
-    assert pipeline.metadata()["implemented"] is False
-    with pytest.raises(NotImplementedError, match="prompt.pipeline='api'"):
-        pipeline.build(_story())
+    assert isinstance(pipeline, LLMAssistedPromptPipeline)
 
 
 def test_unknown_prompt_pipeline_raises_clear_error() -> None:

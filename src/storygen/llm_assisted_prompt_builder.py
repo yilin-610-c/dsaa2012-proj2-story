@@ -1,0 +1,355 @@
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable
+
+from storygen.llm_client import BaseLLMClient, build_llm_client
+from storygen.prompt_builder import PromptBuilder
+from storygen.prompt_cache import PromptCache, build_cache_record, build_prompt_cache_key
+from storygen.types import PromptSpec, Story
+
+
+class LLMPromptError(RuntimeError):
+    pass
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _normalize_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _normalize_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    seen = set()
+    normalized = []
+    for item in value:
+        text = _normalize_text(item)
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            normalized.append(text)
+    return normalized
+
+
+def _trim_words(text: str, max_words: int | None) -> str:
+    if not max_words:
+        return text
+    words = text.split()
+    return " ".join(words[:max_words])
+
+
+def _trim_text(text: str, *, max_words: int | None, max_chars: int | None) -> str:
+    trimmed = _trim_words(_normalize_text(text), max_words)
+    if max_chars and len(trimmed) > max_chars:
+        trimmed = trimmed[:max_chars].rsplit(" ", 1)[0].strip() or trimmed[:max_chars].strip()
+    return trimmed
+
+
+def _join_parts(parts: list[str]) -> str:
+    seen = set()
+    output = []
+    for part in parts:
+        text = _normalize_text(part)
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            output.append(text)
+    return ", ".join(output)
+
+
+class LLMAssistedPromptBuilder:
+    def __init__(
+        self,
+        prompt_config: dict[str, Any],
+        *,
+        llm_client: BaseLLMClient | None = None,
+        event_logger: Callable[[str, Any], None] | None = None,
+    ) -> None:
+        self.prompt_config = prompt_config
+        self.llm_config = prompt_config.get("llm", {})
+        self.cache_config = prompt_config.get("cache", {})
+        self.artifact_config = prompt_config.get("artifact", {})
+        self.rule_based_builder = PromptBuilder(prompt_config)
+        self.llm_client = llm_client
+        self.event_logger = event_logger
+
+    def build_story_prompts(self, story: Story) -> dict[str, PromptSpec]:
+        try:
+            structured_output = self._load_or_generate_structured_output(story)
+            return self._build_prompt_specs(story, structured_output)
+        except Exception as exc:
+            self._log("llm_prompt_validation_failed", error=str(exc))
+            if self.llm_config.get("fallback_to_rule_based", True):
+                self._log("llm_prompt_fallback_to_rule_based", error=str(exc))
+                return self.rule_based_builder.build_story_prompts(story)
+            if isinstance(exc, LLMPromptError):
+                raise
+            raise LLMPromptError(str(exc)) from exc
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "pipeline": "llm_assisted",
+            "implemented": True,
+            "provider": self.llm_config.get("provider", "openai"),
+            "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
+            "schema_version": self.llm_config.get("schema_version", "v1"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v1"),
+            "cache_enabled": bool(self.cache_config.get("enabled", True)),
+            "artifact_path": self.artifact_config.get("path"),
+        }
+
+    def _load_or_generate_structured_output(self, story: Story) -> dict[str, Any]:
+        artifact_path = self.artifact_config.get("path")
+        if artifact_path:
+            try:
+                structured = self._load_artifact(Path(artifact_path))
+                self._log("llm_prompt_artifact_loaded", path=str(artifact_path))
+                return structured
+            except Exception as exc:
+                self._log("llm_prompt_artifact_invalid", path=str(artifact_path), error=str(exc))
+                raise
+
+        cache_key = build_prompt_cache_key(story, self.prompt_config)
+        cache_enabled = bool(self.cache_config.get("enabled", True))
+        cache = PromptCache(self.cache_config.get("cache_dir", ".cache/prompt_builder"))
+        if cache_enabled:
+            try:
+                cached = cache.load(cache_key)
+            except Exception as exc:
+                self._log("llm_prompt_cache_invalid", cache_key=cache_key, error=str(exc))
+                cached = None
+            if cached is not None:
+                self._log("llm_prompt_cache_hit", cache_key=cache_key)
+                return self._validate_structured_output(story, cached["validated_output"])
+            self._log("llm_prompt_cache_miss", cache_key=cache_key)
+
+        response = self._call_llm(story)
+        structured_output = self._validate_structured_output(story, response.parsed_json)
+        request_metadata = self._request_metadata(cache_key)
+        record = build_cache_record(
+            cache_key=cache_key,
+            request_metadata=request_metadata,
+            raw_response=response.raw_text,
+            parsed_response=response.parsed_json,
+            validated_output=structured_output,
+        )
+        if cache_enabled:
+            cache.save(cache_key, record)
+        self._export_artifact_if_enabled(story, cache_key, record)
+        return structured_output
+
+    def _call_llm(self, story: Story):
+        client = self.llm_client or build_llm_client(self.llm_config)
+        self._log(
+            "llm_prompt_api_call_started",
+            provider=self.llm_config.get("provider", "openai"),
+            model=self.llm_config.get("model", "gpt-4o-2024-08-06"),
+        )
+        response = client.generate_structured(
+            messages=self._build_messages(story),
+            json_schema=self._json_schema(),
+        )
+        self._log("llm_prompt_api_call_completed", metadata=response.metadata)
+        return response
+
+    def _build_messages(self, story: Story) -> list[dict[str, str]]:
+        scene_lines = "\n".join(f"- {scene.scene_id}: {scene.clean_text}" for scene in story.scenes)
+        system_prompt = (
+            "You generate short, structured prompt planning JSON for a story image pipeline. "
+            "Return only fields matching the schema. Keep prompts concise and literal. "
+            "Do not invent long artistic prose."
+        )
+        user_prompt = (
+            "Extract shared identity, setting, and short scene prompts from this story.\n"
+            f"Style prompt from local config: {self.prompt_config.get('style_prompt', '')}\n"
+            f"Scenes:\n{scene_lines}"
+        )
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+    def _json_schema(self) -> dict[str, Any]:
+        scene_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "scene_id",
+                "primary_action",
+                "secondary_elements",
+                "generation_prompt",
+                "scoring_prompt",
+                "action_prompt",
+            ],
+            "properties": {
+                "scene_id": {"type": "string"},
+                "primary_action": {"type": "string"},
+                "secondary_elements": {"type": "array", "items": {"type": "string"}},
+                "generation_prompt": {"type": "string"},
+                "scoring_prompt": {"type": "string"},
+                "action_prompt": {"type": "string"},
+            },
+        }
+        return {
+            "name": "story_prompt_plan",
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["global", "scenes"],
+                "properties": {
+                    "global": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["main_character", "identity_cues", "shared_setting", "style_cues"],
+                        "properties": {
+                            "main_character": {"type": "string"},
+                            "identity_cues": {"type": "array", "items": {"type": "string"}},
+                            "shared_setting": {"type": "array", "items": {"type": "string"}},
+                            "style_cues": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                    "scenes": {"type": "array", "items": scene_schema},
+                },
+            },
+        }
+
+    def _validate_structured_output(self, story: Story, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise LLMPromptError("LLM prompt output must be a JSON object")
+        global_payload = payload.get("global")
+        scenes_payload = payload.get("scenes")
+        if not isinstance(global_payload, dict) or not isinstance(scenes_payload, list):
+            raise LLMPromptError("LLM prompt output is missing global/scenes")
+        if len(scenes_payload) != len(story.scenes):
+            raise LLMPromptError("LLM scene count does not match parsed story")
+
+        expected_ids = [scene.scene_id for scene in story.scenes]
+        actual_ids = [scene.get("scene_id") if isinstance(scene, dict) else None for scene in scenes_payload]
+        if actual_ids != expected_ids:
+            raise LLMPromptError(f"LLM scene ids do not match parsed story: expected {expected_ids}, got {actual_ids}")
+
+        normalized_scenes = []
+        for scene_payload in scenes_payload:
+            if not isinstance(scene_payload, dict):
+                raise LLMPromptError("Each LLM scene entry must be an object")
+            generation_prompt = _trim_text(
+                scene_payload.get("generation_prompt"),
+                max_words=int(self.prompt_config.get("generation_max_words", 28)),
+                max_chars=int(self.prompt_config.get("generation_max_chars", 220)),
+            )
+            scoring_prompt = _trim_text(
+                scene_payload.get("scoring_prompt"),
+                max_words=int(self.prompt_config.get("scoring_max_words", 20)),
+                max_chars=int(self.prompt_config.get("scoring_max_chars", 160)),
+            )
+            action_prompt = _trim_text(
+                scene_payload.get("action_prompt"),
+                max_words=int(self.prompt_config.get("scoring_max_words", 20)),
+                max_chars=int(self.prompt_config.get("scoring_max_chars", 160)),
+            )
+            if not generation_prompt or not scoring_prompt or not action_prompt:
+                raise LLMPromptError(f"LLM prompt fields are missing or empty for {scene_payload.get('scene_id')}")
+            normalized_scenes.append(
+                {
+                    "scene_id": scene_payload["scene_id"],
+                    "primary_action": _normalize_text(scene_payload.get("primary_action")),
+                    "secondary_elements": _normalize_list(scene_payload.get("secondary_elements")),
+                    "generation_prompt": generation_prompt,
+                    "scoring_prompt": scoring_prompt,
+                    "action_prompt": action_prompt,
+                }
+            )
+
+        return {
+            "global": {
+                "main_character": _normalize_text(global_payload.get("main_character")),
+                "identity_cues": _normalize_list(global_payload.get("identity_cues")),
+                "shared_setting": _normalize_list(global_payload.get("shared_setting")),
+                "style_cues": _normalize_list(global_payload.get("style_cues")),
+            },
+            "scenes": normalized_scenes,
+        }
+
+    def _build_prompt_specs(self, story: Story, structured_output: dict[str, Any]) -> dict[str, PromptSpec]:
+        global_payload = structured_output["global"]
+        scene_payloads = {scene["scene_id"]: scene for scene in structured_output["scenes"]}
+        style_prompt = _normalize_text(self.prompt_config.get("style_prompt", ""))
+        negative_prompt = _normalize_text(self.prompt_config.get("negative_prompt", ""))
+        main_character = global_payload.get("main_character", "")
+        identity_cues = global_payload.get("identity_cues", [])
+        shared_setting = global_payload.get("shared_setting", [])
+        style_cues = global_payload.get("style_cues", [])
+        scene_continuity = _normalize_text(self.prompt_config.get("scene_continuity_prompt", ""))
+        character_prompt = _join_parts([main_character, *identity_cues])
+        global_context_prompt = _join_parts([*shared_setting, *style_cues, scene_continuity])
+
+        prompt_specs = {}
+        for scene in story.scenes:
+            scene_payload = scene_payloads[scene.scene_id]
+            local_prompt = _join_parts(
+                [
+                    scene.clean_text,
+                    scene_payload.get("primary_action", ""),
+                    *scene_payload.get("secondary_elements", []),
+                ]
+            )
+            full_prompt = _join_parts([style_prompt, character_prompt, global_context_prompt, local_prompt])
+            prompt_specs[scene.scene_id] = PromptSpec(
+                scene_id=scene.scene_id,
+                style_prompt=style_prompt,
+                character_prompt=character_prompt,
+                global_context_prompt=global_context_prompt,
+                local_prompt=local_prompt,
+                action_prompt=scene_payload["action_prompt"],
+                generation_prompt=scene_payload["generation_prompt"],
+                scoring_prompt=scene_payload["scoring_prompt"],
+                full_prompt=full_prompt,
+                negative_prompt=negative_prompt,
+            )
+        return prompt_specs
+
+    def _load_artifact(self, path: Path) -> dict[str, Any]:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if "validated_output" in payload:
+            return payload["validated_output"]
+        return payload
+
+    def _export_artifact_if_enabled(self, story: Story, cache_key: str, record: dict[str, Any]) -> None:
+        if not self.artifact_config.get("export_enabled", False):
+            return
+        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v1"))
+        story_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(story.source_path).stem).strip("_") or "story"
+        model_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.llm_config.get("model", "model")).strip("_")
+        schema_version = self.llm_config.get("schema_version", "v1")
+        output_path = export_dir / f"{story_slug}_{model_slug}_{schema_version}_{cache_key[:8]}.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact = {
+            "artifact_type": "llm_assisted_prompt",
+            "timestamp": _now(),
+            "request_metadata": record["request_metadata"],
+            "validated_output": record["validated_output"],
+        }
+        with output_path.open("w", encoding="utf-8") as handle:
+            json.dump(artifact, handle, indent=2, ensure_ascii=True, sort_keys=True)
+        self._log("llm_prompt_artifact_exported", path=str(output_path))
+
+    def _request_metadata(self, cache_key: str) -> dict[str, Any]:
+        return {
+            "cache_key": cache_key,
+            "provider": self.llm_config.get("provider", "openai"),
+            "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
+            "schema_version": self.llm_config.get("schema_version", "v1"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v1"),
+        }
+
+    def _log(self, event: str, **metadata: Any) -> None:
+        if self.event_logger is not None:
+            self.event_logger(event, **metadata)

@@ -150,9 +150,10 @@ Current source of truth: `src/storygen/prompt_pipelines.py`
 
 Implemented prompt pipelines:
 - `rule_based`: wraps the existing `PromptBuilder` and preserves baseline behavior
-- `api`: placeholder only; it raises `NotImplementedError`
+- `llm_assisted`: OpenAI-backed structured prompt planning with validation, local cache, shareable artifacts, and rule-based fallback
+- `api`: compatibility alias for `llm_assisted`
 
-`prompt.pipeline` is the config switch. Future API prompt work should implement the `api` pipeline without changing the rule-based baseline.
+`prompt.pipeline` is the config switch. LLM-assisted prompting must keep the downstream `PromptSpec` contract unchanged and must not replace the rule-based baseline.
 
 ## Planned Stable Interfaces
 
@@ -243,6 +244,7 @@ Current base profiles:
 - `demo_run`: fuller scene-level baseline
 - `cloud_strong_backbone`: scene-level diffusers profile reserved for stronger cloud backbones
 - `cloud_storydiffusion`: story-level StoryDiffusion placeholder; currently not runnable for real generation
+- `llm_prompt_smoke`: optional LLM-assisted prompt planning profile
 
 Expected comparison workflow:
 - baseline path
@@ -305,17 +307,28 @@ Each run should continue to preserve:
 Implemented:
 - dynamic runtime profiles from YAML
 - `prompt.pipeline=rule_based`
-- `prompt.pipeline=api` placeholder
+- `prompt.pipeline=llm_assisted`
+- `prompt.pipeline=api` alias for `llm_assisted`
 - `model.backend=diffusers_text2img` with `model.granularity=scene`
 - `model.backend=storydiffusion_direct` placeholder with `model.granularity=story`
 - minimal run logs under `outputs/<run_name>/logs/`
+- local prompt cache under `.cache/prompt_builder/`
+- shareable prompt artifacts under `prompt_artifacts/`
 
 Not implemented:
-- real API prompt generation
 - real StoryDiffusion generation
 - training-free attention/reference/latent components
 
 The current baseline behavior should remain unchanged for `smoke_test`, `demo_run`, and any profile using `diffusers_text2img + scene`.
+
+### LLM Prompt Sharing Rules
+
+- `.cache/prompt_builder/` is local acceleration state and should not be committed.
+- `prompt_artifacts/` is the collaboration surface for reviewed LLM prompt outputs.
+- To share generated prompts with teammates, export an artifact and commit or send that JSON.
+- To reuse teammate prompts, set `prompt.artifact.path`; this bypasses API calls.
+- API keys must come from environment variables and must never be written into configs, cache records, artifacts, or docs.
+- LLM-assisted prompting is for structured extraction and short prompt rewriting only; it does not own image generation or scoring.
 
 ## Controlled Experiment Expectations
 

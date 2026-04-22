@@ -126,7 +126,10 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
     save_resolved_config(run_context.run_directory / "config_resolved.yaml", config)
 
     story = parse_story_file(config["runtime"]["input_path"])
-    prompt_pipeline = build_prompt_pipeline(config["prompt"])
+    prompt_pipeline = build_prompt_pipeline(
+        config["prompt"],
+        event_logger=lambda event, **metadata: append_event(run_context, event, stage="prompt", **metadata),
+    )
     save_json(run_context.logs_directory / "prompt_pipeline.json", prompt_pipeline.metadata())
     append_event(
         run_context,

@@ -20,6 +20,23 @@ prompt:
   pipeline: rule_based
   rewriter:
     type: rule_based
+  cache:
+    enabled: true
+    cache_dir: .cache/prompt_builder
+  artifact:
+    path: null
+    export_enabled: false
+    export_dir: prompt_artifacts/llm_assisted_v1
+  llm:
+    provider: openai
+    model: gpt-4o-2024-08-06
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.0
+    max_output_tokens: 800
+    timeout_seconds: 30
+    schema_version: v1
+    builder_version: llm_assisted_v1
+    fallback_to_rule_based: true
   style_prompt: cinematic story illustration, coherent visual style
   subject_prefix: "main subject:"
   global_context_prefix: "shared story context:"
@@ -119,3 +136,8 @@ runtime_profiles:
     generation:
       candidate_count: 1
       base_seed: 2026
+  llm_prompt_smoke:
+    runtime:
+      run_name_prefix: llm_prompt
+    prompt:
+      pipeline: llm_assisted
