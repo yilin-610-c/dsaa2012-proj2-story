@@ -351,13 +351,14 @@ Implemented:
 - local prompt cache under `.cache/prompt_builder/`
 - shareable prompt artifacts under `prompt_artifacts/`
 - `character_specs` prompt-bundle metadata for future identity conditioning
+- optional run-local anchor bank generation under `outputs/<run_name>/anchors/`
 - optional conservative img2img routing through `generation.routing`
 - optional LLM-guided multi-level routing through `route_policy=llm_guided_conservative`
 
 Not implemented:
 - real StoryDiffusion generation
 - training-free attention/reference/latent components
-- anchor generation / anchor bank population
+- shared anchor artifacts / anchor reuse
 - IP-Adapter identity conditioning
 
 The current baseline behavior should remain unchanged for `smoke_test`, `demo_run`, and any profile using `diffusers_text2img + scene`.
@@ -564,6 +565,36 @@ Validation:
 - targeted result: `43 passed`
 - full regression command: `conda run -n storygen env PYTHONPATH=src pytest -q`
 - full regression result: `77 passed`
+
+### 2026-04-23: Anchor Bank v1
+
+Implemented:
+- added config-gated run-local anchor bank generation
+- anchor bank consumes `PromptBundle.metadata["character_specs"]`
+- generated anchors are written under `outputs/<run_name>/anchors/<character_id>/`
+- `logs/anchor_bank.json` records anchor prompts, seeds, paths, and source character specs
+- added profile `llm_prompt_anchor_bank`
+
+Behavior preserved:
+- v1 does not implement IP-Adapter or reference conditioning
+- anchors are not passed into scene `GenerationRequest.reference_image_path`
+- anchors are not used by routing, scoring, scene generation, or selection
+- portrait anchors must not be used as scene 1 init images
+
+Scope:
+- v1 is run-local only
+- no `anchor_artifacts/` sharing/export/reuse yet
+- future IP-Adapter work should consume anchor paths through a separate config-gated identity-conditioning path
+
+Traceability note:
+- attempted checkpoint was skipped because `.git/refs/heads` was not writable in this environment
+- baseline recorded before edits: `main@1e4feca`
+
+Validation:
+- targeted command: `conda run -n storygen env PYTHONPATH=src pytest -q tests/test_anchor_bank.py tests/test_pipeline_logging.py tests/test_generators.py tests/test_prompt_pipelines.py`
+- targeted result: `25 passed`
+- full regression command: `conda run -n storygen env PYTHONPATH=src pytest -q`
+- full regression result: `82 passed`
 
 ## Shared Code Rules
 

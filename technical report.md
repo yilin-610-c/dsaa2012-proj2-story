@@ -72,6 +72,8 @@ Current Phase 2 preparation:
 - LLM-assisted runs emit structured stable visual identity fields through `global.characters`.
 - These specs are not used by generation yet; they are the planned input contract for anchor bank and IP-Adapter conditioning.
 - The LLM builder version was bumped to `llm_assisted_v6`, so old v5 cache/artifacts without character specs are not reused.
+- Anchor Bank v1 generates run-local portrait and half-body identity anchors from `CharacterSpec`.
+- Anchor Bank v1 does not feed anchors into scene generation yet; IP-Adapter conditioning remains the next phase.
 
 ## Controlled Comparisons on Test-A
 

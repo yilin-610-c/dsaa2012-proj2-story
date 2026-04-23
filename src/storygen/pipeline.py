@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from storygen import __version__
+from storygen.anchor_bank import run_anchor_bank
 from storygen.generators import (
     BaseSceneGenerator,
     BaseStoryGenerator,
@@ -160,6 +161,18 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
 
     if not isinstance(generator, BaseSceneGenerator):
         raise TypeError(f"Expected a scene-level generator, got {type(generator).__name__}")
+
+    anchor_bank_summary = run_anchor_bank(
+        character_specs=prompt_bundle.metadata.get("character_specs", {}),
+        anchor_config=config.get("generation", {}).get("anchor_bank", {}),
+        run_context=run_context,
+        prompt_config=config.get("prompt", {}),
+        model_config=config.get("model", {}),
+        generator=generator,
+        event_logger=lambda event, **metadata: append_event(run_context, event, stage="anchor_bank", **metadata),
+    )
+    if anchor_bank_summary.get("enabled", False):
+        save_json(run_context.logs_directory / "anchor_bank.json", anchor_bank_summary)
 
     scorer = _build_scorer(config)
 

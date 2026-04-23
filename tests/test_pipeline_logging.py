@@ -272,3 +272,70 @@ def test_character_specs_metadata_does_not_change_downstream_generation_requests
             request_without.previous_selected_image_path
         )
         assert request_with.extra_options == request_without.extra_options
+
+
+def test_anchor_bank_disabled_does_not_create_anchor_outputs_or_change_scene_requests(tmp_path, monkeypatch) -> None:
+    generator = FakeSceneGenerator()
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", lambda model, runtime: generator)
+    config = resolve_config(
+        "configs/base.yaml",
+        "smoke_test",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "anchor_disabled",
+            "scoring.type": "heuristic",
+            "generation.candidate_count": 1,
+            "generation.anchor_bank.enabled": False,
+        },
+    )
+
+    summary = run_pipeline(config)
+    run_dir = Path(summary.run_directory)
+
+    assert not (run_dir / "anchors").exists()
+    assert not (run_dir / "logs" / "anchor_bank.json").exists()
+    assert all(request.reference_image_path is None for request in generator.requests)
+    assert all("anchor_type" not in request.extra_options for request in generator.requests)
+
+
+def test_anchor_bank_enabled_generates_run_local_anchors_without_scene_reference_paths(tmp_path, monkeypatch) -> None:
+    generator = FakeSceneGenerator()
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", lambda model, runtime: generator)
+    config = resolve_config(
+        "configs/base.yaml",
+        "llm_prompt_anchor_bank",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "anchor_enabled",
+            "scoring.type": "heuristic",
+            "generation.candidate_count": 1,
+            "prompt.pipeline": "rule_based",
+            "runtime.input_path": "test_set/06.txt",
+            "generation.anchor_bank.anchor_types": ["portrait", "half_body"],
+        },
+    )
+
+    summary = run_pipeline(config)
+    run_dir = Path(summary.run_directory)
+    anchor_log = json.loads((run_dir / "logs" / "anchor_bank.json").read_text(encoding="utf-8"))
+    events = [json.loads(line) for line in (run_dir / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    event_names = [event["event"] for event in events]
+
+    assert (run_dir / "anchors" / "Jack" / "anchor_spec.json").exists()
+    assert (run_dir / "anchors" / "Sara" / "anchor_spec.json").exists()
+    assert (run_dir / "anchors" / "Jack" / "portrait.png").exists()
+    assert (run_dir / "anchors" / "Jack" / "half_body.png").exists()
+    assert list(anchor_log["characters"]) == ["Jack", "Sara"]
+    assert anchor_log["characters"]["Jack"]["anchors"]["portrait"]["seed"] == 900000
+    assert "anchor_bank_started" in event_names
+    assert "anchor_generation_started" in event_names
+    assert "anchor_generation_completed" in event_names
+    assert "anchor_bank_completed" in event_names
+
+    scene_requests = [request for request in generator.requests if not request.scene_id.startswith("ANCHOR-")]
+    anchor_requests = [request for request in generator.requests if request.scene_id.startswith("ANCHOR-")]
+    assert len(anchor_requests) == 4
+    assert len(scene_requests) == len(summary.scene_results)
+    assert all(request.reference_image_path is None for request in scene_requests)
+    assert all("anchor_type" not in request.extra_options for request in scene_requests)
+    assert all(request.extra_options["generation_mode"] == "text2img" for request in anchor_requests)

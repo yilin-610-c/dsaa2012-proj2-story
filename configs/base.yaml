@@ -105,6 +105,15 @@ generation:
     enabled: false
     adapter_type: ip_adapter
     anchor_source: character_anchor_bank
+  anchor_bank:
+    enabled: false
+    generate: false
+    anchor_types:
+      - portrait
+      - half_body
+    output_dir_name: anchors
+    base_seed_offset: 900000
+    prompt_suffix: clean identity reference image, simple background, consistent character design
 
 scoring:
   type: clip_consistency
@@ -235,3 +244,15 @@ runtime_profiles:
     scoring:
       route_aware:
         enabled: true
+  llm_prompt_anchor_bank:
+    runtime:
+      run_name_prefix: llm_anchor_bank
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: false
+        route_policy: disabled
+      anchor_bank:
+        enabled: true
+        generate: true

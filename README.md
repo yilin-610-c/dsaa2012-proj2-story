@@ -67,6 +67,7 @@ Available profiles in the base config:
 - `rule_prompt_img2img`: rule-based prompts with conservative img2img continuity routing.
 - `llm_prompt_img2img`: LLM-assisted prompts with conservative img2img continuity routing.
 - `llm_prompt_img2img_guided`: LLM-assisted prompts with LLM-guided small/medium/large route execution.
+- `llm_prompt_anchor_bank`: LLM-assisted prompts plus run-local anchor generation; anchors are not consumed by scene generation yet.
 
 ## LLM-Assisted Prompts
 
@@ -110,6 +111,22 @@ prompt:
     path: prompt_artifacts/llm_assisted_v6/example.json
 ```
 
+## Anchor Bank v1
+
+Anchor Bank v1 is an optional run-local identity asset step. It consumes `PromptBundle.metadata["character_specs"]`, builds portrait and half-body anchor prompts, and writes generated identity anchors under:
+
+```text
+outputs/<run_name>/anchors/<character_id>/
+```
+
+This is not IP-Adapter yet. Anchors are not passed into scene generation, routing, scoring, or selection. Scene `GenerationRequest.reference_image_path` remains unset in v1, so baseline behavior is preserved unless a future identity-conditioning profile explicitly consumes these anchors.
+
+Run-local anchor generation:
+
+```bash
+PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_anchor_bank --input test_set/06.txt
+```
+
 ## Ablation Runs
 
 Use profiles to switch major components without code edits:
@@ -147,12 +164,15 @@ Each run writes to `outputs/<run_name>/` and includes:
 - `manifest.json`
 - `run_summary.json`
 - `logs/prompt_pipeline.json`
+- `logs/prompt_bundle.json`
+- `logs/anchor_bank.json` when anchor bank is enabled
 - `logs/generation_backend.json`
 - `logs/events.jsonl`
 - `scenes/scene_XXX/prompt.json`
 - `scenes/scene_XXX/candidates/*.png`
 - `scenes/scene_XXX/scene_result.json`
 - `scenes/scene_XXX/selected.png`
+- `anchors/<character_id>/anchor_spec.json` and generated anchor images when anchor bank is enabled
 
 The run metadata includes the resolved config, runtime profile, model id, timestamp, git commit id when available, pipeline version, seeds, and selected outputs.
 
@@ -168,5 +188,6 @@ The run metadata includes the resolved config, runtime profile, model id, timest
 - `model.backend=storydiffusion_direct` is a story-level placeholder and raises `NotImplementedError` until the StoryDiffusion backend is implemented.
 - `previous_selected_image_path` is used by the optional img2img continuity route when enabled.
 - `character_specs` are written as prompt-bundle metadata for future anchor/IP-Adapter conditioning.
+- `generation.anchor_bank` can generate run-local identity anchors from `character_specs`, but v1 does not feed them back into scene generation.
 - `reference_image_path` is reserved for future anchor/IP-Adapter image conditioning.
 - The scoring layer now includes a CLIP-based reranker for prompt adherence and previous-frame consistency, while remaining replaceable for future scorers.
