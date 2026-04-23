@@ -65,6 +65,14 @@ Future roadmap:
 4. Support hybrid routes: text2img, text2img + identity conditioning, img2img + identity conditioning.
 5. Only later consider ControlNet, refiner, shared attention, or multi-adapter setups.
 
+Current Phase 2 preparation:
+
+- `CharacterSpec` extraction is implemented as prompt-bundle metadata.
+- Rule-based runs emit a minimal character id spec.
+- LLM-assisted runs emit structured stable visual identity fields through `global.characters`.
+- These specs are not used by generation yet; they are the planned input contract for anchor bank and IP-Adapter conditioning.
+- The LLM builder version was bumped to `llm_assisted_v6`, so old v5 cache/artifacts without character specs are not reused.
+
 ## Controlled Comparisons on Test-A
 
 Core ablations:
@@ -108,7 +116,7 @@ Mitigations added after the cat failure:
 
 - LLM prompt instructions now require visual, reusable identity cues and explicitly forbid substituting animals for human characters.
 - The local prompt assembler merges stable identity into the actual `generation_prompt`.
-- Human-character scenes append `cat, dog, animal, pet, non-human subject` to the `negative_prompt`.
+- Human-character scenes may append narrow pet-substitution suppression terms to the `negative_prompt`; non-human characters should not receive a generic non-human suppression term.
 - The LLM builder version was bumped to `llm_assisted_v3`, so old cached prompts that caused the failure are not reused.
 
 Mitigations added after the img2img under-change failure:

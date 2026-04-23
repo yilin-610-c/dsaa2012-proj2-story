@@ -230,6 +230,13 @@ Intended fields:
 Rule:
 - do not put scene-specific action, pose, emotion, object state, or transient lighting into `CharacterSpec`
 
+Active metadata contract:
+- `PromptBundle.metadata["character_specs"]` is a `dict`
+- each key is a `character_id`
+- each value is the JSON-serialized `CharacterSpec`
+- this metadata is not consumed by generator, scorer, routing, or selection yet
+- future anchor bank and IP-Adapter work should consume this contract instead of parsing identity back out of prompt strings
+
 ### `ScoringSpec` (planned)
 
 Purpose:
@@ -343,6 +350,7 @@ Implemented:
 - minimal run logs under `outputs/<run_name>/logs/`
 - local prompt cache under `.cache/prompt_builder/`
 - shareable prompt artifacts under `prompt_artifacts/`
+- `character_specs` prompt-bundle metadata for future identity conditioning
 - optional conservative img2img routing through `generation.routing`
 - optional LLM-guided multi-level routing through `route_policy=llm_guided_conservative`
 
@@ -508,6 +516,54 @@ Remaining limitation:
 - character identity consistency became weaker across text2img composition-changing scenes
 - scene 3 captured the book/reading composition better than the eating action
 - this supports the next phase: identity anchors or IP-Adapter for text2img scenes, rather than using previous-frame img2img as the identity mechanism
+
+### 2026-04-23: CharacterSpec Extraction Metadata
+
+Implemented:
+- added `character_specs` to `PromptBundle.metadata`
+- rule-based prompting now emits a minimal `CharacterSpec` with `metadata.source=rule_based`
+- LLM-assisted prompting now asks for structured stable character identity blocks under `global.characters`
+- bumped the LLM prompt builder/cache/artifact namespace to `llm_assisted_v6`
+- added `src/storygen/character_specs.py` as the extraction boundary for future anchor bank and IP-Adapter work
+
+Behavior preserved:
+- `PromptSpec` is unchanged
+- generator, scorer, routing, and image selection do not read `CharacterSpec` yet
+- baseline profiles remain runnable and should produce the same generation behavior apart from extra metadata logs
+
+Rules:
+- `CharacterSpec` must contain stable visible identity only
+- do not include action, pose, emotion, temporary objects, object state, lighting, camera framing, or scene-specific context
+- future anchor bank and IP-Adapter work should consume `PromptBundle.metadata["character_specs"]` through config-gated paths
+
+Validation:
+- targeted tests: `conda run -n storygen env PYTHONPATH=src pytest -q tests/test_llm_assisted_prompt_builder.py tests/test_prompt_pipelines.py tests/test_pipeline_logging.py tests/test_config.py`
+- result: `32 passed`
+
+Traceability note:
+- attempted to create `feat/character-spec-extraction` and `character-spec-extraction` branches before editing, but `.git/refs` was read-only in this environment
+- baseline recorded before edits: `main@34d0d17`
+
+### 2026-04-23: CharacterSpec Multi-Character Hardening
+
+Implemented:
+- rule-based `character_specs` now emits all recurring characters in deterministic order
+- when no recurring characters are tagged, rule-based extraction falls back to all parsed entities instead of only the first entity
+- stories with no extractable entities now produce an empty `character_specs` dict
+- LLM-assisted tests cover multi-character specs and main-character alignment validation
+- human negative prompt augmentation no longer adds a generic `non-human subject` suppression term
+
+Behavior preserved:
+- `character_specs` remains metadata-only
+- generator, scorer, routing, and selection inputs are unchanged by the presence of `character_specs`
+- non-human characters should not be forced into `human person` identity prompts or excluded by generic non-human negative prompts
+
+Validation:
+- targeted tests include rule-based sparse/multi-character stories, non-human LLM prompt behavior, and a downstream request regression proving `character_specs` is non-intrusive
+- targeted command: `conda run -n storygen env PYTHONPATH=src pytest -q tests/test_llm_assisted_prompt_builder.py tests/test_prompt_pipelines.py tests/test_pipeline_logging.py tests/test_prompt_builder.py`
+- targeted result: `43 passed`
+- full regression command: `conda run -n storygen env PYTHONPATH=src pytest -q`
+- full regression result: `77 passed`
 
 ## Shared Code Rules
 

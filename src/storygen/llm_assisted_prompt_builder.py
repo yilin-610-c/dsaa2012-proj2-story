@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from storygen.character_specs import build_llm_character_specs, build_rule_based_character_specs
 from storygen.llm_client import BaseLLMClient, build_llm_client
 from storygen.prompt_builder import PromptBuilder
 from storygen.prompt_cache import PromptCache, build_cache_record, build_prompt_cache_key
@@ -120,10 +121,35 @@ def _contains_human_identity(character_prompt: str) -> bool:
     return any(term in lowered for term in human_terms)
 
 
+def _contains_animal_identity(character_prompt: str) -> bool:
+    lowered = character_prompt.lower()
+    animal_terms = [
+        "animal",
+        "bird",
+        "cat",
+        "dog",
+        "horse",
+        "fox",
+        "wolf",
+        "bear",
+        "rabbit",
+        "lion",
+        "tiger",
+        "deer",
+        "fish",
+        "wings",
+        "feather",
+        "fur",
+    ]
+    return any(term in lowered for term in animal_terms)
+
+
 def _ensure_human_identity(character_prompt: str) -> str:
     if not character_prompt:
         return character_prompt
     if _contains_human_identity(character_prompt):
+        return character_prompt
+    if _contains_animal_identity(character_prompt):
         return character_prompt
     return _join_parts(["human person", character_prompt])
 
@@ -137,7 +163,7 @@ def _merge_identity_into_generation_prompt(character_prompt: str, generation_pro
 def _merge_human_negative_prompt(character_prompt: str, negative_prompt: str) -> str:
     if not _contains_human_identity(_ensure_human_identity(character_prompt)):
         return negative_prompt
-    return _join_parts([negative_prompt, "cat, dog, animal, pet, non-human subject"])
+    return _join_parts([negative_prompt, "cat, dog, pet animal"])
 
 
 def _normalize_route_factors(value: Any) -> dict[str, Any]:
@@ -181,17 +207,20 @@ class LLMAssistedPromptBuilder:
         self.llm_client = llm_client
         self.event_logger = event_logger
         self.last_route_hints: dict[str, dict[str, Any]] = {}
+        self.last_character_specs: dict[str, dict[str, Any]] = {}
 
     def build_story_prompts(self, story: Story) -> dict[str, PromptSpec]:
         try:
             structured_output = self._load_or_generate_structured_output(story)
             self.last_route_hints = self._build_route_hints(structured_output)
+            self.last_character_specs = build_llm_character_specs(structured_output, story)
             return self._build_prompt_specs(story, structured_output)
         except Exception as exc:
             self._log("llm_prompt_validation_failed", error=str(exc))
             if self.llm_config.get("fallback_to_rule_based", True):
                 self._log("llm_prompt_fallback_to_rule_based", error=str(exc))
                 self.last_route_hints = {}
+                self.last_character_specs = build_rule_based_character_specs(story)
                 return self.rule_based_builder.build_story_prompts(story)
             if isinstance(exc, LLMPromptError):
                 raise
@@ -204,10 +233,11 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v5"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v6"),
             "cache_enabled": bool(self.cache_config.get("enabled", True)),
             "artifact_path": self.artifact_config.get("path"),
             "scene_route_hints": self.last_route_hints,
+            "character_specs": self.last_character_specs,
         }
 
     def _load_or_generate_structured_output(self, story: Story) -> dict[str, Any]:
@@ -277,6 +307,10 @@ class LLMAssistedPromptBuilder:
             "Extract shared identity, setting, and short scene prompts from this story.\n"
             "Rules:\n"
             "- identity_cues must be visual and reusable across panels, not personality traits.\n"
+            "- global.characters must contain stable visual identity blocks for recurring characters.\n"
+            "- character specs may include age_band, gender_presentation, hair_color, hairstyle, skin_tone, body_build, signature_outfit, signature_accessory, and profession_marker.\n"
+            "- character specs must not include scene-specific action, pose, emotion, temporary props, object state, lighting, or camera framing.\n"
+            "- Leave uncertain character spec fields empty instead of inventing details.\n"
             "- If the main character is human, state that clearly in identity_cues using terms like human woman, human girl, human man, or human person.\n"
             "- Never substitute an animal or pet for a human character.\n"
             "- generation_prompt must be a short image description phrase, not a command; do not start with "
@@ -351,6 +385,35 @@ class LLMAssistedPromptBuilder:
                 "route_reason": {"type": "string"},
             },
         }
+        nullable_short_string = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        character_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "character_id",
+                "age_band",
+                "gender_presentation",
+                "hair_color",
+                "hairstyle",
+                "skin_tone",
+                "body_build",
+                "signature_outfit",
+                "signature_accessory",
+                "profession_marker",
+            ],
+            "properties": {
+                "character_id": {"type": "string"},
+                "age_band": nullable_short_string,
+                "gender_presentation": nullable_short_string,
+                "hair_color": nullable_short_string,
+                "hairstyle": nullable_short_string,
+                "skin_tone": nullable_short_string,
+                "body_build": nullable_short_string,
+                "signature_outfit": nullable_short_string,
+                "signature_accessory": nullable_short_string,
+                "profession_marker": nullable_short_string,
+            },
+        }
         return {
             "name": "story_prompt_plan",
             "schema": {
@@ -361,12 +424,13 @@ class LLMAssistedPromptBuilder:
                     "global": {
                         "type": "object",
                         "additionalProperties": False,
-                        "required": ["main_character", "identity_cues", "shared_setting", "style_cues"],
+                        "required": ["main_character", "identity_cues", "shared_setting", "style_cues", "characters"],
                         "properties": {
                             "main_character": {"type": "string"},
                             "identity_cues": {"type": "array", "items": {"type": "string"}},
                             "shared_setting": {"type": "array", "items": {"type": "string"}},
                             "style_cues": {"type": "array", "items": {"type": "string"}},
+                            "characters": {"type": "array", "items": character_schema},
                         },
                     },
                     "scenes": {"type": "array", "items": scene_schema},
@@ -381,6 +445,9 @@ class LLMAssistedPromptBuilder:
         scenes_payload = payload.get("scenes")
         if not isinstance(global_payload, dict) or not isinstance(scenes_payload, list):
             raise LLMPromptError("LLM prompt output is missing global/scenes")
+        characters_payload = global_payload.get("characters")
+        if not isinstance(characters_payload, list) or not characters_payload:
+            raise LLMPromptError("LLM prompt output is missing global.characters")
         if len(scenes_payload) != len(story.scenes):
             raise LLMPromptError("LLM scene count does not match parsed story")
 
@@ -443,15 +510,53 @@ class LLMAssistedPromptBuilder:
                 }
             )
 
+        normalized_global = {
+            "main_character": _normalize_text(global_payload.get("main_character")),
+            "identity_cues": _normalize_list(global_payload.get("identity_cues")),
+            "shared_setting": _normalize_list(global_payload.get("shared_setting")),
+            "style_cues": _normalize_list(global_payload.get("style_cues")),
+            "characters": self._normalize_character_specs(global_payload.get("characters")),
+        }
+        main_character = normalized_global["main_character"].lower()
+        character_ids = {character["character_id"].lower() for character in normalized_global["characters"]}
+        if main_character and main_character not in character_ids:
+            raise LLMPromptError(f"LLM character specs do not include main_character: {normalized_global['main_character']}")
+
         return {
-            "global": {
-                "main_character": _normalize_text(global_payload.get("main_character")),
-                "identity_cues": _normalize_list(global_payload.get("identity_cues")),
-                "shared_setting": _normalize_list(global_payload.get("shared_setting")),
-                "style_cues": _normalize_list(global_payload.get("style_cues")),
-            },
+            "global": normalized_global,
             "scenes": normalized_scenes,
         }
+
+    def _normalize_character_specs(self, characters_payload: Any) -> list[dict[str, Any]]:
+        if not isinstance(characters_payload, list) or not characters_payload:
+            raise LLMPromptError("LLM global.characters must be a non-empty list")
+        normalized_characters = []
+        seen = set()
+        for character_payload in characters_payload:
+            if not isinstance(character_payload, dict):
+                raise LLMPromptError("Each LLM character spec must be an object")
+            character_id = _normalize_text(character_payload.get("character_id"))
+            if not character_id:
+                raise LLMPromptError("LLM character spec is missing character_id")
+            key = character_id.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized_characters.append(
+                {
+                    "character_id": character_id,
+                    "age_band": _normalize_text(character_payload.get("age_band")),
+                    "gender_presentation": _normalize_text(character_payload.get("gender_presentation")),
+                    "hair_color": _normalize_text(character_payload.get("hair_color")),
+                    "hairstyle": _normalize_text(character_payload.get("hairstyle")),
+                    "skin_tone": _normalize_text(character_payload.get("skin_tone")),
+                    "body_build": _normalize_text(character_payload.get("body_build")),
+                    "signature_outfit": _normalize_text(character_payload.get("signature_outfit")),
+                    "signature_accessory": _normalize_text(character_payload.get("signature_accessory")),
+                    "profession_marker": _normalize_text(character_payload.get("profession_marker")),
+                }
+            )
+        return normalized_characters
 
     def _build_route_hints(self, structured_output: dict[str, Any]) -> dict[str, dict[str, Any]]:
         hints = {}
@@ -526,7 +631,7 @@ class LLMAssistedPromptBuilder:
     def _export_artifact_if_enabled(self, story: Story, cache_key: str, record: dict[str, Any]) -> None:
         if not self.artifact_config.get("export_enabled", False):
             return
-        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v5"))
+        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v6"))
         story_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(story.source_path).stem).strip("_") or "story"
         model_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.llm_config.get("model", "model")).strip("_")
         schema_version = self.llm_config.get("schema_version", "v1")
@@ -548,7 +653,7 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v5"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v6"),
         }
 
     def _log(self, event: str, **metadata: Any) -> None:

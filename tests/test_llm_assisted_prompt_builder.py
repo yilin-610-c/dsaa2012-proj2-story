@@ -42,6 +42,31 @@ def _story(raw_text: str = "Hero runs.\nHero stops.") -> Story:
     )
 
 
+def _two_character_story() -> Story:
+    return Story(
+        source_path="story.txt",
+        raw_text="Jack and Sara talk.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Jack> and <Sara> talk.", "Jack and Sara talk.", ["Jack", "Sara"]),
+            Scene("SCENE-2", 1, "They visit a cafe.", "They visit a cafe.", []),
+        ],
+        all_entities=["Jack", "Sara"],
+        recurring_entities=[],
+        entity_to_scene_ids={"Jack": ["SCENE-1"], "Sara": ["SCENE-1"]},
+    )
+
+
+def _bird_story() -> Story:
+    return Story(
+        source_path="story.txt",
+        raw_text="Bird flies.",
+        scenes=[Scene("SCENE-1", 0, "<Bird> flies.", "Bird flies.", ["Bird"])],
+        all_entities=["Bird"],
+        recurring_entities=[],
+        entity_to_scene_ids={"Bird": ["SCENE-1"]},
+    )
+
+
 def _prompt_config(tmp_path: Path, *, fallback: bool = True, cache_enabled: bool = True) -> dict:
     return {
         "pipeline": "llm_assisted",
@@ -83,7 +108,7 @@ def _prompt_config(tmp_path: Path, *, fallback: bool = True, cache_enabled: bool
             "max_output_tokens": 800,
             "timeout_seconds": 30,
             "schema_version": "v1",
-            "builder_version": "llm_assisted_v5",
+            "builder_version": "llm_assisted_v6",
             "fallback_to_rule_based": fallback,
         },
     }
@@ -115,6 +140,20 @@ def _llm_payload() -> dict:
             "identity_cues": ["same red jacket"],
             "shared_setting": ["city park"],
             "style_cues": ["cinematic illustration", "clean storyboard frame"],
+            "characters": [
+                {
+                    "character_id": "Hero",
+                    "age_band": "adult",
+                    "gender_presentation": "unspecified",
+                    "hair_color": "",
+                    "hairstyle": "",
+                    "skin_tone": "",
+                    "body_build": "",
+                    "signature_outfit": "red jacket",
+                    "signature_accessory": "",
+                    "profession_marker": "",
+                }
+            ],
         },
         "scenes": [
             {
@@ -147,6 +186,111 @@ def _llm_payload() -> dict:
     }
 
 
+def _two_character_llm_payload() -> dict:
+    payload = _llm_payload()
+    payload["global"] = {
+        "main_character": "Jack",
+        "identity_cues": ["Jack with black jacket", "Sara with yellow scarf"],
+        "shared_setting": ["park and cafe"],
+        "style_cues": ["clean storyboard frame"],
+        "characters": [
+            {
+                "character_id": "Jack",
+                "age_band": "adult",
+                "gender_presentation": "man",
+                "hair_color": "black",
+                "hairstyle": "short hair",
+                "skin_tone": "",
+                "body_build": "",
+                "signature_outfit": "black jacket",
+                "signature_accessory": "",
+                "profession_marker": "",
+            },
+            {
+                "character_id": "Sara",
+                "age_band": "adult",
+                "gender_presentation": "woman",
+                "hair_color": "brown",
+                "hairstyle": "shoulder-length hair",
+                "skin_tone": "",
+                "body_build": "",
+                "signature_outfit": "",
+                "signature_accessory": "yellow scarf",
+                "profession_marker": "",
+            },
+        ],
+    }
+    payload["scenes"] = [
+        {
+            "scene_id": "SCENE-1",
+            "primary_action": "talk",
+            "secondary_elements": ["park bench"],
+            "generation_prompt": "Jack and Sara talking on a park bench",
+            "scoring_prompt": "two people talking",
+            "action_prompt": "talking",
+            "continuity_subject_ids": ["Jack", "Sara"],
+            "continuity_route_hint": "text2img",
+            "route_change_level": "large",
+            "route_factors": _route_factors(same_subject=True),
+            "route_reason": "First scene establishes both characters.",
+        },
+        {
+            "scene_id": "SCENE-2",
+            "primary_action": "visit cafe",
+            "secondary_elements": ["cafe table"],
+            "generation_prompt": "Jack and Sara sitting at a cafe table",
+            "scoring_prompt": "two people at a cafe",
+            "action_prompt": "sitting at cafe",
+            "continuity_subject_ids": ["Jack", "Sara"],
+            "continuity_route_hint": "text2img",
+            "route_change_level": "large",
+            "route_factors": _route_factors(same_subject=True, same_setting=False, composition_change_needed=True),
+            "route_reason": "Same characters but setting changes.",
+        },
+    ]
+    return payload
+
+
+def _bird_llm_payload() -> dict:
+    return {
+        "global": {
+            "main_character": "Bird",
+            "identity_cues": ["small blue bird", "feathered wings"],
+            "shared_setting": ["tree branch"],
+            "style_cues": ["clean storyboard frame"],
+            "characters": [
+                {
+                    "character_id": "Bird",
+                    "age_band": "",
+                    "gender_presentation": "",
+                    "hair_color": "",
+                    "hairstyle": "",
+                    "skin_tone": "",
+                    "body_build": "small bird body",
+                    "signature_outfit": "",
+                    "signature_accessory": "",
+                    "profession_marker": "",
+                }
+            ],
+        },
+        "scenes": [
+            {
+                "scene_id": "SCENE-1",
+                "primary_action": "flies",
+                "secondary_elements": ["branch"],
+                "generation_prompt": "Bird flying from a branch",
+                "scoring_prompt": "bird flying",
+                "action_prompt": "flying",
+                "continuity_subject_ids": ["Bird"],
+                "continuity_route_hint": "text2img",
+                "route_change_level": "large",
+                "route_factors": _route_factors(),
+                "route_reason": "First scene establishes the bird.",
+            }
+        ],
+    }
+
+
 def test_llm_builder_cache_miss_calls_client_and_writes_cache(tmp_path: Path) -> None:
     client = FakeLLMClient()
     config = _prompt_config(tmp_path)
@@ -161,7 +305,8 @@ def test_llm_builder_cache_miss_calls_client_and_writes_cache(tmp_path: Path) ->
     assert prompts["SCENE-1"].scoring_prompt == "Hero runs"
     assert prompts["SCENE-1"].action_prompt == "running"
     assert prompts["SCENE-1"].global_context_prompt == "city park, clean storyboard frame, keep the same lighting and palette"
-    assert "cat, dog, animal, pet, non-human subject" in prompts["SCENE-1"].negative_prompt
+    assert "cat, dog, pet animal" in prompts["SCENE-1"].negative_prompt
+    assert "non-human subject" not in prompts["SCENE-1"].negative_prompt
     assert prompts["SCENE-1"].full_prompt
 
 
@@ -177,6 +322,56 @@ def test_llm_pipeline_metadata_includes_route_hints(tmp_path: Path) -> None:
     assert route_hints["SCENE-2"]["route_change_level"] == "small"
     assert route_hints["SCENE-2"]["llm_route_change_level"] == "small"
     assert route_hints["SCENE-2"]["route_factors"]["same_subject"] is True
+
+
+def test_llm_pipeline_metadata_includes_character_specs(tmp_path: Path) -> None:
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient()
+
+    bundle = pipeline.build(_story())
+
+    character_specs = bundle.metadata["character_specs"]
+    assert character_specs["Hero"]["character_id"] == "Hero"
+    assert character_specs["Hero"]["age_band"] == "adult"
+    assert character_specs["Hero"]["signature_outfit"] == "red jacket"
+    assert character_specs["Hero"]["metadata"]["source"] == "llm_assisted"
+
+
+def test_llm_pipeline_metadata_includes_multiple_character_specs(tmp_path: Path) -> None:
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path, cache_enabled=False), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient(_two_character_llm_payload())
+
+    bundle = pipeline.build(_two_character_story())
+
+    character_specs = bundle.metadata["character_specs"]
+    assert list(character_specs) == ["Jack", "Sara"]
+    assert len(character_specs) == len(set(character_specs))
+    assert character_specs["Jack"]["signature_outfit"] == "black jacket"
+    assert character_specs["Sara"]["signature_accessory"] == "yellow scarf"
+
+
+def test_llm_main_character_must_align_with_character_specs(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["global"]["main_character"] = "Missing"
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, fallback=False, cache_enabled=False),
+        llm_client=FakeLLMClient(payload),
+    )
+
+    with pytest.raises(LLMPromptError, match="main_character"):
+        builder.build_story_prompts(_two_character_story())
+
+
+def test_llm_non_human_character_does_not_get_human_negative_suppression(tmp_path: Path) -> None:
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(_bird_llm_payload()),
+    )
+
+    prompts = builder.build_story_prompts(_bird_story())
+
+    assert not prompts["SCENE-1"].generation_prompt.startswith("human person")
+    assert prompts["SCENE-1"].negative_prompt == "blurry"
 
 
 def test_llm_route_factors_adjust_small_to_medium(tmp_path: Path) -> None:
@@ -222,6 +417,31 @@ def test_llm_builder_cache_hit_skips_client(tmp_path: Path) -> None:
     assert prompts["SCENE-2"].generation_prompt == "human person, Hero, same red jacket, Hero stops"
 
 
+def test_llm_payload_missing_characters_falls_back_when_enabled(tmp_path: Path) -> None:
+    payload = _llm_payload()
+    del payload["global"]["characters"]
+    client = FakeLLMClient(payload)
+    builder = LLMAssistedPromptBuilder(_prompt_config(tmp_path, cache_enabled=False), llm_client=client)
+
+    prompts = builder.build_story_prompts(_story())
+
+    assert prompts["SCENE-1"].character_prompt.startswith("main subject: Hero")
+    assert builder.last_character_specs["Hero"]["metadata"]["source"] == "rule_based"
+
+
+def test_llm_payload_missing_characters_raises_when_fallback_disabled(tmp_path: Path) -> None:
+    payload = _llm_payload()
+    del payload["global"]["characters"]
+    client = FakeLLMClient(payload)
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, fallback=False, cache_enabled=False),
+        llm_client=client,
+    )
+
+    with pytest.raises(LLMPromptError, match="global.characters"):
+        builder.build_story_prompts(_story())
+
+
 def test_prompt_cache_key_changes_when_story_or_model_changes(tmp_path: Path) -> None:
     config = _prompt_config(tmp_path)
     story_key = build_prompt_cache_key(_story("Hero runs."), config)
@@ -258,6 +478,8 @@ def test_llm_builder_exports_artifact_after_api_success(tmp_path: Path) -> None:
     assert len(exported) == 1
     payload = json.loads(exported[0].read_text(encoding="utf-8"))
     assert payload["validated_output"]["global"]["main_character"] == "Hero"
+    assert payload["validated_output"]["global"]["characters"][0]["character_id"] == "Hero"
+    assert "OPENAI_API_KEY" not in exported[0].read_text(encoding="utf-8")
     assert "api_key" not in json.dumps(payload).lower()
 
 

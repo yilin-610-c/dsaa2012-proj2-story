@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from storygen.character_specs import build_rule_based_character_specs
 from storygen.llm_assisted_prompt_builder import LLMAssistedPromptBuilder
 from storygen.llm_client import BaseLLMClient
 from storygen.prompt_builder import PromptBuilder
@@ -23,8 +24,10 @@ class RuleBasedPromptPipeline(BasePromptPipeline):
     def __init__(self, prompt_config: dict[str, Any]) -> None:
         self.prompt_config = prompt_config
         self.builder = PromptBuilder(prompt_config)
+        self.last_character_specs: dict[str, dict[str, Any]] = {}
 
     def build(self, story: Story) -> PromptBundle:
+        self.last_character_specs = build_rule_based_character_specs(story)
         return PromptBundle(
             scene_prompts=self.builder.build_story_prompts(story),
             story_prompt=None,
@@ -36,6 +39,7 @@ class RuleBasedPromptPipeline(BasePromptPipeline):
             "pipeline": "rule_based",
             "implemented": True,
             "rewriter_type": self.prompt_config.get("rewriter", {}).get("type", "rule_based"),
+            "character_specs": self.last_character_specs,
         }
 
 

@@ -79,7 +79,15 @@ prompt:
 
 The LLM-assisted path asks the model for strict JSON containing shared identity, setting, and short per-scene prompts. It does not generate images, score candidates, or write long freeform artistic prompts. The final downstream contract is still `PromptSpec`, so generators use `generation_prompt` and scorers use `scoring_prompt` / `action_prompt` exactly as before.
 
-For generation, `negative_prompt` is passed directly into both text2img and img2img diffusers calls. In the LLM-assisted path, human-character prompts may add animal/pet suppression terms to reduce failures where a human character is replaced by a pet or animal.
+The prompt pipeline also writes `character_specs` into `logs/prompt_bundle.json`. The contract is:
+
+```text
+PromptBundle.metadata["character_specs"] = dict[character_id, JSON-serialized CharacterSpec]
+```
+
+These specs are metadata-only identity plans for future anchor/IP-Adapter conditioning; they are not consumed by generation, scoring, routing, or selection yet. Rule-based runs write minimal specs for all recurring characters, or all parsed entities when no recurring characters are tagged. LLM-assisted runs can write stable visual identity fields such as hair, outfit, body build, and accessories.
+
+For generation, `negative_prompt` is passed directly into both text2img and img2img diffusers calls. In the LLM-assisted path, human-character prompts may add narrow pet-substitution suppression terms to reduce failures where a human character is replaced by a pet. Non-human characters should not receive a generic non-human suppression term.
 
 API keys are read only from environment variables:
 
@@ -99,7 +107,7 @@ To reuse a shared artifact without calling the API:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v5/example.json
+    path: prompt_artifacts/llm_assisted_v6/example.json
 ```
 
 ## Ablation Runs
@@ -159,5 +167,6 @@ The run metadata includes the resolved config, runtime profile, model id, timest
 - `prompt.pipeline=api` is kept as a compatibility alias for `llm_assisted`.
 - `model.backend=storydiffusion_direct` is a story-level placeholder and raises `NotImplementedError` until the StoryDiffusion backend is implemented.
 - `previous_selected_image_path` is used by the optional img2img continuity route when enabled.
-- `reference_image_path` is reserved for future anchor/IP-Adapter conditioning.
+- `character_specs` are written as prompt-bundle metadata for future anchor/IP-Adapter conditioning.
+- `reference_image_path` is reserved for future anchor/IP-Adapter image conditioning.
 - The scoring layer now includes a CLIP-based reranker for prompt adherence and previous-frame consistency, while remaining replaceable for future scorers.

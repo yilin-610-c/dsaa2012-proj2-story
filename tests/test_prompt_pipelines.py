@@ -1,6 +1,7 @@
 import pytest
 
 from storygen.prompt_pipelines import ApiPromptPipeline, LLMAssistedPromptPipeline, RuleBasedPromptPipeline, build_prompt_pipeline
+from storygen.parser import parse_story_file
 from storygen.types import Scene, Story
 
 
@@ -15,6 +16,31 @@ def _story() -> Story:
         all_entities=["Hero"],
         recurring_entities=["Hero"],
         entity_to_scene_ids={"Hero": ["SCENE-1", "SCENE-2"]},
+    )
+
+
+def _multi_character_story() -> Story:
+    return Story(
+        source_path="story.txt",
+        raw_text="",
+        scenes=[
+            Scene("SCENE-1", 0, "<Jack> and <Sara> sit.", "Jack and Sara sit.", ["Jack", "Sara"]),
+            Scene("SCENE-2", 1, "They talk.", "They talk.", []),
+        ],
+        all_entities=["Jack", "Sara"],
+        recurring_entities=[],
+        entity_to_scene_ids={"Jack": ["SCENE-1"], "Sara": ["SCENE-1"]},
+    )
+
+
+def _no_entity_story() -> Story:
+    return Story(
+        source_path="story.txt",
+        raw_text="",
+        scenes=[Scene("SCENE-1", 0, "A quiet room.", "A quiet room.", [])],
+        all_entities=[],
+        recurring_entities=[],
+        entity_to_scene_ids={},
     )
 
 
@@ -50,7 +76,7 @@ def _prompt_config(pipeline: str = "rule_based") -> dict:
         "quality_suffix": "clean composition",
         "negative_prompt": "blurry",
         "cache": {"enabled": False, "cache_dir": ".cache/prompt_builder"},
-        "artifact": {"path": None, "export_enabled": False, "export_dir": "prompt_artifacts/llm_assisted_v5"},
+        "artifact": {"path": None, "export_enabled": False, "export_dir": "prompt_artifacts/llm_assisted_v6"},
         "llm": {
             "provider": "openai",
             "model": "gpt-4o-2024-08-06",
@@ -59,7 +85,7 @@ def _prompt_config(pipeline: str = "rule_based") -> dict:
             "max_output_tokens": 800,
             "timeout_seconds": 30,
             "schema_version": "v1",
-            "builder_version": "llm_assisted_v5",
+            "builder_version": "llm_assisted_v6",
             "fallback_to_rule_based": True,
         },
     }
@@ -74,6 +100,33 @@ def test_rule_based_prompt_pipeline_builds_scene_prompt_bundle() -> None:
     assert set(bundle.scene_prompts) == {"SCENE-1", "SCENE-2"}
     assert bundle.story_prompt is None
     assert bundle.metadata["pipeline"] == "rule_based"
+    assert bundle.metadata["character_specs"]["Hero"]["metadata"]["source"] == "rule_based"
+
+
+def test_rule_based_character_specs_empty_when_story_has_no_entities() -> None:
+    pipeline = build_prompt_pipeline(_prompt_config())
+
+    bundle = pipeline.build(_no_entity_story())
+
+    assert bundle.metadata["character_specs"] == {}
+
+
+def test_rule_based_character_specs_include_all_entities_when_no_recurring_entities() -> None:
+    pipeline = build_prompt_pipeline(_prompt_config())
+
+    bundle = pipeline.build(_multi_character_story())
+
+    assert list(bundle.metadata["character_specs"]) == ["Jack", "Sara"]
+    assert bundle.metadata["character_specs"]["Jack"]["metadata"]["scene_ids"] == ["SCENE-1"]
+    assert bundle.metadata["character_specs"]["Sara"]["metadata"]["scene_ids"] == ["SCENE-1"]
+
+
+def test_rule_based_character_specs_cover_test_set_06_multi_character_story() -> None:
+    pipeline = build_prompt_pipeline(_prompt_config())
+
+    bundle = pipeline.build(parse_story_file("test_set/06.txt"))
+
+    assert list(bundle.metadata["character_specs"]) == ["Jack", "Sara"]
 
 
 def test_llm_assisted_prompt_pipeline_is_selected() -> None:
