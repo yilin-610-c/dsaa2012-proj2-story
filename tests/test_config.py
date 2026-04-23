@@ -41,8 +41,10 @@ def test_resolve_config_supports_extension_profiles() -> None:
     assert ip_adapter["generation"]["identity_conditioning"]["anchor_type"] == "half_body"
     assert ip_adapter["generation"]["identity_conditioning"]["apply_to_modes"] == ["text2img"]
     assert ip_adapter["generation"]["routing"]["img2img_enabled"] is False
+    assert ip_adapter["model"]["enable_attention_slicing"] is False
     assert hybrid["generation"]["identity_conditioning"]["enabled"] is True
     assert hybrid["generation"]["routing"]["route_policy"] == "llm_guided_conservative"
+    assert hybrid["model"]["enable_attention_slicing"] is False
 
 
 def test_resolve_config_unknown_profile_lists_available_profiles() -> None:

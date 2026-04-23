@@ -267,6 +267,8 @@ runtime_profiles:
   llm_prompt_ip_adapter_text2img:
     runtime:
       run_name_prefix: llm_ip_adapter_text2img
+    model:
+      enable_attention_slicing: false
     prompt:
       pipeline: llm_assisted
     generation:
@@ -281,6 +283,8 @@ runtime_profiles:
   llm_prompt_hybrid_identity:
     runtime:
       run_name_prefix: llm_hybrid_identity
+    model:
+      enable_attention_slicing: false
     prompt:
       pipeline: llm_assisted
     generation:

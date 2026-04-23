@@ -135,6 +135,8 @@ IP-Adapter identity conditioning is opt-in. It consumes the run-local Anchor Ban
 
 The v1 default uses `half_body` anchors and applies IP-Adapter only to `text2img` scenes. This keeps previous-frame img2img behavior separate from identity conditioning.
 
+The IP-Adapter profiles disable `model.enable_attention_slicing` by default. Attention slicing is a memory-saving diffusers option, but in the current SDXL + IP-Adapter setup it can conflict with IP-Adapter attention processor loading. Non-IP-Adapter profiles keep the base setting unchanged.
+
 ```bash
 # LLM prompt + text2img + anchor bank + IP-Adapter identity conditioning
 PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_ip_adapter_text2img --input test_set/01.txt

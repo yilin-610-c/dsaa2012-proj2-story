@@ -75,6 +75,9 @@ Current Phase 2 preparation:
 - Anchor Bank v1 generates run-local portrait and half-body identity anchors from `CharacterSpec`.
 - Anchor Bank v1 does not feed anchors into scene generation yet; IP-Adapter conditioning remains the next phase.
 - IP-Adapter identity conditioning v1 consumes run-local half-body anchors for text2img scenes while keeping img2img routing separately switchable.
+- `llm_prompt_ip_adapter_text2img` evaluates LLM prompts plus text2img scenes conditioned by half-body anchors through IP-Adapter.
+- `llm_prompt_hybrid_identity` adds LLM-guided route execution on top of identity conditioning: text2img scenes can use IP-Adapter, while img2img scenes remain previous-frame continuity routes unless explicitly configured otherwise.
+- IP-Adapter profiles disable diffusers attention slicing because the current SDXL IP-Adapter loader is incompatible with pre-installed sliced attention processors. This is treated as a runtime compatibility setting rather than a method component.
 
 ## Controlled Comparisons on Test-A
 
@@ -157,6 +160,15 @@ Observed result after composition-aware routing:
 - This fixed the strongest under-change failure: the later panels no longer stayed in the same breakfast/cooking composition.
 - The new failure mode is weaker character identity consistency across text2img panels. This is expected because identity is now maintained only through prompt text and reranking, not visual conditioning.
 - This motivates the next phase: use identity anchors or IP-Adapter so composition-changing text2img scenes can preserve the character without using the previous panel as an init image.
+
+Observed runtime issue during first IP-Adapter validation:
+
+- Run attempted: `outputs/ablation_01_ip_adapter_text2img`.
+- The adapter weights and image encoder downloaded successfully, then `pipeline.load_ip_adapter(...)` failed while converting attention processors.
+- Error: `SlicedAttnProcessor.__init__() missing 1 required positional argument: 'slice_size'`.
+- Cause: the base configuration enabled diffusers attention slicing before loading IP-Adapter. The current SDXL IP-Adapter loading path expects to replace compatible attention processors and does not handle the sliced processor state.
+- Fix: IP-Adapter profiles now set `model.enable_attention_slicing=false`.
+- Experimental interpretation: attention slicing is a VRAM optimization, not an identity-conditioning component. Non-IP-Adapter experiments do not need to be rerun for this reason; IP-Adapter runs should use the updated profiles or the equivalent CLI override.
 
 ## Data / External Resources / Compliance
 

@@ -614,6 +614,17 @@ Behavior preserved:
 - img2img scenes do not use IP-Adapter unless `apply_to_modes` explicitly includes `img2img`
 - IP-Adapter is a route-conditioned scene generation option inside `diffusers_text2img`, not a new backend
 
+Runtime note:
+- first real `llm_prompt_ip_adapter_text2img` run downloaded the SDXL IP-Adapter weights and then failed while loading adapter attention processors
+- root cause: base `model.enable_attention_slicing=true` installs sliced attention processors before `load_ip_adapter(...)`; this is incompatible with the current diffusers SDXL IP-Adapter loading path and raised `SlicedAttnProcessor.__init__() missing 1 required positional argument: 'slice_size'`
+- fix: IP-Adapter profiles now override `model.enable_attention_slicing: false`
+- attention slicing is a memory optimization, not a method component; disabling it is expected to mainly affect VRAM/speed, not the intended ablation semantics
+
+Profile semantics:
+- `llm_prompt_ip_adapter_text2img`: LLM prompt + run-local anchor bank + text2img scenes with IP-Adapter identity conditioning
+- `llm_prompt_hybrid_identity`: the same identity-conditioning path plus LLM-guided routing; composition-changing scenes use text2img + IP-Adapter, while composition-preserving small changes may use img2img without IP-Adapter by default
+- hybrid is therefore an ablation of route execution plus identity conditioning, not a stronger standalone IP-Adapter setting
+
 Traceability note:
 - checkpoint was skipped because `.git/refs/heads` was not writable in this environment
 - baseline recorded before edits: `main@f2c8654`
