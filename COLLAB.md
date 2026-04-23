@@ -659,6 +659,19 @@ Validation:
 - full regression command: `conda run -n storygen env PYTHONPATH=src pytest -q`
 - full regression result: `103 passed`
 
+Follow-up validation note:
+- first `test_set/06.txt` v7 artifact export attempt fell back to rule-based because the LLM returned `global.main_character: "human man"` instead of a character id from `global.characters`
+- prompt instruction was tightened so `global.main_character` must be an exact `character_id`, or an empty string when there is no single main character
+
+Real-run validation on `test_set/06.txt`:
+- `outputs/ablation_06_anchor_bank` loaded `prompt_artifacts/llm_assisted_v7/06_gpt-4o-2024-08-06_v1_c5f38192.json` without fallback
+- Anchor Bank generated both `jack` and `sara` anchors, with `portrait.png`, `half_body.png`, and `anchor_spec.json` under each character directory
+- LLM v7 metadata set `primary_visible_character_ids: ["jack", "sara"]` and `identity_conditioning_subject_id: null` for all scenes, correctly representing the story as a two-character ambiguous identity-conditioning case
+- `outputs/ablation_06_ip_adapter_text2img_skip_ambiguous` used `generation.identity_conditioning.fail_on_missing_anchor=false`; every candidate logged `identity_anchor_missing` with `ambiguous_or_missing_scene_character`
+- no `identity_anchor_selected` or `ip_adapter_applied` events were emitted, and scene `reference_image_path` stayed `null`
+- interpretation: the multi-character safety path works, but this run is not an IP-Adapter-applied two-character result; it is a safe skip case that avoids incorrectly forcing Jack or Sara as the sole identity anchor
+- next optional debug step would be a config-gated forced-subject override for ablation only, not a default method
+
 ## Shared Code Rules
 
 When modifying shared code:

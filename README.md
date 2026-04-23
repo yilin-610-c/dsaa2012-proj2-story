@@ -137,6 +137,8 @@ The v1 default uses `half_body` anchors and applies IP-Adapter only to `text2img
 
 For multi-character stories, LLM-assisted prompt metadata can specify `identity_conditioning_subject_id` per scene. Anchor selection uses that explicit subject first, then continuity subjects, then unambiguous scene entities, then single-character fallback. Ambiguous multi-character scenes are skipped or raised according to `generation.identity_conditioning.fail_on_missing_anchor`.
 
+For example, `test_set/06.txt` contains Jack and Sara in every scene. With v7 metadata, the safe behavior is to set `identity_conditioning_subject_id: null` and `primary_visible_character_ids: ["jack", "sara"]`; when `fail_on_missing_anchor=false`, this skips IP-Adapter instead of incorrectly forcing one character's anchor onto a two-character panel. This is an interface validation case, not an IP-Adapter-applied result.
+
 The IP-Adapter profiles disable `model.enable_attention_slicing` by default. Attention slicing is a memory-saving diffusers option, but in the current SDXL + IP-Adapter setup it can conflict with IP-Adapter attention processor loading. Non-IP-Adapter profiles keep the base setting unchanged.
 
 ```bash
@@ -145,6 +147,17 @@ PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_ip_adapter_text2img 
 
 # LLM guided routing + anchor bank + IP-Adapter on text2img scenes
 PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_hybrid_identity --input test_set/01.txt
+```
+
+Multi-character safety validation:
+
+```bash
+PYTHONPATH=src python3 -m storygen.cli \
+  --profile llm_prompt_ip_adapter_text2img \
+  --input test_set/06.txt \
+  --run-name ablation_06_ip_adapter_text2img_skip_ambiguous \
+  --set prompt.artifact.path=$ARTIFACT_06 \
+  --set generation.identity_conditioning.fail_on_missing_anchor=false
 ```
 
 The configured default adapter is SDXL-oriented:

@@ -335,6 +335,8 @@ class LLMAssistedPromptBuilder:
         user_prompt = (
             "Extract shared identity, setting, and short scene prompts from this story.\n"
             "Rules:\n"
+            "- global.main_character must be exactly one character_id from global.characters. If there is no single main character, use an empty string.\n"
+            "- Do not use descriptors such as human man, human woman, person, or group as global.main_character.\n"
             "- identity_cues must be visual and reusable across panels, not personality traits.\n"
             "- global.characters must contain stable visual identity blocks for recurring characters.\n"
             "- character specs may include age_band, gender_presentation, hair_color, hairstyle, skin_tone, body_build, signature_outfit, signature_accessory, and profession_marker.\n"

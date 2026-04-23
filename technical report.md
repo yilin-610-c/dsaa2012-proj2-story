@@ -80,6 +80,7 @@ Current Phase 2 preparation:
 - IP-Adapter profiles disable diffusers attention slicing because the current SDXL IP-Adapter loader is incompatible with pre-installed sliced attention processors. This is treated as a runtime compatibility setting rather than a method component.
 - Multi-character hardening upgrades the prompt metadata to `llm_assisted_v7`: each scene can declare `identity_conditioning_subject_id` and `primary_visible_character_ids`, so the IP-Adapter path can select the intended character anchor instead of guessing from a multi-character scene.
 - The current canonical anchor policy is to use `half_body` for IP-Adapter conditioning. Portrait anchors are retained as inspect-only artifacts until a later face/anchor consistency design is added.
+- Real validation on `test_set/06.txt` generated separate Jack and Sara anchor banks. Because all panels contain both characters equally, v7 metadata left `identity_conditioning_subject_id` empty and listed both characters as visible; the identity-conditioning path then skipped IP-Adapter rather than incorrectly applying one character anchor to a two-character scene.
 
 ## Controlled Comparisons on Test-A
 
@@ -177,6 +178,15 @@ Observed hybrid limitation:
 - In the Lily example, `llm_prompt_ip_adapter_text2img` produced the strongest current identity consistency because every scene used text2img conditioned on the same `half_body` anchor.
 - `llm_prompt_hybrid_identity` remained less reliable because previous-frame img2img can propagate wrong objects or composition, such as a cat or kitchen layout, into later panels.
 - Current conclusion: use `text2img + half_body IP-Adapter` as the preferred route; keep hybrid routing as an exploratory ablation rather than the main method.
+
+Observed multi-character safety behavior:
+
+- Run inspected: `outputs/ablation_06_anchor_bank`.
+- The system generated separate run-local anchors for `jack` and `sara`, confirming that `CharacterSpec -> Anchor Bank` supports multi-character stories.
+- Run inspected: `outputs/ablation_06_ip_adapter_text2img_skip_ambiguous`.
+- All scenes had `identity_conditioning_subject_id=null` and `primary_visible_character_ids=["jack", "sara"]`, so the identity-conditioning selector logged `ambiguous_or_missing_scene_character` and left `reference_image_path=null`.
+- This is the desired safe behavior for v1 single-anchor conditioning: do not force a Jack or Sara anchor onto a panel where both characters are equally important.
+- This also means the run is not evidence of multi-character IP-Adapter improvement; it validates controlled skipping. A future debug-only forced-subject override or a true multi-anchor/regional design would be needed to study two-character conditioning effects.
 
 ## Data / External Resources / Compliance
 
