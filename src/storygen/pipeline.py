@@ -23,6 +23,7 @@ from storygen.io.results import (
     save_selected_image,
     scene_directory,
 )
+from storygen.identity_conditioning import select_identity_anchor
 from storygen.parser import parse_story_file
 from storygen.prompt_pipelines import build_prompt_pipeline
 from storygen.routing import choose_scene_route
@@ -147,6 +148,17 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
     backend_metadata = build_backend_metadata(config["model"], config["runtime"])
     backend_metadata["img2img_enabled"] = bool(config.get("generation", {}).get("routing", {}).get("img2img_enabled", False))
     backend_metadata["route_policy"] = config.get("generation", {}).get("routing", {}).get("route_policy", "disabled")
+    backend_metadata["identity_conditioning"] = {
+        "enabled": bool(config.get("generation", {}).get("identity_conditioning", {}).get("enabled", False)),
+        "adapter_type": config.get("generation", {}).get("identity_conditioning", {}).get("adapter_type"),
+        "anchor_source": config.get("generation", {}).get("identity_conditioning", {}).get("anchor_source"),
+        "anchor_type": config.get("generation", {}).get("identity_conditioning", {}).get("anchor_type"),
+        "apply_to_modes": config.get("generation", {}).get("identity_conditioning", {}).get("apply_to_modes", []),
+        "scale": config.get("generation", {}).get("identity_conditioning", {}).get("scale"),
+        "adapter_model_id": config.get("generation", {}).get("identity_conditioning", {}).get("adapter_model_id"),
+        "adapter_subfolder": config.get("generation", {}).get("identity_conditioning", {}).get("adapter_subfolder"),
+        "adapter_weight_name": config.get("generation", {}).get("identity_conditioning", {}).get("adapter_weight_name"),
+    }
     save_json(run_context.logs_directory / "generation_backend.json", backend_metadata)
     append_event(
         run_context,
@@ -225,6 +237,50 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 "route_level_adjustment_reason": route_decision.route_level_adjustment_reason,
                 "route_factors": route_decision.route_factors,
             }
+            reference_image_path = None
+            identity_config = config.get("generation", {}).get("identity_conditioning", {})
+            if identity_config.get("enabled", False):
+                try:
+                    identity_options = select_identity_anchor(
+                        scene=scene,
+                        route_hint=route_hint,
+                        generation_mode=route_decision.generation_mode,
+                        anchor_bank_summary=anchor_bank_summary,
+                        identity_config=identity_config,
+                    )
+                except ValueError as exc:
+                    append_event(
+                        run_context,
+                        "identity_anchor_missing",
+                        stage="identity_conditioning",
+                        scene_id=scene.scene_id,
+                        candidate_index=candidate_index,
+                        error=str(exc),
+                    )
+                    raise
+                route_options.update(identity_options)
+                if identity_options.get("identity_conditioning_enabled"):
+                    reference_image_path = identity_options.get("identity_anchor_path")
+                    append_event(
+                        run_context,
+                        "identity_anchor_selected",
+                        stage="identity_conditioning",
+                        scene_id=scene.scene_id,
+                        candidate_index=candidate_index,
+                        character_id=identity_options.get("identity_anchor_character_id"),
+                        anchor_type=identity_options.get("identity_anchor_type"),
+                        anchor_path=reference_image_path,
+                        generation_mode=route_decision.generation_mode,
+                    )
+                else:
+                    append_event(
+                        run_context,
+                        "identity_anchor_missing",
+                        stage="identity_conditioning",
+                        scene_id=scene.scene_id,
+                        candidate_index=candidate_index,
+                        reason=identity_options.get("identity_conditioning_reason"),
+                    )
             append_event(
                 run_context,
                 "generation_route_selected",
@@ -242,11 +298,34 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 height=int(config["model"]["height"]),
                 guidance_scale=float(config["model"]["guidance_scale"]),
                 num_inference_steps=int(config["model"]["num_inference_steps"]),
-                reference_image_path=None,
+                reference_image_path=reference_image_path,
                 previous_selected_image_path=previous_selected_path,
                 extra_options=route_options,
             )
             candidate = generator.generate_scene(request)
+            if candidate.metadata.get("ip_adapter_loaded"):
+                append_event(
+                    run_context,
+                    "ip_adapter_loaded",
+                    stage="identity_conditioning",
+                    scene_id=scene.scene_id,
+                    candidate_index=candidate_index,
+                    adapter_model_id=candidate.metadata.get("ip_adapter_model_id"),
+                    adapter_subfolder=candidate.metadata.get("ip_adapter_subfolder"),
+                    adapter_weight_name=candidate.metadata.get("ip_adapter_weight_name"),
+                )
+            if candidate.metadata.get("identity_conditioning_applied"):
+                append_event(
+                    run_context,
+                    "ip_adapter_applied",
+                    stage="identity_conditioning",
+                    scene_id=scene.scene_id,
+                    candidate_index=candidate_index,
+                    character_id=candidate.metadata.get("identity_anchor_character_id"),
+                    anchor_type=candidate.metadata.get("identity_anchor_type"),
+                    anchor_path=candidate.metadata.get("identity_anchor_path"),
+                    scale=candidate.metadata.get("ip_adapter_scale"),
+                )
             candidate.image_path = save_candidate_image(candidate.image, run_context, scene.index, candidate_index, seed)
             candidate.image = None
             candidate_records.append(candidate)

@@ -105,6 +105,14 @@ generation:
     enabled: false
     adapter_type: ip_adapter
     anchor_source: character_anchor_bank
+    anchor_type: half_body
+    apply_to_modes:
+      - text2img
+    scale: 0.6
+    adapter_model_id: h94/IP-Adapter
+    adapter_subfolder: sdxl_models
+    adapter_weight_name: ip-adapter_sdxl.bin
+    fail_on_missing_anchor: true
   anchor_bank:
     enabled: false
     generate: false
@@ -256,3 +264,44 @@ runtime_profiles:
       anchor_bank:
         enabled: true
         generate: true
+  llm_prompt_ip_adapter_text2img:
+    runtime:
+      run_name_prefix: llm_ip_adapter_text2img
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: false
+        route_policy: disabled
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: true
+  llm_prompt_hybrid_identity:
+    runtime:
+      run_name_prefix: llm_hybrid_identity
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: true
+        route_policy: llm_guided_conservative
+        use_previous_selected_as_init: true
+        text2img_when_composition_change_needed: true
+        strength_by_change_level:
+          small: 0.35
+          medium: 0.65
+          large: 0.85
+        execution_by_change_level:
+          small: img2img
+          medium: img2img
+          large: text2img
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: true
+    scoring:
+      route_aware:
+        enabled: true

@@ -89,6 +89,42 @@ class FakeGuidedPromptPipeline:
         return self._metadata
 
 
+class FakeSmallChangePromptPipeline(FakeGuidedPromptPipeline):
+    def build(self, story) -> PromptBundle:
+        self._metadata = {
+            "pipeline": "llm_assisted",
+            "implemented": True,
+            "character_specs": {
+                "Lily": {
+                    "character_id": "Lily",
+                    "age_band": "adult",
+                    "gender_presentation": "woman",
+                    "metadata": {"source": "llm_assisted"},
+                }
+            },
+            "scene_route_hints": {
+                scene.scene_id: {
+                    "continuity_subject_ids": ["Lily"],
+                    "continuity_route_hint": "img2img" if scene.index > 0 else "text2img",
+                    "llm_route_change_level": "small" if scene.index > 0 else "large",
+                    "route_change_level": "small" if scene.index > 0 else "large",
+                    "route_level_adjustment_reason": None,
+                    "route_factors": {
+                        "same_subject": True,
+                        "same_setting": True,
+                        "composition_change_needed": False,
+                    },
+                    "route_reason": "small continuity-preserving change" if scene.index > 0 else "first scene",
+                }
+                for scene in story.scenes
+            },
+        }
+        return PromptBundle(
+            scene_prompts=PromptBuilder(self.prompt_config).build_story_prompts(story),
+            metadata=self._metadata,
+        )
+
+
 class FakeMetadataPromptPipeline:
     def __init__(self, prompt_config: dict, *, include_character_specs: bool) -> None:
         self.prompt_config = prompt_config
@@ -339,3 +375,70 @@ def test_anchor_bank_enabled_generates_run_local_anchors_without_scene_reference
     assert all(request.reference_image_path is None for request in scene_requests)
     assert all("anchor_type" not in request.extra_options for request in scene_requests)
     assert all(request.extra_options["generation_mode"] == "text2img" for request in anchor_requests)
+
+
+def test_ip_adapter_text2img_profile_passes_anchor_reference_to_scene_requests(tmp_path, monkeypatch) -> None:
+    generator = FakeSceneGenerator()
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", lambda model, runtime: generator)
+    monkeypatch.setattr("storygen.pipeline.build_prompt_pipeline", lambda prompt, event_logger=None: FakeGuidedPromptPipeline(prompt))
+    config = resolve_config(
+        "configs/base.yaml",
+        "llm_prompt_ip_adapter_text2img",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "ip_adapter_text2img",
+            "scoring.type": "heuristic",
+            "generation.candidate_count": 1,
+        },
+    )
+
+    summary = run_pipeline(config)
+    run_dir = Path(summary.run_directory)
+    backend_log = json.loads((run_dir / "logs" / "generation_backend.json").read_text(encoding="utf-8"))
+    events = [json.loads(line) for line in (run_dir / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    event_names = [event["event"] for event in events]
+    scene_requests = [request for request in generator.requests if not request.scene_id.startswith("ANCHOR-")]
+    anchor_requests = [request for request in generator.requests if request.scene_id.startswith("ANCHOR-")]
+
+    assert backend_log["identity_conditioning"]["enabled"] is True
+    assert len(anchor_requests) == 2
+    assert len(scene_requests) == len(summary.scene_results)
+    assert all(request.reference_image_path for request in scene_requests)
+    assert all(request.reference_image_path is None for request in anchor_requests)
+    assert all(request.extra_options["identity_anchor_type"] == "half_body" for request in scene_requests)
+    assert all(request.extra_options["identity_conditioning_enabled"] is True for request in scene_requests)
+    assert "identity_anchor_selected" in event_names
+
+
+def test_hybrid_identity_profile_does_not_apply_ip_adapter_to_img2img_scenes_by_default(tmp_path, monkeypatch) -> None:
+    generator = FakeSceneGenerator()
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", lambda model, runtime: generator)
+    monkeypatch.setattr(
+        "storygen.pipeline.build_prompt_pipeline",
+        lambda prompt, event_logger=None: FakeSmallChangePromptPipeline(prompt),
+    )
+    config = resolve_config(
+        "configs/base.yaml",
+        "llm_prompt_hybrid_identity",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "hybrid_identity",
+            "scoring.type": "heuristic",
+            "generation.candidate_count": 1,
+            "generation.routing.large_change_keywords": [],
+        },
+    )
+
+    run_pipeline(config)
+    scene_requests = [request for request in generator.requests if not request.scene_id.startswith("ANCHOR-")]
+    text2img_requests = [request for request in scene_requests if request.extra_options["generation_mode"] == "text2img"]
+    img2img_requests = [request for request in scene_requests if request.extra_options["generation_mode"] == "img2img"]
+
+    assert text2img_requests
+    assert img2img_requests
+    assert all(request.reference_image_path for request in text2img_requests)
+    assert all(request.reference_image_path is None for request in img2img_requests)
+    assert all(
+        request.extra_options["identity_conditioning_reason"] == "generation_mode_not_enabled:img2img"
+        for request in img2img_requests
+    )

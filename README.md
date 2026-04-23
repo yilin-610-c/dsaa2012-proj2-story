@@ -68,6 +68,8 @@ Available profiles in the base config:
 - `llm_prompt_img2img`: LLM-assisted prompts with conservative img2img continuity routing.
 - `llm_prompt_img2img_guided`: LLM-assisted prompts with LLM-guided small/medium/large route execution.
 - `llm_prompt_anchor_bank`: LLM-assisted prompts plus run-local anchor generation; anchors are not consumed by scene generation yet.
+- `llm_prompt_ip_adapter_text2img`: LLM-assisted prompts, run-local anchors, and IP-Adapter identity conditioning for text2img scenes.
+- `llm_prompt_hybrid_identity`: guided routing plus IP-Adapter identity conditioning for text2img scenes.
 
 ## LLM-Assisted Prompts
 
@@ -125,6 +127,28 @@ Run-local anchor generation:
 
 ```bash
 PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_anchor_bank --input test_set/06.txt
+```
+
+## IP-Adapter Identity Conditioning
+
+IP-Adapter identity conditioning is opt-in. It consumes the run-local Anchor Bank output and passes the selected anchor image through `GenerationRequest.reference_image_path` only when `generation.identity_conditioning.enabled=true`.
+
+The v1 default uses `half_body` anchors and applies IP-Adapter only to `text2img` scenes. This keeps previous-frame img2img behavior separate from identity conditioning.
+
+```bash
+# LLM prompt + text2img + anchor bank + IP-Adapter identity conditioning
+PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_ip_adapter_text2img --input test_set/01.txt
+
+# LLM guided routing + anchor bank + IP-Adapter on text2img scenes
+PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_hybrid_identity --input test_set/01.txt
+```
+
+The configured default adapter is SDXL-oriented:
+
+```yaml
+adapter_model_id: h94/IP-Adapter
+adapter_subfolder: sdxl_models
+adapter_weight_name: ip-adapter_sdxl.bin
 ```
 
 ## Ablation Runs
@@ -189,5 +213,6 @@ The run metadata includes the resolved config, runtime profile, model id, timest
 - `previous_selected_image_path` is used by the optional img2img continuity route when enabled.
 - `character_specs` are written as prompt-bundle metadata for future anchor/IP-Adapter conditioning.
 - `generation.anchor_bank` can generate run-local identity anchors from `character_specs`, but v1 does not feed them back into scene generation.
-- `reference_image_path` is reserved for future anchor/IP-Adapter image conditioning.
+- `generation.identity_conditioning.enabled=true` uses run-local anchors as IP-Adapter reference images for configured generation modes.
+- `reference_image_path` carries the selected anchor path when identity conditioning is enabled.
 - The scoring layer now includes a CLIP-based reranker for prompt adherence and previous-frame consistency, while remaining replaceable for future scorers.

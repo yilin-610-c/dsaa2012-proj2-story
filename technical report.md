@@ -74,6 +74,7 @@ Current Phase 2 preparation:
 - The LLM builder version was bumped to `llm_assisted_v6`, so old v5 cache/artifacts without character specs are not reused.
 - Anchor Bank v1 generates run-local portrait and half-body identity anchors from `CharacterSpec`.
 - Anchor Bank v1 does not feed anchors into scene generation yet; IP-Adapter conditioning remains the next phase.
+- IP-Adapter identity conditioning v1 consumes run-local half-body anchors for text2img scenes while keeping img2img routing separately switchable.
 
 ## Controlled Comparisons on Test-A
 

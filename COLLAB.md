@@ -352,6 +352,7 @@ Implemented:
 - shareable prompt artifacts under `prompt_artifacts/`
 - `character_specs` prompt-bundle metadata for future identity conditioning
 - optional run-local anchor bank generation under `outputs/<run_name>/anchors/`
+- optional IP-Adapter identity conditioning for scene-level diffusers text2img routes
 - optional conservative img2img routing through `generation.routing`
 - optional LLM-guided multi-level routing through `route_policy=llm_guided_conservative`
 
@@ -359,7 +360,7 @@ Not implemented:
 - real StoryDiffusion generation
 - training-free attention/reference/latent components
 - shared anchor artifacts / anchor reuse
-- IP-Adapter identity conditioning
+- multi-anchor or multi-character IP-Adapter conditioning
 
 The current baseline behavior should remain unchanged for `smoke_test`, `demo_run`, and any profile using `diffusers_text2img + scene`.
 
@@ -595,6 +596,33 @@ Validation:
 - targeted result: `25 passed`
 - full regression command: `conda run -n storygen env PYTHONPATH=src pytest -q`
 - full regression result: `82 passed`
+
+### 2026-04-23: IP-Adapter Identity Conditioning v1
+
+Implemented:
+- added config-gated IP-Adapter identity conditioning
+- added `llm_prompt_ip_adapter_text2img` and `llm_prompt_hybrid_identity` profiles
+- scene requests can receive `reference_image_path` from run-local Anchor Bank outputs
+- default anchor type is `half_body`
+- default apply mode is `text2img` only
+- candidate metadata records anchor character, anchor type, anchor path, adapter model, adapter weight, and scale
+
+Behavior preserved:
+- identity conditioning is disabled by default
+- baseline, prompt-only, routing-only, and anchor-bank-only profiles preserve existing scene request behavior
+- anchor generation requests never receive `reference_image_path`
+- img2img scenes do not use IP-Adapter unless `apply_to_modes` explicitly includes `img2img`
+- IP-Adapter is a route-conditioned scene generation option inside `diffusers_text2img`, not a new backend
+
+Traceability note:
+- checkpoint was skipped because `.git/refs/heads` was not writable in this environment
+- baseline recorded before edits: `main@f2c8654`
+
+Validation:
+- targeted command: `conda run -n storygen env PYTHONPATH=src pytest -q tests/test_generators.py tests/test_pipeline_logging.py tests/test_anchor_bank.py tests/test_identity_conditioning.py tests/test_config.py`
+- targeted result: `32 passed`
+- full regression command: `conda run -n storygen env PYTHONPATH=src pytest -q`
+- full regression result: `93 passed`
 
 ## Shared Code Rules
 

@@ -23,6 +23,25 @@ class FakePipeline:
         return FakePipelineResult()
 
 
+class FakeIPAdapterPipeline(FakePipeline):
+    def __init__(self) -> None:
+        super().__init__()
+        self.loaded_adapters = []
+        self.ip_adapter_scale = None
+
+    def load_ip_adapter(self, model_id, *, subfolder=None, weight_name=None):
+        self.loaded_adapters.append(
+            {
+                "model_id": model_id,
+                "subfolder": subfolder,
+                "weight_name": weight_name,
+            }
+        )
+
+    def set_ip_adapter_scale(self, scale):
+        self.ip_adapter_scale = scale
+
+
 def _prompt_spec() -> PromptSpec:
     return PromptSpec(
         scene_id="SCENE-1",
@@ -38,7 +57,11 @@ def _prompt_spec() -> PromptSpec:
     )
 
 
-def _request(extra_options: dict | None = None, previous_selected_image_path: str | None = None) -> GenerationRequest:
+def _request(
+    extra_options: dict | None = None,
+    previous_selected_image_path: str | None = None,
+    reference_image_path: str | None = None,
+) -> GenerationRequest:
     return GenerationRequest(
         scene_id="SCENE-1",
         candidate_index=0,
@@ -48,6 +71,7 @@ def _request(extra_options: dict | None = None, previous_selected_image_path: st
         height=64,
         guidance_scale=0.0,
         num_inference_steps=1,
+        reference_image_path=reference_image_path,
         previous_selected_image_path=previous_selected_image_path,
         extra_options=extra_options or {},
     )
@@ -109,6 +133,7 @@ def test_diffusers_generator_text2img_path_records_route_metadata() -> None:
     assert candidate.metadata["generation_mode"] == "text2img"
     assert candidate.metadata["route_reason"] == "test"
     assert fake_pipeline.kwargs["prompt"] == "generation prompt"
+    assert "ip_adapter_image" not in fake_pipeline.kwargs
 
 
 def test_diffusers_generator_img2img_path_uses_previous_image(tmp_path) -> None:
@@ -151,3 +176,109 @@ def test_diffusers_generator_img2img_requires_init_image() -> None:
 
     with pytest.raises(ValueError, match="img2img generation requires"):
         backend.generate_scene(_request({"generation_mode": "img2img"}))
+
+
+def test_diffusers_generator_applies_ip_adapter_when_reference_image_present(tmp_path) -> None:
+    from PIL import Image
+
+    reference_path = tmp_path / "anchor.png"
+    Image.new("RGB", (32, 32), color="white").save(reference_path)
+    backend = DiffusersTextToImageGenerator(
+        {"backend": "diffusers_text2img", "model_id": "fake"},
+        {"device": "cpu", "torch_dtype": "float32"},
+    )
+    fake_pipeline = FakeIPAdapterPipeline()
+    backend.pipeline = fake_pipeline
+
+    candidate = backend.generate_scene(
+        _request(
+            {
+                "generation_mode": "text2img",
+                "identity_conditioning_enabled": True,
+                "identity_anchor_character_id": "Hero",
+                "identity_anchor_type": "half_body",
+                "identity_anchor_path": str(reference_path),
+                "identity_conditioning_reason": "test",
+                "identity_apply_to_modes": ["text2img"],
+                "ip_adapter_scale": 0.6,
+                "ip_adapter_model_id": "h94/IP-Adapter",
+                "ip_adapter_subfolder": "sdxl_models",
+                "ip_adapter_weight_name": "ip-adapter_sdxl.bin",
+            },
+            reference_image_path=str(reference_path),
+        )
+    )
+
+    assert candidate.metadata["identity_conditioning_applied"] is True
+    assert candidate.metadata["identity_anchor_character_id"] == "Hero"
+    assert candidate.metadata["ip_adapter_loaded"] is True
+    assert fake_pipeline.loaded_adapters == [
+        {
+            "model_id": "h94/IP-Adapter",
+            "subfolder": "sdxl_models",
+            "weight_name": "ip-adapter_sdxl.bin",
+        }
+    ]
+    assert fake_pipeline.ip_adapter_scale == 0.6
+    assert fake_pipeline.kwargs["ip_adapter_image"].size == (32, 32)
+
+
+def test_diffusers_generator_rejects_unsupported_ip_adapter_pipeline(tmp_path) -> None:
+    from PIL import Image
+
+    reference_path = tmp_path / "anchor.png"
+    Image.new("RGB", (32, 32), color="white").save(reference_path)
+    backend = DiffusersTextToImageGenerator(
+        {"backend": "diffusers_text2img", "model_id": "fake"},
+        {"device": "cpu", "torch_dtype": "float32"},
+    )
+    backend.pipeline = FakePipeline()
+
+    with pytest.raises(ValueError, match="does not support IP-Adapter"):
+        backend.generate_scene(
+            _request(
+                {
+                    "generation_mode": "text2img",
+                    "identity_conditioning_enabled": True,
+                    "identity_apply_to_modes": ["text2img"],
+                    "ip_adapter_scale": 0.6,
+                    "ip_adapter_model_id": "h94/IP-Adapter",
+                    "ip_adapter_subfolder": "sdxl_models",
+                    "ip_adapter_weight_name": "ip-adapter_sdxl.bin",
+                },
+                reference_image_path=str(reference_path),
+            )
+        )
+
+
+def test_diffusers_generator_does_not_apply_ip_adapter_to_img2img_by_default(tmp_path) -> None:
+    from PIL import Image
+
+    init_path = tmp_path / "prev.png"
+    reference_path = tmp_path / "anchor.png"
+    Image.new("RGB", (32, 32), color="white").save(init_path)
+    Image.new("RGB", (32, 32), color="blue").save(reference_path)
+    backend = DiffusersTextToImageGenerator(
+        {"backend": "diffusers_text2img", "model_id": "fake"},
+        {"device": "cpu", "torch_dtype": "float32"},
+    )
+    fake_pipeline = FakeIPAdapterPipeline()
+    backend.img2img_pipeline = fake_pipeline
+
+    candidate = backend.generate_scene(
+        _request(
+            {
+                "generation_mode": "img2img",
+                "init_image_path": str(init_path),
+                "identity_conditioning_enabled": True,
+                "identity_apply_to_modes": ["text2img"],
+                "ip_adapter_model_id": "h94/IP-Adapter",
+                "ip_adapter_weight_name": "ip-adapter_sdxl.bin",
+            },
+            previous_selected_image_path=str(init_path),
+            reference_image_path=str(reference_path),
+        )
+    )
+
+    assert candidate.metadata["identity_conditioning_applied"] is False
+    assert "ip_adapter_image" not in fake_pipeline.kwargs

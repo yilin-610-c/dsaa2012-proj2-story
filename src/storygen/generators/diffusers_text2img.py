@@ -16,6 +16,7 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
         self.runtime_config = runtime_config
         self.pipeline = None
         self.img2img_pipeline = None
+        self._loaded_ip_adapter_keys: set[tuple[str, str | None, str | None]] = set()
         self.device = runtime_config.get("device", "cuda")
         self.dtype = runtime_config.get("torch_dtype", "float16")
 
@@ -75,18 +76,27 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
         self.load()
 
         import torch
+        from PIL import Image
 
         started_at = time.time()
         generator = torch.Generator(device=self.device).manual_seed(request.seed)
-        result = self.pipeline(
-            prompt=request.prompt_spec.generation_prompt,
-            negative_prompt=request.prompt_spec.negative_prompt or None,
-            width=request.width,
-            height=request.height,
-            guidance_scale=request.guidance_scale,
-            num_inference_steps=request.num_inference_steps,
-            generator=generator,
+        call_kwargs = {
+            "prompt": request.prompt_spec.generation_prompt,
+            "negative_prompt": request.prompt_spec.negative_prompt or None,
+            "width": request.width,
+            "height": request.height,
+            "guidance_scale": request.guidance_scale,
+            "num_inference_steps": request.num_inference_steps,
+            "generator": generator,
+        }
+        identity_metadata = self._apply_ip_adapter_if_requested(
+            self.pipeline,
+            request,
+            generation_mode="text2img",
+            call_kwargs=call_kwargs,
+            image_loader=lambda path: Image.open(path).convert("RGB"),
         )
+        result = self.pipeline(**call_kwargs)
         image = result.images[0]
         elapsed = time.time() - started_at
 
@@ -119,6 +129,7 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
                 "llm_route_change_level": request.extra_options.get("llm_route_change_level"),
                 "route_level_adjustment_reason": request.extra_options.get("route_level_adjustment_reason"),
                 "route_factors": request.extra_options.get("route_factors"),
+                **identity_metadata,
             },
         )
 
@@ -136,15 +147,23 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
         generator = torch.Generator(device=self.device).manual_seed(request.seed)
         init_image = Image.open(init_image_path).convert("RGB").resize((request.width, request.height))
         strength = float(request.extra_options.get("img2img_strength", self.model_config.get("img2img_strength", 0.45)))
-        result = self.img2img_pipeline(
-            prompt=request.prompt_spec.generation_prompt,
-            negative_prompt=request.prompt_spec.negative_prompt or None,
-            image=init_image,
-            strength=strength,
-            guidance_scale=request.guidance_scale,
-            num_inference_steps=request.num_inference_steps,
-            generator=generator,
+        call_kwargs = {
+            "prompt": request.prompt_spec.generation_prompt,
+            "negative_prompt": request.prompt_spec.negative_prompt or None,
+            "image": init_image,
+            "strength": strength,
+            "guidance_scale": request.guidance_scale,
+            "num_inference_steps": request.num_inference_steps,
+            "generator": generator,
+        }
+        identity_metadata = self._apply_ip_adapter_if_requested(
+            self.img2img_pipeline,
+            request,
+            generation_mode="img2img",
+            call_kwargs=call_kwargs,
+            image_loader=lambda path: Image.open(path).convert("RGB"),
         )
+        result = self.img2img_pipeline(**call_kwargs)
         image = result.images[0]
         elapsed = time.time() - started_at
 
@@ -177,5 +196,73 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
                 "llm_route_change_level": request.extra_options.get("llm_route_change_level"),
                 "route_level_adjustment_reason": request.extra_options.get("route_level_adjustment_reason"),
                 "route_factors": request.extra_options.get("route_factors"),
+                **identity_metadata,
             },
         )
+
+    def _apply_ip_adapter_if_requested(
+        self,
+        pipeline,
+        request: GenerationRequest,
+        *,
+        generation_mode: str,
+        call_kwargs: dict[str, Any],
+        image_loader,
+    ) -> dict[str, Any]:
+        if not request.extra_options.get("identity_conditioning_enabled") or not request.reference_image_path:
+            return self._identity_metadata_without_application(request, generation_mode=generation_mode)
+        apply_to_modes = set(request.extra_options.get("identity_apply_to_modes", ["text2img"]))
+        if generation_mode not in apply_to_modes:
+            return self._identity_metadata_without_application(request, generation_mode=generation_mode)
+        if not hasattr(pipeline, "load_ip_adapter") or not hasattr(pipeline, "set_ip_adapter_scale"):
+            raise ValueError(
+                f"Pipeline for {generation_mode} does not support IP-Adapter. "
+                "Use a diffusers pipeline with load_ip_adapter/set_ip_adapter_scale support."
+            )
+
+        adapter_model_id = request.extra_options.get("ip_adapter_model_id")
+        adapter_subfolder = request.extra_options.get("ip_adapter_subfolder")
+        adapter_weight_name = request.extra_options.get("ip_adapter_weight_name")
+        if not adapter_model_id or not adapter_weight_name:
+            raise ValueError("IP-Adapter identity conditioning requires adapter_model_id and adapter_weight_name")
+        adapter_key = (str(adapter_model_id), adapter_subfolder, adapter_weight_name)
+        loaded_now = adapter_key not in self._loaded_ip_adapter_keys
+        if adapter_key not in self._loaded_ip_adapter_keys:
+            pipeline.load_ip_adapter(
+                adapter_model_id,
+                subfolder=adapter_subfolder,
+                weight_name=adapter_weight_name,
+            )
+            self._loaded_ip_adapter_keys.add(adapter_key)
+        scale = float(request.extra_options.get("ip_adapter_scale", 0.6))
+        pipeline.set_ip_adapter_scale(scale)
+        call_kwargs["ip_adapter_image"] = image_loader(request.reference_image_path)
+        return {
+            "identity_conditioning_enabled": True,
+            "identity_conditioning_applied": True,
+            "identity_anchor_character_id": request.extra_options.get("identity_anchor_character_id"),
+            "identity_anchor_type": request.extra_options.get("identity_anchor_type"),
+            "identity_anchor_path": request.reference_image_path,
+            "identity_conditioning_reason": request.extra_options.get("identity_conditioning_reason"),
+            "ip_adapter_scale": scale,
+            "ip_adapter_model_id": adapter_model_id,
+            "ip_adapter_subfolder": adapter_subfolder,
+            "ip_adapter_weight_name": adapter_weight_name,
+            "ip_adapter_loaded": loaded_now,
+        }
+
+    def _identity_metadata_without_application(self, request: GenerationRequest, *, generation_mode: str) -> dict[str, Any]:
+        return {
+            "identity_conditioning_enabled": bool(request.extra_options.get("identity_conditioning_enabled", False)),
+            "identity_conditioning_applied": False,
+            "identity_anchor_character_id": request.extra_options.get("identity_anchor_character_id"),
+            "identity_anchor_type": request.extra_options.get("identity_anchor_type"),
+            "identity_anchor_path": request.extra_options.get("identity_anchor_path"),
+            "identity_conditioning_reason": request.extra_options.get("identity_conditioning_reason"),
+            "ip_adapter_scale": request.extra_options.get("ip_adapter_scale"),
+            "ip_adapter_model_id": request.extra_options.get("ip_adapter_model_id"),
+            "ip_adapter_subfolder": request.extra_options.get("ip_adapter_subfolder"),
+            "ip_adapter_weight_name": request.extra_options.get("ip_adapter_weight_name"),
+            "identity_apply_to_modes": request.extra_options.get("identity_apply_to_modes", ["text2img"]),
+            "identity_generation_mode": generation_mode,
+        }

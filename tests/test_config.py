@@ -23,6 +23,8 @@ def test_resolve_config_supports_extension_profiles() -> None:
     strong = resolve_config("configs/base.yaml", "cloud_strong_backbone")
     story = resolve_config("configs/base.yaml", "cloud_storydiffusion")
     guided = resolve_config("configs/base.yaml", "llm_prompt_img2img_guided")
+    ip_adapter = resolve_config("configs/base.yaml", "llm_prompt_ip_adapter_text2img")
+    hybrid = resolve_config("configs/base.yaml", "llm_prompt_hybrid_identity")
 
     assert strong["prompt"]["pipeline"] == "rule_based"
     assert strong["model"]["backend"] == "diffusers_text2img"
@@ -35,6 +37,12 @@ def test_resolve_config_supports_extension_profiles() -> None:
     assert guided["generation"]["routing"]["text2img_when_composition_change_needed"] is True
     assert guided["prompt"]["llm"]["builder_version"] == "llm_assisted_v6"
     assert guided["scoring"]["route_aware"]["enabled"] is True
+    assert ip_adapter["generation"]["identity_conditioning"]["enabled"] is True
+    assert ip_adapter["generation"]["identity_conditioning"]["anchor_type"] == "half_body"
+    assert ip_adapter["generation"]["identity_conditioning"]["apply_to_modes"] == ["text2img"]
+    assert ip_adapter["generation"]["routing"]["img2img_enabled"] is False
+    assert hybrid["generation"]["identity_conditioning"]["enabled"] is True
+    assert hybrid["generation"]["routing"]["route_policy"] == "llm_guided_conservative"
 
 
 def test_resolve_config_unknown_profile_lists_available_profiles() -> None:
