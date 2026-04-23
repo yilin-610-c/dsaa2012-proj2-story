@@ -1,0 +1,151 @@
+{
+  "artifact_type": "llm_assisted_prompt",
+  "request_metadata": {
+    "builder_version": "llm_assisted_v7",
+    "cache_key": "c5f38192b969962bce4cb513be9c1b6ca54f236dbb5edaabbcf3a56d63dfc3a6",
+    "model": "gpt-4o-2024-08-06",
+    "provider": "openai",
+    "schema_version": "v1"
+  },
+  "timestamp": "2026-04-23T11:43:44+00:00",
+  "validated_output": {
+    "global": {
+      "characters": [
+        {
+          "age_band": "adult",
+          "body_build": "average",
+          "character_id": "jack",
+          "gender_presentation": "male",
+          "hair_color": "brown",
+          "hairstyle": "short",
+          "profession_marker": "",
+          "signature_accessory": "",
+          "signature_outfit": "casual jacket",
+          "skin_tone": "light"
+        },
+        {
+          "age_band": "adult",
+          "body_build": "slim",
+          "character_id": "sara",
+          "gender_presentation": "female",
+          "hair_color": "blonde",
+          "hairstyle": "long",
+          "profession_marker": "",
+          "signature_accessory": "",
+          "signature_outfit": "stylish coat",
+          "skin_tone": "light"
+        }
+      ],
+      "identity_cues": [
+        "human man",
+        "human woman"
+      ],
+      "main_character": "",
+      "shared_setting": [
+        "urban environment"
+      ],
+      "style_cues": [
+        "cinematic story illustration",
+        "coherent visual style"
+      ]
+    },
+    "scenes": [
+      {
+        "action_prompt": "sit and talk",
+        "continuity_route_hint": "text2img",
+        "continuity_subject_ids": [
+          "jack",
+          "sara"
+        ],
+        "generation_prompt": "Jack and Sara sitting in a park",
+        "identity_conditioning_subject_id": null,
+        "llm_route_change_level": "medium",
+        "primary_action": "sit and talk",
+        "primary_visible_character_ids": [
+          "jack",
+          "sara"
+        ],
+        "route_change_level": "large",
+        "route_factors": {
+          "body_state_change": false,
+          "composition_change_needed": true,
+          "new_key_objects": [],
+          "primary_action_change": false,
+          "same_setting": false,
+          "same_subject": true
+        },
+        "route_level_adjustment_reason": "setting_change_and_composition_change_needed",
+        "route_reason": "Change from park to cafe setting",
+        "scene_id": "SCENE-1",
+        "scoring_prompt": "Jack and Sara in a park",
+        "secondary_elements": [
+          "park"
+        ]
+      },
+      {
+        "action_prompt": "talk",
+        "continuity_route_hint": "img2img",
+        "continuity_subject_ids": [
+          "jack",
+          "sara"
+        ],
+        "generation_prompt": "Jack and Sara talking in a cafe",
+        "identity_conditioning_subject_id": null,
+        "llm_route_change_level": "medium",
+        "primary_action": "talk",
+        "primary_visible_character_ids": [
+          "jack",
+          "sara"
+        ],
+        "route_change_level": "large",
+        "route_factors": {
+          "body_state_change": false,
+          "composition_change_needed": true,
+          "new_key_objects": [],
+          "primary_action_change": false,
+          "same_setting": false,
+          "same_subject": true
+        },
+        "route_level_adjustment_reason": "setting_change_and_composition_change_needed",
+        "route_reason": "Change from cafe to exhibition setting",
+        "scene_id": "SCENE-2",
+        "scoring_prompt": "Jack and Sara in a cafe",
+        "secondary_elements": [
+          "cafe"
+        ]
+      },
+      {
+        "action_prompt": "look at exhibition",
+        "continuity_route_hint": "img2img",
+        "continuity_subject_ids": [
+          "jack",
+          "sara"
+        ],
+        "generation_prompt": "Jack and Sara at an exhibition",
+        "identity_conditioning_subject_id": null,
+        "llm_route_change_level": "medium",
+        "primary_action": "look at exhibition",
+        "primary_visible_character_ids": [
+          "jack",
+          "sara"
+        ],
+        "route_change_level": "large",
+        "route_factors": {
+          "body_state_change": false,
+          "composition_change_needed": true,
+          "new_key_objects": [],
+          "primary_action_change": true,
+          "same_setting": false,
+          "same_subject": true
+        },
+        "route_level_adjustment_reason": "setting_change_and_composition_change_needed",
+        "route_reason": "Change in action and setting to exhibition",
+        "scene_id": "SCENE-3",
+        "scoring_prompt": "Jack and Sara at an exhibition",
+        "secondary_elements": [
+          "exhibition"
+        ]
+      }
+    ]
+  }
+}
