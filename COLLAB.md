@@ -635,6 +635,30 @@ Validation:
 - full regression command: `conda run -n storygen env PYTHONPATH=src pytest -q`
 - full regression result: `93 passed`
 
+### 2026-04-23: Multi-Character Identity Conditioning Hardening
+
+Implemented:
+- bumped the LLM prompt builder/cache/artifact namespace to `llm_assisted_v7`
+- added scene-level `identity_conditioning_subject_id` and `primary_visible_character_ids` metadata
+- upgraded anchor selection order to explicit identity subject, continuity subjects, scene entities, then single-character fallback
+- made multi-character ambiguous scenes skip or raise instead of silently using single-character fallback
+
+Policy:
+- `half_body` is the canonical IP-Adapter anchor type for now
+- `portrait` anchors remain inspect-only and are not selected by default identity conditioning
+- `llm_prompt_ip_adapter_text2img` remains the preferred current route for identity consistency
+- `llm_prompt_hybrid_identity` remains exploratory because previous-frame img2img can propagate wrong objects or composition
+
+Traceability note:
+- feature branch/checkpoint creation failed because `.git/refs/heads` could not create nested refs in this environment
+- baseline recorded before edits: `main@01dc0b8`
+
+Validation:
+- targeted command: `conda run -n storygen env PYTHONPATH=src pytest -q tests/test_llm_assisted_prompt_builder.py tests/test_identity_conditioning.py tests/test_pipeline_logging.py tests/test_anchor_bank.py tests/test_config.py`
+- targeted result: `52 passed`
+- full regression command: `conda run -n storygen env PYTHONPATH=src pytest -q`
+- full regression result: `103 passed`
+
 ## Shared Code Rules
 
 When modifying shared code:

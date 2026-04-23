@@ -108,7 +108,7 @@ def _prompt_config(tmp_path: Path, *, fallback: bool = True, cache_enabled: bool
             "max_output_tokens": 800,
             "timeout_seconds": 30,
             "schema_version": "v1",
-            "builder_version": "llm_assisted_v6",
+            "builder_version": "llm_assisted_v7",
             "fallback_to_rule_based": fallback,
         },
     }
@@ -168,6 +168,8 @@ def _llm_payload() -> dict:
                 "route_change_level": "large",
                 "route_factors": _route_factors(),
                 "route_reason": "First scene establishes the frame.",
+                "identity_conditioning_subject_id": "Hero",
+                "primary_visible_character_ids": ["Hero"],
             },
             {
                 "scene_id": "SCENE-2",
@@ -181,6 +183,8 @@ def _llm_payload() -> dict:
                 "route_change_level": "small",
                 "route_factors": _route_factors(),
                 "route_reason": "Same subject and path, only the action changes.",
+                "identity_conditioning_subject_id": "Hero",
+                "primary_visible_character_ids": ["Hero"],
             },
         ],
     }
@@ -233,6 +237,8 @@ def _two_character_llm_payload() -> dict:
             "route_change_level": "large",
             "route_factors": _route_factors(same_subject=True),
             "route_reason": "First scene establishes both characters.",
+            "identity_conditioning_subject_id": None,
+            "primary_visible_character_ids": ["Jack", "Sara"],
         },
         {
             "scene_id": "SCENE-2",
@@ -246,6 +252,8 @@ def _two_character_llm_payload() -> dict:
             "route_change_level": "large",
             "route_factors": _route_factors(same_subject=True, same_setting=False, composition_change_needed=True),
             "route_reason": "Same characters but setting changes.",
+            "identity_conditioning_subject_id": None,
+            "primary_visible_character_ids": ["Jack", "Sara"],
         },
     ]
     return payload
@@ -286,6 +294,8 @@ def _bird_llm_payload() -> dict:
                 "route_change_level": "large",
                 "route_factors": _route_factors(),
                 "route_reason": "First scene establishes the bird.",
+                "identity_conditioning_subject_id": "Bird",
+                "primary_visible_character_ids": ["Bird"],
             }
         ],
     }
@@ -322,6 +332,8 @@ def test_llm_pipeline_metadata_includes_route_hints(tmp_path: Path) -> None:
     assert route_hints["SCENE-2"]["route_change_level"] == "small"
     assert route_hints["SCENE-2"]["llm_route_change_level"] == "small"
     assert route_hints["SCENE-2"]["route_factors"]["same_subject"] is True
+    assert route_hints["SCENE-2"]["identity_conditioning_subject_id"] == "Hero"
+    assert route_hints["SCENE-2"]["primary_visible_character_ids"] == ["Hero"]
 
 
 def test_llm_pipeline_metadata_includes_character_specs(tmp_path: Path) -> None:
@@ -348,6 +360,41 @@ def test_llm_pipeline_metadata_includes_multiple_character_specs(tmp_path: Path)
     assert len(character_specs) == len(set(character_specs))
     assert character_specs["Jack"]["signature_outfit"] == "black jacket"
     assert character_specs["Sara"]["signature_accessory"] == "yellow scarf"
+
+
+def test_llm_pipeline_accepts_unspecified_identity_conditioning_subject(tmp_path: Path) -> None:
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path, cache_enabled=False), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient(_two_character_llm_payload())
+
+    bundle = pipeline.build(_two_character_story())
+
+    route_hints = bundle.metadata["scene_route_hints"]
+    assert route_hints["SCENE-1"]["identity_conditioning_subject_id"] is None
+    assert route_hints["SCENE-1"]["primary_visible_character_ids"] == ["Jack", "Sara"]
+
+
+def test_llm_identity_conditioning_subject_must_match_character_specs(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["scenes"][1]["identity_conditioning_subject_id"] = "Missing"
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, fallback=False, cache_enabled=False),
+        llm_client=FakeLLMClient(payload),
+    )
+
+    with pytest.raises(LLMPromptError, match="identity_conditioning_subject_id"):
+        builder.build_story_prompts(_two_character_story())
+
+
+def test_llm_primary_visible_characters_must_match_character_specs(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["scenes"][1]["primary_visible_character_ids"] = ["Jack", "Missing"]
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, fallback=False, cache_enabled=False),
+        llm_client=FakeLLMClient(payload),
+    )
+
+    with pytest.raises(LLMPromptError, match="primary_visible_character_ids"):
+        builder.build_story_prompts(_two_character_story())
 
 
 def test_llm_main_character_must_align_with_character_specs(tmp_path: Path) -> None:

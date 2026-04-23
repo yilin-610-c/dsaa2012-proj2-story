@@ -236,6 +236,8 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 "llm_route_change_level": route_decision.llm_route_change_level,
                 "route_level_adjustment_reason": route_decision.route_level_adjustment_reason,
                 "route_factors": route_decision.route_factors,
+                "identity_conditioning_subject_id": (route_hint or {}).get("identity_conditioning_subject_id"),
+                "primary_visible_character_ids": list((route_hint or {}).get("primary_visible_character_ids", [])),
             }
             reference_image_path = None
             identity_config = config.get("generation", {}).get("identity_conditioning", {})

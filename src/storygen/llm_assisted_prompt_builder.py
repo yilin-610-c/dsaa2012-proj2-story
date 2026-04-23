@@ -191,6 +191,35 @@ def _adjust_route_change_level(route_change_level: str, route_factors: dict[str,
     return route_change_level, None
 
 
+def _character_id_lookup(characters: list[dict[str, Any]]) -> dict[str, str]:
+    return {character["character_id"].lower(): character["character_id"] for character in characters if character.get("character_id")}
+
+
+def _normalize_optional_character_id(value: Any, valid_character_ids: dict[str, str], *, scene_id: str) -> str | None:
+    character_id = _normalize_text(value)
+    if not character_id:
+        return None
+    key = character_id.lower()
+    if key not in valid_character_ids:
+        raise LLMPromptError(f"Unknown identity_conditioning_subject_id for {scene_id}: {character_id}")
+    return valid_character_ids[key]
+
+
+def _normalize_character_id_list(value: Any, valid_character_ids: dict[str, str], *, field_name: str, scene_id: str) -> list[str]:
+    normalized = []
+    seen = set()
+    for character_id in _normalize_list(value):
+        key = character_id.lower()
+        if key not in valid_character_ids:
+            raise LLMPromptError(f"Unknown {field_name} for {scene_id}: {character_id}")
+        canonical = valid_character_ids[key]
+        canonical_key = canonical.lower()
+        if canonical_key not in seen:
+            seen.add(canonical_key)
+            normalized.append(canonical)
+    return normalized
+
+
 class LLMAssistedPromptBuilder:
     def __init__(
         self,
@@ -233,7 +262,7 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v6"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v7"),
             "cache_enabled": bool(self.cache_config.get("enabled", True)),
             "artifact_path": self.artifact_config.get("path"),
             "scene_route_hints": self.last_route_hints,
@@ -327,6 +356,10 @@ class LLMAssistedPromptBuilder:
             "- Same character plus same setting is not enough for small. If unsure between small and medium, choose medium. If unsure between medium and large, choose large when local edits would not make the current action readable.\n"
             "- route_factors must explain the route judgment with booleans for same_subject, same_setting, body_state_change, primary_action_change, composition_change_needed, and a short new_key_objects list.\n"
             "- route_reason must be a short explanation of the scene-to-previous-scene routing judgment.\n"
+            "- primary_visible_character_ids must list the main visible recurring characters in the scene using global.characters character_id values.\n"
+            "- identity_conditioning_subject_id chooses the single character whose identity anchor should condition this scene. Use a character_id from global.characters only when one character is the clear identity target.\n"
+            "- If multiple characters are equally important, or the scene is ambiguous, set identity_conditioning_subject_id to null instead of guessing.\n"
+            "- For pronoun-only scenes, resolve the visible characters from story context when possible. If a plural pronoun such as 'They' refers to multiple characters equally, leave identity_conditioning_subject_id null.\n"
             f"Style prompt from local config: {self.prompt_config.get('style_prompt', '')}\n"
             f"Scenes:\n{scene_lines}"
         )
@@ -351,6 +384,8 @@ class LLMAssistedPromptBuilder:
                 "route_change_level",
                 "route_factors",
                 "route_reason",
+                "identity_conditioning_subject_id",
+                "primary_visible_character_ids",
             ],
             "properties": {
                 "scene_id": {"type": "string"},
@@ -383,6 +418,8 @@ class LLMAssistedPromptBuilder:
                     },
                 },
                 "route_reason": {"type": "string"},
+                "identity_conditioning_subject_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                "primary_visible_character_ids": {"type": "array", "items": {"type": "string"}},
             },
         }
         nullable_short_string = {"anyOf": [{"type": "string"}, {"type": "null"}]}
@@ -456,6 +493,8 @@ class LLMAssistedPromptBuilder:
         if actual_ids != expected_ids:
             raise LLMPromptError(f"LLM scene ids do not match parsed story: expected {expected_ids}, got {actual_ids}")
 
+        normalized_characters = self._normalize_character_specs(global_payload.get("characters"))
+        valid_character_ids = _character_id_lookup(normalized_characters)
         normalized_scenes = []
         for scene_payload in scenes_payload:
             if not isinstance(scene_payload, dict):
@@ -492,6 +531,19 @@ class LLMAssistedPromptBuilder:
                 raise LLMPromptError(f"LLM route_reason is missing or empty for {scene_payload.get('scene_id')}")
             route_factors = _normalize_route_factors(scene_payload.get("route_factors"))
             adjusted_route_change_level, adjustment_reason = _adjust_route_change_level(route_change_level, route_factors)
+            if "identity_conditioning_subject_id" not in scene_payload:
+                raise LLMPromptError(f"LLM identity_conditioning_subject_id is missing for {scene_payload.get('scene_id')}")
+            identity_conditioning_subject_id = _normalize_optional_character_id(
+                scene_payload.get("identity_conditioning_subject_id"),
+                valid_character_ids,
+                scene_id=scene_payload["scene_id"],
+            )
+            primary_visible_character_ids = _normalize_character_id_list(
+                scene_payload.get("primary_visible_character_ids"),
+                valid_character_ids,
+                field_name="primary_visible_character_ids",
+                scene_id=scene_payload["scene_id"],
+            )
             normalized_scenes.append(
                 {
                     "scene_id": scene_payload["scene_id"],
@@ -507,6 +559,8 @@ class LLMAssistedPromptBuilder:
                     "route_level_adjustment_reason": adjustment_reason,
                     "route_factors": route_factors,
                     "route_reason": route_reason,
+                    "identity_conditioning_subject_id": identity_conditioning_subject_id,
+                    "primary_visible_character_ids": primary_visible_character_ids,
                 }
             )
 
@@ -515,7 +569,7 @@ class LLMAssistedPromptBuilder:
             "identity_cues": _normalize_list(global_payload.get("identity_cues")),
             "shared_setting": _normalize_list(global_payload.get("shared_setting")),
             "style_cues": _normalize_list(global_payload.get("style_cues")),
-            "characters": self._normalize_character_specs(global_payload.get("characters")),
+            "characters": normalized_characters,
         }
         main_character = normalized_global["main_character"].lower()
         character_ids = {character["character_id"].lower() for character in normalized_global["characters"]}
@@ -565,6 +619,8 @@ class LLMAssistedPromptBuilder:
             if not scene_id:
                 continue
             hints[scene_id] = {
+                "identity_conditioning_subject_id": scene_payload.get("identity_conditioning_subject_id"),
+                "primary_visible_character_ids": list(scene_payload.get("primary_visible_character_ids", [])),
                 "continuity_subject_ids": list(scene_payload.get("continuity_subject_ids", [])),
                 "continuity_route_hint": scene_payload.get("continuity_route_hint"),
                 "llm_route_change_level": scene_payload.get("llm_route_change_level"),
@@ -631,7 +687,7 @@ class LLMAssistedPromptBuilder:
     def _export_artifact_if_enabled(self, story: Story, cache_key: str, record: dict[str, Any]) -> None:
         if not self.artifact_config.get("export_enabled", False):
             return
-        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v6"))
+        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v7"))
         story_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(story.source_path).stem).strip("_") or "story"
         model_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.llm_config.get("model", "model")).strip("_")
         schema_version = self.llm_config.get("schema_version", "v1")
@@ -653,7 +709,7 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v6"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v7"),
         }
 
     def _log(self, event: str, **metadata: Any) -> None:

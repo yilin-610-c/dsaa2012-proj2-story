@@ -78,6 +78,8 @@ Current Phase 2 preparation:
 - `llm_prompt_ip_adapter_text2img` evaluates LLM prompts plus text2img scenes conditioned by half-body anchors through IP-Adapter.
 - `llm_prompt_hybrid_identity` adds LLM-guided route execution on top of identity conditioning: text2img scenes can use IP-Adapter, while img2img scenes remain previous-frame continuity routes unless explicitly configured otherwise.
 - IP-Adapter profiles disable diffusers attention slicing because the current SDXL IP-Adapter loader is incompatible with pre-installed sliced attention processors. This is treated as a runtime compatibility setting rather than a method component.
+- Multi-character hardening upgrades the prompt metadata to `llm_assisted_v7`: each scene can declare `identity_conditioning_subject_id` and `primary_visible_character_ids`, so the IP-Adapter path can select the intended character anchor instead of guessing from a multi-character scene.
+- The current canonical anchor policy is to use `half_body` for IP-Adapter conditioning. Portrait anchors are retained as inspect-only artifacts until a later face/anchor consistency design is added.
 
 ## Controlled Comparisons on Test-A
 
@@ -169,6 +171,12 @@ Observed runtime issue during first IP-Adapter validation:
 - Cause: the base configuration enabled diffusers attention slicing before loading IP-Adapter. The current SDXL IP-Adapter loading path expects to replace compatible attention processors and does not handle the sliced processor state.
 - Fix: IP-Adapter profiles now set `model.enable_attention_slicing=false`.
 - Experimental interpretation: attention slicing is a VRAM optimization, not an identity-conditioning component. Non-IP-Adapter experiments do not need to be rerun for this reason; IP-Adapter runs should use the updated profiles or the equivalent CLI override.
+
+Observed hybrid limitation:
+
+- In the Lily example, `llm_prompt_ip_adapter_text2img` produced the strongest current identity consistency because every scene used text2img conditioned on the same `half_body` anchor.
+- `llm_prompt_hybrid_identity` remained less reliable because previous-frame img2img can propagate wrong objects or composition, such as a cat or kitchen layout, into later panels.
+- Current conclusion: use `text2img + half_body IP-Adapter` as the preferred route; keep hybrid routing as an exploratory ablation rather than the main method.
 
 ## Data / External Resources / Compliance
 

@@ -129,6 +129,8 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
                 "llm_route_change_level": request.extra_options.get("llm_route_change_level"),
                 "route_level_adjustment_reason": request.extra_options.get("route_level_adjustment_reason"),
                 "route_factors": request.extra_options.get("route_factors"),
+                "identity_conditioning_subject_id": request.extra_options.get("identity_conditioning_subject_id"),
+                "primary_visible_character_ids": request.extra_options.get("primary_visible_character_ids"),
                 **identity_metadata,
             },
         )
@@ -196,6 +198,8 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
                 "llm_route_change_level": request.extra_options.get("llm_route_change_level"),
                 "route_level_adjustment_reason": request.extra_options.get("route_level_adjustment_reason"),
                 "route_factors": request.extra_options.get("route_factors"),
+                "identity_conditioning_subject_id": request.extra_options.get("identity_conditioning_subject_id"),
+                "primary_visible_character_ids": request.extra_options.get("primary_visible_character_ids"),
                 **identity_metadata,
             },
         )

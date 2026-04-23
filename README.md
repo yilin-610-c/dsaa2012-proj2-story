@@ -110,7 +110,7 @@ To reuse a shared artifact without calling the API:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v6/example.json
+    path: prompt_artifacts/llm_assisted_v7/example.json
 ```
 
 ## Anchor Bank v1
@@ -133,7 +133,9 @@ PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_anchor_bank --input 
 
 IP-Adapter identity conditioning is opt-in. It consumes the run-local Anchor Bank output and passes the selected anchor image through `GenerationRequest.reference_image_path` only when `generation.identity_conditioning.enabled=true`.
 
-The v1 default uses `half_body` anchors and applies IP-Adapter only to `text2img` scenes. This keeps previous-frame img2img behavior separate from identity conditioning.
+The v1 default uses `half_body` anchors and applies IP-Adapter only to `text2img` scenes. This keeps previous-frame img2img behavior separate from identity conditioning. Portrait anchors are generated for inspection only and are not selected by the default identity-conditioning path.
+
+For multi-character stories, LLM-assisted prompt metadata can specify `identity_conditioning_subject_id` per scene. Anchor selection uses that explicit subject first, then continuity subjects, then unambiguous scene entities, then single-character fallback. Ambiguous multi-character scenes are skipped or raised according to `generation.identity_conditioning.fail_on_missing_anchor`.
 
 The IP-Adapter profiles disable `model.enable_attention_slicing` by default. Attention slicing is a memory-saving diffusers option, but in the current SDXL + IP-Adapter setup it can conflict with IP-Adapter attention processor loading. Non-IP-Adapter profiles keep the base setting unchanged.
 

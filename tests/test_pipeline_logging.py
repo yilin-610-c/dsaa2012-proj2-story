@@ -61,6 +61,8 @@ class FakeGuidedPromptPipeline:
             },
             "scene_route_hints": {
                 "SCENE-1": {
+                    "identity_conditioning_subject_id": "Lily",
+                    "primary_visible_character_ids": ["Lily"],
                     "continuity_subject_ids": ["Lily"],
                     "continuity_route_hint": "text2img",
                     "llm_route_change_level": "large",
@@ -70,6 +72,8 @@ class FakeGuidedPromptPipeline:
                     "route_reason": "first scene",
                 },
                 "SCENE-2": {
+                    "identity_conditioning_subject_id": "Lily",
+                    "primary_visible_character_ids": ["Lily"],
                     "continuity_subject_ids": ["Lily"],
                     "continuity_route_hint": "img2img",
                     "llm_route_change_level": "small",
@@ -104,6 +108,8 @@ class FakeSmallChangePromptPipeline(FakeGuidedPromptPipeline):
             },
             "scene_route_hints": {
                 scene.scene_id: {
+                    "identity_conditioning_subject_id": "Lily",
+                    "primary_visible_character_ids": ["Lily"],
                     "continuity_subject_ids": ["Lily"],
                     "continuity_route_hint": "img2img" if scene.index > 0 else "text2img",
                     "llm_route_change_level": "small" if scene.index > 0 else "large",
@@ -123,6 +129,44 @@ class FakeSmallChangePromptPipeline(FakeGuidedPromptPipeline):
             scene_prompts=PromptBuilder(self.prompt_config).build_story_prompts(story),
             metadata=self._metadata,
         )
+
+
+class FakeTwoCharacterIdentityPromptPipeline:
+    def __init__(self, prompt_config: dict, *, subject_id: str | None) -> None:
+        self.prompt_config = prompt_config
+        self.subject_id = subject_id
+        self._metadata = {"pipeline": "llm_assisted", "implemented": True, "scene_route_hints": {}}
+
+    def build(self, story) -> PromptBundle:
+        self._metadata = {
+            "pipeline": "llm_assisted",
+            "implemented": True,
+            "character_specs": {
+                "Jack": {"character_id": "Jack", "metadata": {"source": "llm_assisted"}},
+                "Sara": {"character_id": "Sara", "metadata": {"source": "llm_assisted"}},
+            },
+            "scene_route_hints": {
+                scene.scene_id: {
+                    "identity_conditioning_subject_id": self.subject_id,
+                    "primary_visible_character_ids": ["Jack", "Sara"],
+                    "continuity_subject_ids": [],
+                    "continuity_route_hint": "text2img",
+                    "llm_route_change_level": "large",
+                    "route_change_level": "large",
+                    "route_level_adjustment_reason": None,
+                    "route_factors": {"same_subject": True, "composition_change_needed": True},
+                    "route_reason": "two character test",
+                }
+                for scene in story.scenes
+            },
+        }
+        return PromptBundle(
+            scene_prompts=PromptBuilder(self.prompt_config).build_story_prompts(story),
+            metadata=self._metadata,
+        )
+
+    def metadata(self) -> dict:
+        return self._metadata
 
 
 class FakeMetadataPromptPipeline:
@@ -408,6 +452,66 @@ def test_ip_adapter_text2img_profile_passes_anchor_reference_to_scene_requests(t
     assert all(request.extra_options["identity_anchor_type"] == "half_body" for request in scene_requests)
     assert all(request.extra_options["identity_conditioning_enabled"] is True for request in scene_requests)
     assert "identity_anchor_selected" in event_names
+
+
+def test_ip_adapter_text2img_profile_uses_explicit_identity_subject_for_multi_character_story(tmp_path, monkeypatch) -> None:
+    generator = FakeSceneGenerator()
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", lambda model, runtime: generator)
+    monkeypatch.setattr(
+        "storygen.pipeline.build_prompt_pipeline",
+        lambda prompt, event_logger=None: FakeTwoCharacterIdentityPromptPipeline(prompt, subject_id="Jack"),
+    )
+    config = resolve_config(
+        "configs/base.yaml",
+        "llm_prompt_ip_adapter_text2img",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "ip_adapter_two_character_subject",
+            "runtime.input_path": "test_set/06.txt",
+            "scoring.type": "heuristic",
+            "generation.candidate_count": 1,
+        },
+    )
+
+    run_pipeline(config)
+    scene_requests = [request for request in generator.requests if not request.scene_id.startswith("ANCHOR-")]
+
+    assert scene_requests
+    assert all("/Jack/" in request.reference_image_path for request in scene_requests)
+    assert all(request.extra_options["identity_anchor_character_id"] == "Jack" for request in scene_requests)
+    assert all(request.extra_options["identity_conditioning_reason"] == "identity_subject_id" for request in scene_requests)
+
+
+def test_ip_adapter_text2img_profile_skips_ambiguous_multi_character_scene_when_configured(tmp_path, monkeypatch) -> None:
+    generator = FakeSceneGenerator()
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", lambda model, runtime: generator)
+    monkeypatch.setattr(
+        "storygen.pipeline.build_prompt_pipeline",
+        lambda prompt, event_logger=None: FakeTwoCharacterIdentityPromptPipeline(prompt, subject_id=None),
+    )
+    config = resolve_config(
+        "configs/base.yaml",
+        "llm_prompt_ip_adapter_text2img",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "ip_adapter_two_character_ambiguous",
+            "runtime.input_path": "test_set/06.txt",
+            "scoring.type": "heuristic",
+            "generation.candidate_count": 1,
+            "generation.identity_conditioning.fail_on_missing_anchor": False,
+        },
+    )
+
+    run_pipeline(config)
+    scene_requests = [request for request in generator.requests if not request.scene_id.startswith("ANCHOR-")]
+
+    assert scene_requests
+    assert all(request.reference_image_path is None for request in scene_requests)
+    assert all(request.extra_options["identity_conditioning_enabled"] is False for request in scene_requests)
+    assert all(
+        request.extra_options["identity_conditioning_reason"] == "ambiguous_or_missing_scene_character"
+        for request in scene_requests
+    )
 
 
 def test_hybrid_identity_profile_does_not_apply_ip_adapter_to_img2img_scenes_by_default(tmp_path, monkeypatch) -> None:

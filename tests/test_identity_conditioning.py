@@ -55,6 +55,23 @@ def test_select_identity_anchor_uses_route_hint_subject(tmp_path: Path) -> None:
     assert result["identity_conditioning_reason"] == "route_hint_subject"
 
 
+def test_select_identity_anchor_prefers_identity_subject_id(tmp_path: Path) -> None:
+    result = select_identity_anchor(
+        scene=_scene(["Sara"]),
+        route_hint={
+            "identity_conditioning_subject_id": "Jack",
+            "continuity_subject_ids": ["Sara"],
+        },
+        generation_mode="text2img",
+        anchor_bank_summary=_anchor_bank(tmp_path),
+        identity_config=_identity_config(),
+    )
+
+    assert result["identity_conditioning_enabled"] is True
+    assert result["identity_anchor_character_id"] == "Jack"
+    assert result["identity_conditioning_reason"] == "identity_subject_id"
+
+
 def test_select_identity_anchor_falls_back_to_scene_entity(tmp_path: Path) -> None:
     result = select_identity_anchor(
         scene=_scene(["Sara"]),
@@ -101,6 +118,19 @@ def test_select_identity_anchor_ambiguous_multi_character_can_skip(tmp_path: Pat
     result = select_identity_anchor(
         scene=_scene([]),
         route_hint={},
+        generation_mode="text2img",
+        anchor_bank_summary=_anchor_bank(tmp_path),
+        identity_config=_identity_config(fail_on_missing_anchor=False),
+    )
+
+    assert result["identity_conditioning_enabled"] is False
+    assert result["identity_conditioning_reason"] == "ambiguous_or_missing_scene_character"
+
+
+def test_select_identity_anchor_ambiguous_multi_character_with_visible_characters_skips(tmp_path: Path) -> None:
+    result = select_identity_anchor(
+        scene=_scene([]),
+        route_hint={"primary_visible_character_ids": ["Jack", "Sara"], "identity_conditioning_subject_id": None},
         generation_mode="text2img",
         anchor_bank_summary=_anchor_bank(tmp_path),
         identity_config=_identity_config(fail_on_missing_anchor=False),

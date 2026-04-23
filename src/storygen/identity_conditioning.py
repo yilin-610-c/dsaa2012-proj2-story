@@ -13,16 +13,22 @@ def _normalized_anchor_characters(anchor_bank_summary: dict[str, Any]) -> dict[s
     return {str(character_id): payload for character_id, payload in characters.items() if isinstance(payload, dict)}
 
 
-def _first_matching_character(
+def _single_matching_character(
     candidates: list[Any],
     anchor_characters: dict[str, dict[str, Any]],
 ) -> str | None:
     normalized = {character_id.lower(): character_id for character_id in anchor_characters}
+    matches = []
+    seen = set()
     for candidate in candidates:
         key = str(candidate).strip().lower()
         if key in normalized:
-            return normalized[key]
-    return None
+            match = normalized[key]
+            match_key = match.lower()
+            if match_key not in seen:
+                seen.add(match_key)
+                matches.append(match)
+    return matches[0] if len(matches) == 1 else None
 
 
 def select_identity_anchor(
@@ -51,13 +57,20 @@ def select_identity_anchor(
     if not anchor_characters:
         return _missing_anchor_result(identity_config, "no_anchor_characters")
 
-    selected_character_id = _first_matching_character(
-        list((route_hint or {}).get("continuity_subject_ids", [])),
+    route_hint = route_hint or {}
+    selected_character_id = _single_matching_character(
+        [route_hint.get("identity_conditioning_subject_id")],
         anchor_characters,
     )
-    reason = "route_hint_subject"
+    reason = "identity_subject_id"
     if selected_character_id is None:
-        selected_character_id = _first_matching_character(scene.entities, anchor_characters)
+        selected_character_id = _single_matching_character(
+            list(route_hint.get("continuity_subject_ids", [])),
+            anchor_characters,
+        )
+        reason = "route_hint_subject"
+    if selected_character_id is None:
+        selected_character_id = _single_matching_character(scene.entities, anchor_characters)
         reason = "scene_entity"
     if selected_character_id is None and len(anchor_characters) == 1:
         selected_character_id = next(iter(anchor_characters))
