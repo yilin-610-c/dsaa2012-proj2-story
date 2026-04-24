@@ -149,3 +149,32 @@ def test_select_identity_anchor_missing_file_raises_when_configured(tmp_path: Pa
             anchor_bank_summary={"characters": {"Jack": {"anchors": {"half_body": {"image_path": str(tmp_path / "missing.png")}}}}},
             identity_config=_identity_config(),
         )
+
+
+def test_select_identity_anchor_prefers_canonical_half_body_path(tmp_path: Path) -> None:
+    canonical = tmp_path / "anchors" / "Jack" / "canonical_half_body.png"
+    legacy = tmp_path / "anchors" / "Jack" / "half_body.png"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(b"fake")
+    legacy.write_bytes(b"legacy")
+
+    result = select_identity_anchor(
+        scene=_scene(["Jack"]),
+        route_hint={},
+        generation_mode="text2img",
+        anchor_bank_summary={
+            "characters": {
+                "Jack": {
+                    "anchors": {
+                        "half_body": {
+                            "image_path": str(legacy),
+                            "canonical_image_path": str(canonical),
+                        }
+                    }
+                }
+            }
+        },
+        identity_config=_identity_config(),
+    )
+
+    assert result["identity_anchor_path"] == str(canonical)

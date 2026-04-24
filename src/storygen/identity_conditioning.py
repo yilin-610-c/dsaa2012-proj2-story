@@ -31,6 +31,20 @@ def _single_matching_character(
     return matches[0] if len(matches) == 1 else None
 
 
+def _resolve_anchor_image_path(anchor_payload: dict[str, Any] | None) -> str:
+    if not isinstance(anchor_payload, dict):
+        return ""
+    canonical_anchor = anchor_payload.get("canonical_anchor")
+    if isinstance(canonical_anchor, dict):
+        canonical_selected_path = str(canonical_anchor.get("selected_image_path") or "").strip()
+        if canonical_selected_path:
+            return canonical_selected_path
+    canonical_path = str(anchor_payload.get("canonical_image_path") or "").strip()
+    if canonical_path:
+        return canonical_path
+    return str(anchor_payload.get("image_path") or "").strip()
+
+
 def select_identity_anchor(
     *,
     scene: Scene,
@@ -82,7 +96,7 @@ def select_identity_anchor(
     character_payload = anchor_characters[selected_character_id]
     anchors = character_payload.get("anchors", {})
     anchor_payload = anchors.get(anchor_type) if isinstance(anchors, dict) else None
-    anchor_path = str((anchor_payload or {}).get("image_path") or "")
+    anchor_path = _resolve_anchor_image_path(anchor_payload)
     if not anchor_path:
         return _missing_anchor_result(identity_config, f"missing_anchor_type:{selected_character_id}:{anchor_type}")
     if not Path(anchor_path).exists():

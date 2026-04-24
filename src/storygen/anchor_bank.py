@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import re
+from shutil import copyfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
 from storygen.generators import BaseSceneGenerator
 from storygen.io.results import save_json
+from storygen.scoring import CLIPConsistencyScorer
+from storygen.types import CandidateScore, GenerationCandidate, Scene, Story
 from storygen.types import AnchorSpec, GenerationRequest, PromptSpec, RunContext
 
 
@@ -58,9 +61,19 @@ def build_anchor_prompt(character_spec: dict[str, Any], anchor_type: str, prompt
     return ", ".join(part for part in [prompt, suffix] if part)
 
 
-def _anchor_prompt_spec(character_id: str, anchor_type: str, prompt: str, negative_prompt: str) -> PromptSpec:
+def _anchor_prompt_spec(
+    character_id: str,
+    anchor_type: str,
+    prompt: str,
+    negative_prompt: str,
+    *,
+    candidate_index: int | None = None,
+) -> PromptSpec:
+    scene_id = f"ANCHOR-{_safe_path_name(character_id)}-{anchor_type}"
+    if candidate_index is not None:
+        scene_id = f"{scene_id}-cand-{candidate_index}"
     return PromptSpec(
-        scene_id=f"ANCHOR-{_safe_path_name(character_id)}-{anchor_type}",
+        scene_id=scene_id,
         style_prompt="",
         character_prompt=character_id,
         global_context_prompt="",
@@ -77,6 +90,171 @@ def _anchor_type_path(anchor_dir: Path, anchor_type: str) -> Path:
     return anchor_dir / f"{anchor_type}.png"
 
 
+def _half_body_candidate_path(anchor_dir: Path, candidate_index: int) -> Path:
+    return anchor_dir / f"half_body_cand_{candidate_index}.png"
+
+
+def _canonical_half_body_path(anchor_dir: Path) -> Path:
+    return anchor_dir / "canonical_half_body.png"
+
+
+def _canonical_anchor_metadata_path(anchor_dir: Path) -> Path:
+    return anchor_dir / "canonical_anchor.json"
+
+
+def _half_body_candidate_count(anchor_config: dict[str, Any]) -> int:
+    raw = anchor_config.get("half_body_candidate_count", 3)
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 3
+
+
+def _build_half_body_candidates(
+    *,
+    character_dir: Path,
+    prompt: str,
+    base_seed: int,
+    candidate_count: int,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "candidate_index": candidate_index,
+            "prompt": prompt,
+            "seed": base_seed + candidate_index,
+            "image_path": str(_half_body_candidate_path(character_dir, candidate_index)),
+        }
+        for candidate_index in range(candidate_count)
+    ]
+
+
+def _quality_signals(image_path: Path) -> dict[str, Any]:
+    signals = {
+        "file_exists": image_path.exists(),
+        "image_openable": False,
+        "width": None,
+        "height": None,
+        "pixel_count": 0,
+    }
+    if not image_path.exists():
+        return signals
+    try:
+        from PIL import Image
+
+        with Image.open(image_path) as image_handle:
+            image_handle.load()
+            signals["image_openable"] = True
+            signals["width"] = int(image_handle.width)
+            signals["height"] = int(image_handle.height)
+            signals["pixel_count"] = int(image_handle.width * image_handle.height)
+    except Exception:
+        return signals
+    return signals
+
+
+def _build_selector_scorer(selector_config: dict[str, Any], runtime_config: dict[str, Any]) -> CLIPConsistencyScorer | None:
+    method = str(selector_config.get("method", "clip_text_alignment"))
+    if method != "clip_text_alignment":
+        return None
+    try:
+        return CLIPConsistencyScorer(
+            {
+                "type": "clip_consistency",
+                "clip_model_id": selector_config.get("clip_model_id", "openai/clip-vit-base-patch32"),
+                "clip_max_text_length": selector_config.get("clip_max_text_length", 77),
+                "text_image_weight": 1.0,
+                "consistency_weight": 0.0,
+                "action_weight": 0.0,
+            },
+            runtime_config,
+        )
+    except Exception:
+        return None
+
+
+def _select_canonical_half_body(
+    *,
+    character_id: str,
+    prompt: str,
+    candidates: list[dict[str, Any]],
+    selector_config: dict[str, Any],
+    runtime_config: dict[str, Any],
+) -> dict[str, Any]:
+    scorer = _build_selector_scorer(selector_config, runtime_config)
+    selector_method = str(selector_config.get("method", "clip_text_alignment"))
+    scored_candidates = []
+    for candidate in candidates:
+        image_path = Path(candidate["image_path"])
+        quality = _quality_signals(image_path)
+        clip_alignment = 0.0
+        clip_error = None
+        if scorer is not None and quality["file_exists"]:
+            try:
+                score = scorer.score_candidate(
+                    story=Story(source_path="", raw_text="", scenes=[], all_entities=[], recurring_entities=[], entity_to_scene_ids={}),
+                    scene=Scene(scene_id=f"ANCHOR-{_safe_path_name(character_id)}", index=0, raw_text="", clean_text="", entities=[character_id]),
+                    prompt_spec=PromptSpec(
+                        scene_id=f"ANCHOR-{_safe_path_name(character_id)}",
+                        style_prompt="",
+                        character_prompt=character_id,
+                        global_context_prompt="",
+                        local_prompt=prompt,
+                        action_prompt="half_body",
+                        generation_prompt=prompt,
+                        scoring_prompt=prompt,
+                        full_prompt=prompt,
+                        negative_prompt="",
+                    ),
+                    candidate=GenerationCandidate(
+                        scene_id=f"ANCHOR-{_safe_path_name(character_id)}",
+                        candidate_index=int(candidate["candidate_index"]),
+                        seed=int(candidate["seed"]),
+                        prompt_spec=_anchor_prompt_spec(character_id, "half_body", prompt, ""),
+                        image=None,
+                        image_path=str(image_path),
+                        metadata={},
+                    ),
+                    previous_results=[],
+                )
+                if isinstance(score, CandidateScore):
+                    clip_alignment = float(score.components.get("text_alignment", score.score))
+            except Exception as exc:
+                clip_error = str(exc)
+
+        quality_score = 0.0
+        if quality["file_exists"]:
+            quality_score += 0.5
+        if quality["image_openable"]:
+            quality_score += 0.5
+        final_score = clip_alignment + quality_score
+        scored_candidates.append(
+            {
+                **candidate,
+                "clip_alignment": round(float(clip_alignment), 6),
+                "quality_score": round(float(quality_score), 6),
+                "selector_score": round(float(final_score), 6),
+                "quality": quality,
+                "selector_method": selector_method,
+                "clip_error": clip_error,
+            }
+        )
+
+    selected = sorted(
+        scored_candidates,
+        key=lambda item: (-float(item["selector_score"]), item["candidate_index"], item["seed"]),
+    )[0]
+    return {
+        "character_id": character_id,
+        "anchor_type": "half_body",
+        "selector_method": selector_method,
+        "prompt": prompt,
+        "selected_candidate_index": selected["candidate_index"],
+        "selected_seed": selected["seed"],
+        "selected_image_path": selected["image_path"],
+        "candidates": scored_candidates,
+    }
+
+
 def build_anchor_bank_plan(
     *,
     character_specs: dict[str, dict[str, Any]],
@@ -86,6 +264,7 @@ def build_anchor_bank_plan(
 ) -> dict[str, Any]:
     output_dir = run_context.run_directory / str(anchor_config.get("output_dir_name", "anchors"))
     anchor_types = [str(value) for value in anchor_config.get("anchor_types", ["portrait", "half_body"])]
+    half_body_candidate_count = _half_body_candidate_count(anchor_config)
     prompt_suffix = str(
         anchor_config.get(
             "prompt_suffix",
@@ -103,12 +282,29 @@ def build_anchor_bank_plan(
         for anchor_index, anchor_type in enumerate(anchor_types):
             seed = base_seed_offset + character_index * 100 + anchor_index
             prompt = build_anchor_prompt(character_spec, anchor_type, prompt_suffix)
-            anchors[anchor_type] = {
-                "anchor_type": anchor_type,
-                "prompt": prompt,
-                "seed": seed,
-                "image_path": str(_anchor_type_path(character_dir, anchor_type)),
-            }
+            if anchor_type == "half_body":
+                anchors[anchor_type] = {
+                    "anchor_type": anchor_type,
+                    "prompt": prompt,
+                    "seed": seed,
+                    "candidate_count": half_body_candidate_count,
+                    "candidates": _build_half_body_candidates(
+                        character_dir=character_dir,
+                        prompt=prompt,
+                        base_seed=seed,
+                        candidate_count=half_body_candidate_count,
+                    ),
+                    "canonical_image_path": str(_canonical_half_body_path(character_dir)),
+                    "canonical_metadata_path": str(_canonical_anchor_metadata_path(character_dir)),
+                    "image_path": str(_canonical_half_body_path(character_dir)),
+                }
+            else:
+                anchors[anchor_type] = {
+                    "anchor_type": anchor_type,
+                    "prompt": prompt,
+                    "seed": seed,
+                    "image_path": str(_anchor_type_path(character_dir, anchor_type)),
+                }
         characters[character_id] = {
             "character_id": character_id,
             "safe_character_id": safe_character_id,
@@ -117,7 +313,8 @@ def build_anchor_bank_plan(
                 AnchorSpec(
                     character_id=character_id,
                     portrait_path=anchors.get("portrait", {}).get("image_path"),
-                    half_body_path=anchors.get("half_body", {}).get("image_path"),
+                    half_body_path=anchors.get("half_body", {}).get("canonical_image_path")
+                    or anchors.get("half_body", {}).get("image_path"),
                     full_body_path=anchors.get("full_body", {}).get("image_path"),
                     metadata={
                         "source": "character_specs",
@@ -133,6 +330,7 @@ def build_anchor_bank_plan(
         "generate": bool(anchor_config.get("generate", False)),
         "output_dir": str(output_dir),
         "anchor_types": anchor_types,
+        "half_body_candidate_count": half_body_candidate_count,
         "characters": characters,
     }
 
@@ -171,6 +369,80 @@ def run_anchor_bank(
             continue
 
         for anchor_type, anchor_payload in character["anchors"].items():
+            if anchor_type == "half_body":
+                event_logger(
+                    "anchor_generation_started",
+                    character_id=character["character_id"],
+                    anchor_type=anchor_type,
+                    candidate_count=anchor_payload.get("candidate_count", 1),
+                )
+                for candidate_payload in anchor_payload.get("candidates", []):
+                    prompt_spec = _anchor_prompt_spec(
+                        character["character_id"],
+                        anchor_type,
+                        anchor_payload["prompt"],
+                        str(prompt_config.get("negative_prompt", "")).strip(),
+                        candidate_index=int(candidate_payload["candidate_index"]),
+                    )
+                    request = GenerationRequest(
+                        scene_id=prompt_spec.scene_id,
+                        candidate_index=int(candidate_payload["candidate_index"]),
+                        seed=int(candidate_payload["seed"]),
+                        prompt_spec=prompt_spec,
+                        width=int(model_config["width"]),
+                        height=int(model_config["height"]),
+                        guidance_scale=float(model_config["guidance_scale"]),
+                        num_inference_steps=int(model_config["num_inference_steps"]),
+                        reference_image_path=None,
+                        previous_selected_image_path=None,
+                        extra_options={
+                            "generation_mode": "text2img",
+                            "anchor_type": anchor_type,
+                            "character_id": character["character_id"],
+                            "route_reason": "anchor_bank_generation",
+                            "anchor_candidate_index": int(candidate_payload["candidate_index"]),
+                        },
+                    )
+                    candidate = generator.generate_scene(request)
+                    image_path = Path(candidate_payload["image_path"])
+                    image_path.parent.mkdir(parents=True, exist_ok=True)
+                    candidate.image.save(image_path)
+                    candidate.image = None
+                    candidate_payload["image_path"] = str(image_path)
+                    event_logger(
+                        "anchor_generation_completed",
+                        character_id=character["character_id"],
+                        anchor_type=anchor_type,
+                        seed=int(candidate_payload["seed"]),
+                        candidate_index=int(candidate_payload["candidate_index"]),
+                        image_path=str(image_path),
+                    )
+
+                selection = _select_canonical_half_body(
+                    character_id=character["character_id"],
+                    prompt=anchor_payload["prompt"],
+                    candidates=list(anchor_payload.get("candidates", [])),
+                    selector_config=anchor_config.get("half_body_selector", {}),
+                    runtime_config={"device": model_config.get("device", "cpu")},
+                )
+                canonical_image_path = Path(anchor_payload["canonical_image_path"])
+                canonical_image_path.parent.mkdir(parents=True, exist_ok=True)
+                copyfile(selection["selected_image_path"], canonical_image_path)
+                anchor_payload["canonical_candidate_index"] = selection["selected_candidate_index"]
+                anchor_payload["canonical_seed"] = selection["selected_seed"]
+                anchor_payload["canonical_image_path"] = str(canonical_image_path)
+                anchor_payload["image_path"] = str(canonical_image_path)
+                save_json(Path(anchor_payload["canonical_metadata_path"]), selection)
+                event_logger(
+                    "anchor_canonical_selected",
+                    character_id=character["character_id"],
+                    anchor_type=anchor_type,
+                    canonical_candidate_index=selection["selected_candidate_index"],
+                    canonical_seed=selection["selected_seed"],
+                    canonical_image_path=str(canonical_image_path),
+                )
+                continue
+
             event_logger(
                 "anchor_generation_started",
                 character_id=character["character_id"],

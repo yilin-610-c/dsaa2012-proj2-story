@@ -121,7 +121,17 @@ Anchor Bank v1 is an optional run-local identity asset step. It consumes `Prompt
 outputs/<run_name>/anchors/<character_id>/
 ```
 
-This is not IP-Adapter yet. Anchors are not passed into scene generation, routing, scoring, or selection. Scene `GenerationRequest.reference_image_path` remains unset in v1, so baseline behavior is preserved unless a future identity-conditioning profile explicitly consumes these anchors.
+Portrait anchors still generate a single inspect-only image. Half-body anchors now generate multiple candidates per character, run a lightweight canonical selector, and save:
+
+```text
+outputs/<run_name>/anchors/<character_id>/half_body_cand_0.png
+outputs/<run_name>/anchors/<character_id>/half_body_cand_1.png
+outputs/<run_name>/anchors/<character_id>/half_body_cand_2.png
+outputs/<run_name>/anchors/<character_id>/canonical_half_body.png
+outputs/<run_name>/anchors/<character_id>/canonical_anchor.json
+```
+
+The selector is intentionally minimal in this version: it tries CLIP text-image alignment against the half-body anchor prompt, adds a simple file/openability quality check, and then writes the chosen canonical half-body anchor. Portrait remains inspect-only.
 
 Run-local anchor generation:
 
@@ -133,7 +143,7 @@ PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_anchor_bank --input 
 
 IP-Adapter identity conditioning is opt-in. It consumes the run-local Anchor Bank output and passes the selected anchor image through `GenerationRequest.reference_image_path` only when `generation.identity_conditioning.enabled=true`.
 
-The v1 default uses `half_body` anchors and applies IP-Adapter only to `text2img` scenes. This keeps previous-frame img2img behavior separate from identity conditioning. Portrait anchors are generated for inspection only and are not selected by the default identity-conditioning path.
+The v1 default uses the selected `canonical_half_body.png` and applies IP-Adapter only to `text2img` scenes. This keeps previous-frame img2img behavior separate from identity conditioning. Portrait anchors are generated for inspection only and are not selected by the default identity-conditioning path.
 
 For multi-character stories, LLM-assisted prompt metadata can specify `identity_conditioning_subject_id` per scene. Anchor selection uses that explicit subject first, then continuity subjects, then unambiguous scene entities, then single-character fallback. Ambiguous multi-character scenes are skipped or raised according to `generation.identity_conditioning.fail_on_missing_anchor`.
 

@@ -402,19 +402,26 @@ def test_anchor_bank_enabled_generates_run_local_anchors_without_scene_reference
     event_names = [event["event"] for event in events]
 
     assert (run_dir / "anchors" / "Jack" / "anchor_spec.json").exists()
+    assert (run_dir / "anchors" / "Jack" / "canonical_anchor.json").exists()
     assert (run_dir / "anchors" / "Sara" / "anchor_spec.json").exists()
     assert (run_dir / "anchors" / "Jack" / "portrait.png").exists()
-    assert (run_dir / "anchors" / "Jack" / "half_body.png").exists()
+    assert (run_dir / "anchors" / "Jack" / "half_body_cand_0.png").exists()
+    assert (run_dir / "anchors" / "Jack" / "half_body_cand_1.png").exists()
+    assert (run_dir / "anchors" / "Jack" / "half_body_cand_2.png").exists()
+    assert (run_dir / "anchors" / "Jack" / "canonical_half_body.png").exists()
     assert list(anchor_log["characters"]) == ["Jack", "Sara"]
     assert anchor_log["characters"]["Jack"]["anchors"]["portrait"]["seed"] == 900000
+    assert anchor_log["characters"]["Jack"]["anchors"]["half_body"]["candidate_count"] == 3
+    assert anchor_log["characters"]["Jack"]["anchors"]["half_body"]["canonical_image_path"].endswith("canonical_half_body.png")
     assert "anchor_bank_started" in event_names
     assert "anchor_generation_started" in event_names
     assert "anchor_generation_completed" in event_names
+    assert "anchor_canonical_selected" in event_names
     assert "anchor_bank_completed" in event_names
 
     scene_requests = [request for request in generator.requests if not request.scene_id.startswith("ANCHOR-")]
     anchor_requests = [request for request in generator.requests if request.scene_id.startswith("ANCHOR-")]
-    assert len(anchor_requests) == 4
+    assert len(anchor_requests) == 8
     assert len(scene_requests) == len(summary.scene_results)
     assert all(request.reference_image_path is None for request in scene_requests)
     assert all("anchor_type" not in request.extra_options for request in scene_requests)
@@ -445,10 +452,11 @@ def test_ip_adapter_text2img_profile_passes_anchor_reference_to_scene_requests(t
     anchor_requests = [request for request in generator.requests if request.scene_id.startswith("ANCHOR-")]
 
     assert backend_log["identity_conditioning"]["enabled"] is True
-    assert len(anchor_requests) == 2
+    assert len(anchor_requests) == 4
     assert len(scene_requests) == len(summary.scene_results)
     assert all(request.reference_image_path for request in scene_requests)
     assert all(request.reference_image_path is None for request in anchor_requests)
+    assert all(request.reference_image_path.endswith("canonical_half_body.png") for request in scene_requests)
     assert all(request.extra_options["identity_anchor_type"] == "half_body" for request in scene_requests)
     assert all(request.extra_options["identity_conditioning_enabled"] is True for request in scene_requests)
     assert "identity_anchor_selected" in event_names
