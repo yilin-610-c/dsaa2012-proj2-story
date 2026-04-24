@@ -121,6 +121,11 @@ generation:
       - half_body
     output_dir_name: anchors
     base_seed_offset: 900000
+    half_body_candidate_count: 3
+    half_body_selector:
+      method: clip_text_alignment
+      clip_model_id: openai/clip-vit-base-patch32
+      clip_max_text_length: 77
     prompt_suffix: clean identity reference image, simple background, consistent character design
 
 scoring:
