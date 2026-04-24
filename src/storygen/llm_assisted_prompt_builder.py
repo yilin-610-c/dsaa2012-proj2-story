@@ -6,7 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from storygen.character_specs import build_llm_character_specs, build_rule_based_character_specs
+from storygen.character_specs import (
+    build_character_identity_snippet,
+    build_llm_character_specs,
+    build_rule_based_character_specs,
+)
 from storygen.llm_client import BaseLLMClient, build_llm_client
 from storygen.prompt_builder import PromptBuilder
 from storygen.prompt_cache import PromptCache, build_cache_record, build_prompt_cache_key
@@ -41,6 +45,13 @@ def _normalize_list(value: Any) -> list[str]:
 
 def _normalize_bool(value: Any) -> bool:
     return bool(value) if isinstance(value, bool) else False
+
+
+def _normalize_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _trim_words(text: str, max_words: int | None) -> str:
@@ -220,6 +231,20 @@ def _normalize_character_id_list(value: Any, valid_character_ids: dict[str, str]
     return normalized
 
 
+def _derive_scene_policy(primary_visible_character_ids: list[str]) -> dict[str, Any]:
+    visible_character_count = len(primary_visible_character_ids)
+    if visible_character_count == 1:
+        scene_focus_mode = "single_primary"
+    elif visible_character_count == 2:
+        scene_focus_mode = "dual_primary"
+    else:
+        scene_focus_mode = "other"
+    return {
+        "visible_character_count": visible_character_count,
+        "scene_focus_mode": scene_focus_mode,
+    }
+
+
 class LLMAssistedPromptBuilder:
     def __init__(
         self,
@@ -235,19 +260,22 @@ class LLMAssistedPromptBuilder:
         self.rule_based_builder = PromptBuilder(prompt_config)
         self.llm_client = llm_client
         self.event_logger = event_logger
+        self.last_scene_plans: dict[str, dict[str, Any]] = {}
         self.last_route_hints: dict[str, dict[str, Any]] = {}
         self.last_character_specs: dict[str, dict[str, Any]] = {}
 
     def build_story_prompts(self, story: Story) -> dict[str, PromptSpec]:
         try:
             structured_output = self._load_or_generate_structured_output(story)
-            self.last_route_hints = self._build_route_hints(structured_output)
             self.last_character_specs = build_llm_character_specs(structured_output, story)
+            self.last_scene_plans = self._build_scene_plans(structured_output)
+            self.last_route_hints = self._build_route_hints(self.last_scene_plans)
             return self._build_prompt_specs(story, structured_output)
         except Exception as exc:
             self._log("llm_prompt_validation_failed", error=str(exc))
             if self.llm_config.get("fallback_to_rule_based", True):
                 self._log("llm_prompt_fallback_to_rule_based", error=str(exc))
+                self.last_scene_plans = {}
                 self.last_route_hints = {}
                 self.last_character_specs = build_rule_based_character_specs(story)
                 return self.rule_based_builder.build_story_prompts(story)
@@ -265,6 +293,7 @@ class LLMAssistedPromptBuilder:
             "builder_version": self.llm_config.get("builder_version", "llm_assisted_v7"),
             "cache_enabled": bool(self.cache_config.get("enabled", True)),
             "artifact_path": self.artifact_config.get("path"),
+            "scene_plans": self.last_scene_plans,
             "scene_route_hints": self.last_route_hints,
             "character_specs": self.last_character_specs,
         }
@@ -362,6 +391,11 @@ class LLMAssistedPromptBuilder:
             "- identity_conditioning_subject_id chooses the single character whose identity anchor should condition this scene. Use a character_id from global.characters only when one character is the clear identity target.\n"
             "- If multiple characters are equally important, or the scene is ambiguous, set identity_conditioning_subject_id to null instead of guessing.\n"
             "- For pronoun-only scenes, resolve the visible characters from story context when possible. If a plural pronoun such as 'They' refers to multiple characters equally, leave identity_conditioning_subject_id null.\n"
+            "- Use interaction_summary for how visible characters relate or act together in the scene.\n"
+            "- Use spatial_relation for where the visible characters are positioned relative to each other.\n"
+            "- Use framing for composition guidance such as close-up, medium shot, wide shot, or clear two-person composition.\n"
+            "- setting_focus is optional and should only capture the local setting emphasis for the panel.\n"
+            "- Do not repeat long identity descriptions inside scene-level prompts. Character identity is handled locally from global.characters.\n"
             f"Style prompt from local config: {self.prompt_config.get('style_prompt', '')}\n"
             f"Scenes:\n{scene_lines}"
         )
@@ -388,6 +422,10 @@ class LLMAssistedPromptBuilder:
                 "route_reason",
                 "identity_conditioning_subject_id",
                 "primary_visible_character_ids",
+                "interaction_summary",
+                "spatial_relation",
+                "framing",
+                "setting_focus",
             ],
             "properties": {
                 "scene_id": {"type": "string"},
@@ -422,6 +460,10 @@ class LLMAssistedPromptBuilder:
                 "route_reason": {"type": "string"},
                 "identity_conditioning_subject_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
                 "primary_visible_character_ids": {"type": "array", "items": {"type": "string"}},
+                "interaction_summary": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                "spatial_relation": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                "framing": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                "setting_focus": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             },
         }
         nullable_short_string = {"anyOf": [{"type": "string"}, {"type": "null"}]}
@@ -546,6 +588,36 @@ class LLMAssistedPromptBuilder:
                 field_name="primary_visible_character_ids",
                 scene_id=scene_payload["scene_id"],
             )
+            scene_policy = _derive_scene_policy(primary_visible_character_ids)
+            scene_focus_mode = scene_policy["scene_focus_mode"]
+            interaction_summary = _trim_text(
+                scene_payload.get("interaction_summary"),
+                max_words=18,
+                max_chars=160,
+            )
+            spatial_relation = _trim_text(
+                scene_payload.get("spatial_relation"),
+                max_words=16,
+                max_chars=140,
+            )
+            framing = _trim_text(
+                scene_payload.get("framing"),
+                max_words=16,
+                max_chars=140,
+            )
+            setting_focus = _trim_text(
+                scene_payload.get("setting_focus"),
+                max_words=14,
+                max_chars=120,
+            )
+            if scene_focus_mode == "dual_primary":
+                interaction_summary = interaction_summary or "both characters are present in the same scene"
+                spatial_relation = spatial_relation or "the two characters are clearly separated and not merged"
+                framing = framing or "clear two-person composition, both characters visible"
+                if identity_conditioning_subject_id is not None:
+                    raise LLMPromptError(
+                        f"LLM identity_conditioning_subject_id must be null for dual_primary scene {scene_payload['scene_id']}"
+                    )
             normalized_scenes.append(
                 {
                     "scene_id": scene_payload["scene_id"],
@@ -563,6 +635,11 @@ class LLMAssistedPromptBuilder:
                     "route_reason": route_reason,
                     "identity_conditioning_subject_id": identity_conditioning_subject_id,
                     "primary_visible_character_ids": primary_visible_character_ids,
+                    "interaction_summary": interaction_summary,
+                    "spatial_relation": spatial_relation,
+                    "framing": framing,
+                    "setting_focus": setting_focus or None,
+                    "policy": scene_policy,
                 }
             )
 
@@ -614,13 +691,13 @@ class LLMAssistedPromptBuilder:
             )
         return normalized_characters
 
-    def _build_route_hints(self, structured_output: dict[str, Any]) -> dict[str, dict[str, Any]]:
-        hints = {}
+    def _build_scene_plans(self, structured_output: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        scene_plans = {}
         for scene_payload in structured_output.get("scenes", []):
             scene_id = scene_payload.get("scene_id")
             if not scene_id:
                 continue
-            hints[scene_id] = {
+            scene_plans[scene_id] = {
                 "identity_conditioning_subject_id": scene_payload.get("identity_conditioning_subject_id"),
                 "primary_visible_character_ids": list(scene_payload.get("primary_visible_character_ids", [])),
                 "continuity_subject_ids": list(scene_payload.get("continuity_subject_ids", [])),
@@ -630,6 +707,27 @@ class LLMAssistedPromptBuilder:
                 "route_level_adjustment_reason": scene_payload.get("route_level_adjustment_reason"),
                 "route_factors": dict(scene_payload.get("route_factors", {})),
                 "route_reason": scene_payload.get("route_reason"),
+                "interaction_summary": scene_payload.get("interaction_summary"),
+                "spatial_relation": scene_payload.get("spatial_relation"),
+                "framing": scene_payload.get("framing"),
+                "setting_focus": scene_payload.get("setting_focus"),
+                "policy": dict(scene_payload.get("policy", {})),
+            }
+        return scene_plans
+
+    def _build_route_hints(self, scene_plans: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        hints = {}
+        for scene_id, scene_plan in scene_plans.items():
+            hints[scene_id] = {
+                "identity_conditioning_subject_id": scene_plan.get("identity_conditioning_subject_id"),
+                "primary_visible_character_ids": list(scene_plan.get("primary_visible_character_ids", [])),
+                "continuity_subject_ids": list(scene_plan.get("continuity_subject_ids", [])),
+                "continuity_route_hint": scene_plan.get("continuity_route_hint"),
+                "llm_route_change_level": scene_plan.get("llm_route_change_level"),
+                "route_change_level": scene_plan.get("route_change_level"),
+                "route_level_adjustment_reason": scene_plan.get("route_level_adjustment_reason"),
+                "route_factors": dict(scene_plan.get("route_factors", {})),
+                "route_reason": scene_plan.get("route_reason"),
             }
         return hints
 
@@ -643,24 +741,58 @@ class LLMAssistedPromptBuilder:
         shared_setting = global_payload.get("shared_setting", [])
         style_cues = _filter_repeated_style_cues(global_payload.get("style_cues", []), style_prompt)
         scene_continuity = _normalize_text(self.prompt_config.get("scene_continuity_prompt", ""))
-        character_prompt = _join_parts([main_character, *identity_cues])
-        character_prompt = _ensure_human_identity(character_prompt)
         global_context_prompt = _join_parts([*shared_setting, *style_cues, scene_continuity])
+        character_specs_by_id = {
+            character["character_id"]: character for character in global_payload.get("characters", []) if character.get("character_id")
+        }
+        fallback_character_prompt = _ensure_human_identity(_join_parts([main_character, *identity_cues]))
 
         prompt_specs = {}
         for scene in story.scenes:
             scene_payload = scene_payloads[scene.scene_id]
+            visible_character_ids = list(scene_payload.get("primary_visible_character_ids", []))
+            scene_policy = scene_payload.get("policy", {})
+            scene_focus_mode = scene_policy.get("scene_focus_mode")
+            if scene_focus_mode == "dual_primary":
+                identity_snippets = [
+                    build_character_identity_snippet(character_specs_by_id[character_id])
+                    for character_id in visible_character_ids
+                    if character_id in character_specs_by_id
+                ]
+                if not identity_snippets and main_character in character_specs_by_id:
+                    identity_snippets = [build_character_identity_snippet(character_specs_by_id[main_character])]
+                character_prompt = _join_parts(identity_snippets) or fallback_character_prompt
+            else:
+                character_prompt = fallback_character_prompt
+                if scene_focus_mode == "single_primary":
+                    character_prompt = _ensure_human_identity(character_prompt)
+
+            scene_content_parts = [scene_payload["generation_prompt"]]
+            if scene_focus_mode == "dual_primary":
+                scene_content_parts.extend(
+                    [
+                        scene_payload.get("interaction_summary", ""),
+                        scene_payload.get("spatial_relation", ""),
+                        scene_payload.get("framing", ""),
+                        scene_payload.get("setting_focus", ""),
+                    ]
+                )
+            scene_content_prompt = _join_parts(scene_content_parts)
             local_prompt = _join_parts(
                 [
                     scene.clean_text,
                     scene_payload.get("primary_action", ""),
                     *scene_payload.get("secondary_elements", []),
+                    scene_payload.get("interaction_summary", ""),
+                    scene_payload.get("spatial_relation", ""),
+                    scene_payload.get("framing", ""),
+                    scene_payload.get("setting_focus", ""),
                 ]
             )
             full_prompt = _join_parts([style_prompt, character_prompt, global_context_prompt, local_prompt])
             generation_prompt = _merge_identity_into_generation_prompt(
                 character_prompt,
-                scene_payload["generation_prompt"],
+                scene_content_prompt,
                 max_words=int(self.prompt_config.get("generation_max_words", 28)),
                 max_chars=int(self.prompt_config.get("generation_max_chars", 220)),
             )

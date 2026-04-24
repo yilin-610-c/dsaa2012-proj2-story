@@ -25,6 +25,7 @@ def test_resolve_config_supports_extension_profiles() -> None:
     guided = resolve_config("configs/base.yaml", "llm_prompt_img2img_guided")
     ip_adapter = resolve_config("configs/base.yaml", "llm_prompt_ip_adapter_text2img")
     hybrid = resolve_config("configs/base.yaml", "llm_prompt_hybrid_identity")
+    two_character = resolve_config("configs/base.yaml", "llm_prompt_two_character_text2img")
 
     assert strong["prompt"]["pipeline"] == "rule_based"
     assert strong["model"]["backend"] == "diffusers_text2img"
@@ -46,6 +47,12 @@ def test_resolve_config_supports_extension_profiles() -> None:
     assert hybrid["generation"]["identity_conditioning"]["enabled"] is True
     assert hybrid["generation"]["routing"]["route_policy"] == "llm_guided_conservative"
     assert hybrid["model"]["enable_attention_slicing"] is False
+    assert two_character["prompt"]["pipeline"] == "llm_assisted"
+    assert two_character["generation"]["routing"]["img2img_enabled"] is False
+    assert two_character["generation"]["routing"]["route_policy"] == "disabled"
+    assert two_character["generation"]["anchor_bank"]["enabled"] is True
+    assert two_character["generation"]["identity_conditioning"]["enabled"] is True
+    assert two_character["generation"]["identity_conditioning"]["max_primary_visible_characters_for_ip_adapter"] == 1
 
 
 def test_resolve_config_unknown_profile_lists_available_profiles() -> None:

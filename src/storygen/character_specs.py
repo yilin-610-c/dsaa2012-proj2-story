@@ -24,6 +24,30 @@ def _normalize_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def build_character_identity_snippet(character_spec: dict[str, Any]) -> str:
+    field_names = [
+        "character_id",
+        "age_band",
+        "gender_presentation",
+        "hair_color",
+        "hairstyle",
+        "skin_tone",
+        "body_build",
+        "signature_outfit",
+        "signature_accessory",
+        "profession_marker",
+    ]
+    parts = []
+    seen = set()
+    for field_name in field_names:
+        text = _normalize_text(character_spec.get(field_name))
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            parts.append(text)
+    return ", ".join(parts)
+
+
 def _story_character_ids(story: Story) -> list[str]:
     source_entities = story.recurring_entities or story.all_entities
     seen = set()

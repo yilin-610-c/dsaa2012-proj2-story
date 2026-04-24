@@ -48,6 +48,42 @@ class FakeGuidedPromptPipeline:
         self._metadata = {"pipeline": "llm_assisted", "implemented": True, "scene_route_hints": {}}
 
     def build(self, story) -> PromptBundle:
+        scene_plans = {}
+        for scene in story.scenes:
+            if scene.index == 0:
+                scene_plans[scene.scene_id] = {
+                    "identity_conditioning_subject_id": "Lily",
+                    "primary_visible_character_ids": ["Lily"],
+                    "continuity_subject_ids": ["Lily"],
+                    "continuity_route_hint": "text2img",
+                    "llm_route_change_level": "large",
+                    "route_change_level": "large",
+                    "route_level_adjustment_reason": None,
+                    "route_factors": {"same_subject": True, "same_setting": True},
+                    "route_reason": "first scene",
+                    "interaction_summary": "",
+                    "spatial_relation": "",
+                    "framing": "clear single-person composition",
+                    "setting_focus": "home kitchen",
+                    "policy": {"visible_character_count": 1, "scene_focus_mode": "single_primary"},
+                }
+            else:
+                scene_plans[scene.scene_id] = {
+                    "identity_conditioning_subject_id": "Lily",
+                    "primary_visible_character_ids": ["Lily"],
+                    "continuity_subject_ids": ["Lily"],
+                    "continuity_route_hint": "img2img",
+                    "llm_route_change_level": "small",
+                    "route_change_level": "medium",
+                    "route_level_adjustment_reason": "small_inconsistent_with_route_factors",
+                    "route_factors": {"primary_action_change": True, "composition_change_needed": True},
+                    "route_reason": "same subject with visible action change",
+                    "interaction_summary": "",
+                    "spatial_relation": "",
+                    "framing": "clear single-person composition",
+                    "setting_focus": "same kitchen window",
+                    "policy": {"visible_character_count": 1, "scene_focus_mode": "single_primary"},
+                }
         self._metadata = {
             "pipeline": "llm_assisted",
             "implemented": True,
@@ -59,29 +95,25 @@ class FakeGuidedPromptPipeline:
                     "metadata": {"source": "llm_assisted"},
                 }
             },
+            "scene_plans": scene_plans,
             "scene_route_hints": {
-                "SCENE-1": {
-                    "identity_conditioning_subject_id": "Lily",
-                    "primary_visible_character_ids": ["Lily"],
-                    "continuity_subject_ids": ["Lily"],
-                    "continuity_route_hint": "text2img",
-                    "llm_route_change_level": "large",
-                    "route_change_level": "large",
-                    "route_level_adjustment_reason": None,
-                    "route_factors": {"same_subject": True, "same_setting": True},
-                    "route_reason": "first scene",
-                },
-                "SCENE-2": {
-                    "identity_conditioning_subject_id": "Lily",
-                    "primary_visible_character_ids": ["Lily"],
-                    "continuity_subject_ids": ["Lily"],
-                    "continuity_route_hint": "img2img",
-                    "llm_route_change_level": "small",
-                    "route_change_level": "medium",
-                    "route_level_adjustment_reason": "small_inconsistent_with_route_factors",
-                    "route_factors": {"primary_action_change": True, "composition_change_needed": True},
-                    "route_reason": "same subject with visible action change",
-                },
+                scene_id: {
+                    key: value
+                    for key, value in scene_plan.items()
+                    if key
+                    in {
+                        "identity_conditioning_subject_id",
+                        "primary_visible_character_ids",
+                        "continuity_subject_ids",
+                        "continuity_route_hint",
+                        "llm_route_change_level",
+                        "route_change_level",
+                        "route_level_adjustment_reason",
+                        "route_factors",
+                        "route_reason",
+                    }
+                }
+                for scene_id, scene_plan in scene_plans.items()
             },
         }
         return PromptBundle(
@@ -95,6 +127,29 @@ class FakeGuidedPromptPipeline:
 
 class FakeSmallChangePromptPipeline(FakeGuidedPromptPipeline):
     def build(self, story) -> PromptBundle:
+        scene_plans = {
+            scene.scene_id: {
+                "identity_conditioning_subject_id": "Lily",
+                "primary_visible_character_ids": ["Lily"],
+                "continuity_subject_ids": ["Lily"],
+                "continuity_route_hint": "img2img" if scene.index > 0 else "text2img",
+                "llm_route_change_level": "small" if scene.index > 0 else "large",
+                "route_change_level": "small" if scene.index > 0 else "large",
+                "route_level_adjustment_reason": None,
+                "route_factors": {
+                    "same_subject": True,
+                    "same_setting": True,
+                    "composition_change_needed": False,
+                },
+                "route_reason": "small continuity-preserving change" if scene.index > 0 else "first scene",
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "clear single-person composition",
+                "setting_focus": "same location",
+                "policy": {"visible_character_count": 1, "scene_focus_mode": "single_primary"},
+            }
+            for scene in story.scenes
+        }
         self._metadata = {
             "pipeline": "llm_assisted",
             "implemented": True,
@@ -106,23 +161,25 @@ class FakeSmallChangePromptPipeline(FakeGuidedPromptPipeline):
                     "metadata": {"source": "llm_assisted"},
                 }
             },
+            "scene_plans": scene_plans,
             "scene_route_hints": {
-                scene.scene_id: {
-                    "identity_conditioning_subject_id": "Lily",
-                    "primary_visible_character_ids": ["Lily"],
-                    "continuity_subject_ids": ["Lily"],
-                    "continuity_route_hint": "img2img" if scene.index > 0 else "text2img",
-                    "llm_route_change_level": "small" if scene.index > 0 else "large",
-                    "route_change_level": "small" if scene.index > 0 else "large",
-                    "route_level_adjustment_reason": None,
-                    "route_factors": {
-                        "same_subject": True,
-                        "same_setting": True,
-                        "composition_change_needed": False,
-                    },
-                    "route_reason": "small continuity-preserving change" if scene.index > 0 else "first scene",
+                scene_id: {
+                    key: value
+                    for key, value in scene_plan.items()
+                    if key
+                    in {
+                        "identity_conditioning_subject_id",
+                        "primary_visible_character_ids",
+                        "continuity_subject_ids",
+                        "continuity_route_hint",
+                        "llm_route_change_level",
+                        "route_change_level",
+                        "route_level_adjustment_reason",
+                        "route_factors",
+                        "route_reason",
+                    }
                 }
-                for scene in story.scenes
+                for scene_id, scene_plan in scene_plans.items()
             },
         }
         return PromptBundle(
@@ -138,6 +195,25 @@ class FakeTwoCharacterIdentityPromptPipeline:
         self._metadata = {"pipeline": "llm_assisted", "implemented": True, "scene_route_hints": {}}
 
     def build(self, story) -> PromptBundle:
+        scene_plans = {
+            scene.scene_id: {
+                "identity_conditioning_subject_id": self.subject_id,
+                "primary_visible_character_ids": ["Jack", "Sara"],
+                "continuity_subject_ids": [],
+                "continuity_route_hint": "text2img",
+                "llm_route_change_level": "large",
+                "route_change_level": "large",
+                "route_level_adjustment_reason": None,
+                "route_factors": {"same_subject": True, "composition_change_needed": True},
+                "route_reason": "two character test",
+                "interaction_summary": "Jack and Sara share the scene",
+                "spatial_relation": "the two characters are clearly separated and not merged",
+                "framing": "clear two-person composition, both characters visible",
+                "setting_focus": "shared panel setting",
+                "policy": {"visible_character_count": 2, "scene_focus_mode": "dual_primary"},
+            }
+            for scene in story.scenes
+        }
         self._metadata = {
             "pipeline": "llm_assisted",
             "implemented": True,
@@ -145,19 +221,25 @@ class FakeTwoCharacterIdentityPromptPipeline:
                 "Jack": {"character_id": "Jack", "metadata": {"source": "llm_assisted"}},
                 "Sara": {"character_id": "Sara", "metadata": {"source": "llm_assisted"}},
             },
+            "scene_plans": scene_plans,
             "scene_route_hints": {
-                scene.scene_id: {
-                    "identity_conditioning_subject_id": self.subject_id,
-                    "primary_visible_character_ids": ["Jack", "Sara"],
-                    "continuity_subject_ids": [],
-                    "continuity_route_hint": "text2img",
-                    "llm_route_change_level": "large",
-                    "route_change_level": "large",
-                    "route_level_adjustment_reason": None,
-                    "route_factors": {"same_subject": True, "composition_change_needed": True},
-                    "route_reason": "two character test",
+                scene_id: {
+                    key: value
+                    for key, value in scene_plan.items()
+                    if key
+                    in {
+                        "identity_conditioning_subject_id",
+                        "primary_visible_character_ids",
+                        "continuity_subject_ids",
+                        "continuity_route_hint",
+                        "llm_route_change_level",
+                        "route_change_level",
+                        "route_level_adjustment_reason",
+                        "route_factors",
+                        "route_reason",
+                    }
                 }
-                for scene in story.scenes
+                for scene_id, scene_plan in scene_plans.items()
             },
         }
         return PromptBundle(
@@ -173,10 +255,10 @@ class FakeMetadataPromptPipeline:
     def __init__(self, prompt_config: dict, *, include_character_specs: bool) -> None:
         self.prompt_config = prompt_config
         self.include_character_specs = include_character_specs
-        self._metadata = {"pipeline": "rule_based", "implemented": True, "scene_route_hints": {}}
+        self._metadata = {"pipeline": "rule_based", "implemented": True, "scene_plans": {}, "scene_route_hints": {}}
 
     def build(self, story) -> PromptBundle:
-        self._metadata = {"pipeline": "rule_based", "implemented": True, "scene_route_hints": {}}
+        self._metadata = {"pipeline": "rule_based", "implemented": True, "scene_plans": {}, "scene_route_hints": {}}
         if self.include_character_specs:
             self._metadata["character_specs"] = {
                 "Lily": {
@@ -305,12 +387,15 @@ def test_run_pipeline_logs_llm_guided_route_metadata(tmp_path, monkeypatch) -> N
         "primary_action_change": True,
         "composition_change_needed": True,
     }
+    assert prompt_log["scene_plans"]["SCENE-2"]["policy"]["scene_focus_mode"] == "single_primary"
     assert prompt_bundle_log["character_specs"]["Lily"]["metadata"]["source"] == "llm_assisted"
     assert prompt_bundle_log["scene_route_hints"]["SCENE-2"]["route_change_level"] == "medium"
+    assert prompt_bundle_log["scene_plans"]["SCENE-2"]["framing"] == "clear single-person composition"
     assert route_events[1]["route_change_level"] == "medium"
     assert route_events[1]["continuity_subject_ids"] == ["Lily"]
     assert route_events[1]["llm_route_change_level"] == "small"
     assert route_events[1]["generation_mode"] == "text2img"
+    assert route_events[1]["scene_focus_mode"] == "single_primary"
 
 
 def test_character_specs_metadata_does_not_change_downstream_generation_requests(tmp_path, monkeypatch) -> None:
@@ -462,7 +547,7 @@ def test_ip_adapter_text2img_profile_passes_anchor_reference_to_scene_requests(t
     assert "identity_anchor_selected" in event_names
 
 
-def test_ip_adapter_text2img_profile_uses_explicit_identity_subject_for_multi_character_story(tmp_path, monkeypatch) -> None:
+def test_ip_adapter_text2img_profile_skips_dual_primary_scene_even_with_identity_subject(tmp_path, monkeypatch) -> None:
     generator = FakeSceneGenerator()
     monkeypatch.setattr("storygen.pipeline.build_generation_backend", lambda model, runtime: generator)
     monkeypatch.setattr(
@@ -485,9 +570,10 @@ def test_ip_adapter_text2img_profile_uses_explicit_identity_subject_for_multi_ch
     scene_requests = [request for request in generator.requests if not request.scene_id.startswith("ANCHOR-")]
 
     assert scene_requests
-    assert all("/Jack/" in request.reference_image_path for request in scene_requests)
-    assert all(request.extra_options["identity_anchor_character_id"] == "Jack" for request in scene_requests)
-    assert all(request.extra_options["identity_conditioning_reason"] == "identity_subject_id" for request in scene_requests)
+    assert all(request.reference_image_path is None for request in scene_requests)
+    assert all(request.extra_options["identity_conditioning_enabled"] is False for request in scene_requests)
+    assert all(request.extra_options["scene_focus_mode"] == "dual_primary" for request in scene_requests)
+    assert all(request.extra_options["identity_conditioning_reason"] == "policy_skip:dual_primary_scene" for request in scene_requests)
 
 
 def test_ip_adapter_text2img_profile_skips_ambiguous_multi_character_scene_when_configured(tmp_path, monkeypatch) -> None:
@@ -511,15 +597,22 @@ def test_ip_adapter_text2img_profile_skips_ambiguous_multi_character_scene_when_
     )
 
     run_pipeline(config)
+    run_dir = Path(tmp_path) / "ip_adapter_two_character_ambiguous"
     scene_requests = [request for request in generator.requests if not request.scene_id.startswith("ANCHOR-")]
+    events = [
+        json.loads(line)
+        for line in (run_dir / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    skip_events = [event for event in events if event["event"] == "identity_conditioning_skipped"]
 
     assert scene_requests
     assert all(request.reference_image_path is None for request in scene_requests)
     assert all(request.extra_options["identity_conditioning_enabled"] is False for request in scene_requests)
-    assert all(
-        request.extra_options["identity_conditioning_reason"] == "ambiguous_or_missing_scene_character"
-        for request in scene_requests
-    )
+    assert all(request.extra_options["scene_focus_mode"] == "dual_primary" for request in scene_requests)
+    assert all(request.extra_options["identity_conditioning_reason"] == "policy_skip:dual_primary_scene" for request in scene_requests)
+    assert skip_events
+    assert all(event["scene_focus_mode"] == "dual_primary" for event in skip_events)
+    assert all(event["reason"] == "policy_skip:dual_primary_scene" for event in skip_events)
 
 
 def test_hybrid_identity_profile_does_not_apply_ip_adapter_to_img2img_scenes_by_default(tmp_path, monkeypatch) -> None:

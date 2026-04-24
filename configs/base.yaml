@@ -106,6 +106,7 @@ generation:
     adapter_type: ip_adapter
     anchor_source: character_anchor_bank
     anchor_type: half_body
+    max_primary_visible_characters_for_ip_adapter: 1
     apply_to_modes:
       - text2img
     scale: 0.6
@@ -313,4 +314,20 @@ runtime_profiles:
         enabled: true
     scoring:
       route_aware:
+        enabled: true
+  llm_prompt_two_character_text2img:
+    runtime:
+      run_name_prefix: llm_two_character
+    model:
+      enable_attention_slicing: false
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: false
+        route_policy: disabled
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
         enabled: true
