@@ -170,6 +170,10 @@ def _llm_payload() -> dict:
                 "route_reason": "First scene establishes the frame.",
                 "identity_conditioning_subject_id": "Hero",
                 "primary_visible_character_ids": ["Hero"],
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "clear single-person composition",
+                "setting_focus": "path in the park",
             },
             {
                 "scene_id": "SCENE-2",
@@ -185,6 +189,10 @@ def _llm_payload() -> dict:
                 "route_reason": "Same subject and path, only the action changes.",
                 "identity_conditioning_subject_id": "Hero",
                 "primary_visible_character_ids": ["Hero"],
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "clear single-person composition",
+                "setting_focus": "same park path",
             },
         ],
     }
@@ -239,6 +247,10 @@ def _two_character_llm_payload() -> dict:
             "route_reason": "First scene establishes both characters.",
             "identity_conditioning_subject_id": None,
             "primary_visible_character_ids": ["Jack", "Sara"],
+            "interaction_summary": "Jack and Sara talk together",
+            "spatial_relation": "Jack and Sara sit side by side on the bench",
+            "framing": "clear two-person composition, both characters visible",
+            "setting_focus": "park bench",
         },
         {
             "scene_id": "SCENE-2",
@@ -254,6 +266,10 @@ def _two_character_llm_payload() -> dict:
             "route_reason": "Same characters but setting changes.",
             "identity_conditioning_subject_id": None,
             "primary_visible_character_ids": ["Jack", "Sara"],
+            "interaction_summary": "Jack and Sara sit together at the cafe table",
+            "spatial_relation": "Jack and Sara face each other across the table",
+            "framing": "clear two-person composition, both characters visible",
+            "setting_focus": "cafe table",
         },
     ]
     return payload
@@ -296,6 +312,10 @@ def _bird_llm_payload() -> dict:
                 "route_reason": "First scene establishes the bird.",
                 "identity_conditioning_subject_id": "Bird",
                 "primary_visible_character_ids": ["Bird"],
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "clear single-subject composition",
+                "setting_focus": "tree branch",
             }
         ],
     }
@@ -336,6 +356,19 @@ def test_llm_pipeline_metadata_includes_route_hints(tmp_path: Path) -> None:
     assert route_hints["SCENE-2"]["primary_visible_character_ids"] == ["Hero"]
 
 
+def test_llm_pipeline_metadata_includes_scene_plans(tmp_path: Path) -> None:
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient()
+
+    bundle = pipeline.build(_story())
+
+    scene_plans = bundle.metadata["scene_plans"]
+    assert scene_plans["SCENE-2"]["framing"] == "clear single-person composition"
+    assert scene_plans["SCENE-2"]["setting_focus"] == "same park path"
+    assert scene_plans["SCENE-2"]["policy"]["visible_character_count"] == 1
+    assert scene_plans["SCENE-2"]["policy"]["scene_focus_mode"] == "single_primary"
+
+
 def test_llm_pipeline_metadata_includes_character_specs(tmp_path: Path) -> None:
     pipeline = build_prompt_pipeline(_prompt_config(tmp_path), event_logger=None)
     pipeline.builder.llm_client = FakeLLMClient()
@@ -368,9 +401,55 @@ def test_llm_pipeline_accepts_unspecified_identity_conditioning_subject(tmp_path
 
     bundle = pipeline.build(_two_character_story())
 
-    route_hints = bundle.metadata["scene_route_hints"]
-    assert route_hints["SCENE-1"]["identity_conditioning_subject_id"] is None
-    assert route_hints["SCENE-1"]["primary_visible_character_ids"] == ["Jack", "Sara"]
+    scene_plans = bundle.metadata["scene_plans"]
+    assert scene_plans["SCENE-1"]["identity_conditioning_subject_id"] is None
+    assert scene_plans["SCENE-1"]["primary_visible_character_ids"] == ["Jack", "Sara"]
+    assert scene_plans["SCENE-1"]["policy"]["scene_focus_mode"] == "dual_primary"
+
+
+def test_llm_dual_primary_applies_safe_defaults_for_missing_scene_fields(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["scenes"][0]["interaction_summary"] = None
+    payload["scenes"][0]["spatial_relation"] = None
+    payload["scenes"][0]["framing"] = None
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path, cache_enabled=False), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient(payload)
+
+    bundle = pipeline.build(_two_character_story())
+
+    scene_plan = bundle.metadata["scene_plans"]["SCENE-1"]
+    assert scene_plan["interaction_summary"] == "both characters are present in the same scene"
+    assert scene_plan["spatial_relation"] == "the two characters are clearly separated and not merged"
+    assert scene_plan["framing"] == "clear two-person composition, both characters visible"
+
+
+def test_llm_dual_primary_rejects_identity_conditioning_subject(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["scenes"][0]["identity_conditioning_subject_id"] = "Jack"
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, fallback=False, cache_enabled=False),
+        llm_client=FakeLLMClient(payload),
+    )
+
+    with pytest.raises(LLMPromptError, match="must be null for dual_primary"):
+        builder.build_story_prompts(_two_character_story())
+
+
+def test_llm_dual_primary_prompt_uses_local_identity_snippets_and_scene_plan(tmp_path: Path) -> None:
+    config = _prompt_config(tmp_path, cache_enabled=False)
+    config["generation_max_words"] = 40
+    config["generation_max_chars"] = 400
+    builder = LLMAssistedPromptBuilder(
+        config,
+        llm_client=FakeLLMClient(_two_character_llm_payload()),
+    )
+
+    prompts = builder.build_story_prompts(_two_character_story())
+
+    assert "Jack, adult, man, black, short hair, black jacket" in prompts["SCENE-1"].character_prompt
+    assert "Sara, adult, woman, brown, shoulder-length hair, yellow scarf" in prompts["SCENE-1"].character_prompt
+    assert "Jack and Sara talk together" in prompts["SCENE-1"].local_prompt
+    assert "clear two-person composition" in prompts["SCENE-1"].local_prompt
 
 
 def test_llm_identity_conditioning_subject_must_match_character_specs(tmp_path: Path) -> None:

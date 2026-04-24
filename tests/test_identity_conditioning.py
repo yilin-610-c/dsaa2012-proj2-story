@@ -40,10 +40,14 @@ def _anchor_bank(tmp_path: Path) -> dict:
     }
 
 
-def test_select_identity_anchor_uses_route_hint_subject(tmp_path: Path) -> None:
+def test_select_identity_anchor_uses_route_hint_subject_for_single_primary_scene(tmp_path: Path) -> None:
     result = select_identity_anchor(
         scene=_scene(["Sara"]),
-        route_hint={"continuity_subject_ids": ["Jack"]},
+        route_hint={
+            "continuity_subject_ids": ["Jack"],
+            "primary_visible_character_ids": ["Jack"],
+            "policy": {"visible_character_count": 1, "scene_focus_mode": "single_primary"},
+        },
         generation_mode="text2img",
         anchor_bank_summary=_anchor_bank(tmp_path),
         identity_config=_identity_config(),
@@ -60,7 +64,9 @@ def test_select_identity_anchor_prefers_identity_subject_id(tmp_path: Path) -> N
         scene=_scene(["Sara"]),
         route_hint={
             "identity_conditioning_subject_id": "Jack",
+            "primary_visible_character_ids": ["Jack"],
             "continuity_subject_ids": ["Sara"],
+            "policy": {"visible_character_count": 1, "scene_focus_mode": "single_primary"},
         },
         generation_mode="text2img",
         anchor_bank_summary=_anchor_bank(tmp_path),
@@ -75,7 +81,10 @@ def test_select_identity_anchor_prefers_identity_subject_id(tmp_path: Path) -> N
 def test_select_identity_anchor_falls_back_to_scene_entity(tmp_path: Path) -> None:
     result = select_identity_anchor(
         scene=_scene(["Sara"]),
-        route_hint={},
+        route_hint={
+            "primary_visible_character_ids": ["Sara"],
+            "policy": {"visible_character_count": 1, "scene_focus_mode": "single_primary"},
+        },
         generation_mode="text2img",
         anchor_bank_summary=_anchor_bank(tmp_path),
         identity_config=_identity_config(),
@@ -88,7 +97,7 @@ def test_select_identity_anchor_falls_back_to_scene_entity(tmp_path: Path) -> No
 def test_select_identity_anchor_skips_mode_not_enabled(tmp_path: Path) -> None:
     result = select_identity_anchor(
         scene=_scene(["Jack"]),
-        route_hint={"continuity_subject_ids": ["Jack"]},
+        route_hint={"continuity_subject_ids": ["Jack"], "primary_visible_character_ids": ["Jack"]},
         generation_mode="img2img",
         anchor_bank_summary=_anchor_bank(tmp_path),
         identity_config=_identity_config(),
@@ -104,7 +113,7 @@ def test_select_identity_anchor_single_character_fallback(tmp_path: Path) -> Non
     anchor.write_bytes(b"fake")
     result = select_identity_anchor(
         scene=_scene([]),
-        route_hint={},
+        route_hint={"primary_visible_character_ids": ["Lily"]},
         generation_mode="text2img",
         anchor_bank_summary={"characters": {"Lily": {"anchors": {"half_body": {"image_path": str(anchor)}}}}},
         identity_config=_identity_config(),
@@ -124,27 +133,49 @@ def test_select_identity_anchor_ambiguous_multi_character_can_skip(tmp_path: Pat
     )
 
     assert result["identity_conditioning_enabled"] is False
-    assert result["identity_conditioning_reason"] == "ambiguous_or_missing_scene_character"
+    assert result["identity_conditioning_reason"] == "policy_skip:no_clear_primary_visible_character"
 
 
 def test_select_identity_anchor_ambiguous_multi_character_with_visible_characters_skips(tmp_path: Path) -> None:
     result = select_identity_anchor(
         scene=_scene([]),
-        route_hint={"primary_visible_character_ids": ["Jack", "Sara"], "identity_conditioning_subject_id": None},
+        route_hint={
+            "primary_visible_character_ids": ["Jack", "Sara"],
+            "identity_conditioning_subject_id": None,
+            "policy": {"visible_character_count": 2, "scene_focus_mode": "dual_primary"},
+        },
         generation_mode="text2img",
         anchor_bank_summary=_anchor_bank(tmp_path),
         identity_config=_identity_config(fail_on_missing_anchor=False),
     )
 
     assert result["identity_conditioning_enabled"] is False
-    assert result["identity_conditioning_reason"] == "ambiguous_or_missing_scene_character"
+    assert result["identity_conditioning_reason"] == "policy_skip:dual_primary_scene"
+
+
+def test_select_identity_anchor_single_primary_prefers_visible_character(tmp_path: Path) -> None:
+    result = select_identity_anchor(
+        scene=_scene([]),
+        route_hint={
+            "primary_visible_character_ids": ["Sara"],
+            "identity_conditioning_subject_id": None,
+            "policy": {"visible_character_count": 1, "scene_focus_mode": "single_primary"},
+        },
+        generation_mode="text2img",
+        anchor_bank_summary=_anchor_bank(tmp_path),
+        identity_config=_identity_config(),
+    )
+
+    assert result["identity_conditioning_enabled"] is True
+    assert result["identity_anchor_character_id"] == "Sara"
+    assert result["identity_conditioning_reason"] == "primary_visible_character"
 
 
 def test_select_identity_anchor_missing_file_raises_when_configured(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="missing_anchor_file"):
         select_identity_anchor(
             scene=_scene(["Jack"]),
-            route_hint={},
+            route_hint={"primary_visible_character_ids": ["Jack"]},
             generation_mode="text2img",
             anchor_bank_summary={"characters": {"Jack": {"anchors": {"half_body": {"image_path": str(tmp_path / "missing.png")}}}}},
             identity_config=_identity_config(),
@@ -160,7 +191,7 @@ def test_select_identity_anchor_prefers_canonical_half_body_path(tmp_path: Path)
 
     result = select_identity_anchor(
         scene=_scene(["Jack"]),
-        route_hint={},
+        route_hint={"primary_visible_character_ids": ["Jack"]},
         generation_mode="text2img",
         anchor_bank_summary={
             "characters": {

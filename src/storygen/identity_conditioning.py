@@ -45,6 +45,32 @@ def _resolve_anchor_image_path(anchor_payload: dict[str, Any] | None) -> str:
     return str(anchor_payload.get("image_path") or "").strip()
 
 
+def _scene_policy(route_hint: dict[str, Any]) -> tuple[int, str]:
+    policy = route_hint.get("policy", {})
+    visible_character_ids = list(route_hint.get("primary_visible_character_ids", []))
+    visible_character_count = policy.get("visible_character_count")
+    if not isinstance(visible_character_count, int):
+        visible_character_count = len(visible_character_ids)
+    scene_focus_mode = str(policy.get("scene_focus_mode") or "").strip() or (
+        "single_primary" if visible_character_count == 1 else "dual_primary" if visible_character_count == 2 else "other"
+    )
+    return visible_character_count, scene_focus_mode
+
+
+def _effective_visible_character_ids(route_hint: dict[str, Any], scene: Scene) -> list[str]:
+    visible_character_ids = list(route_hint.get("primary_visible_character_ids", []))
+    if visible_character_ids:
+        return visible_character_ids
+    deduped_scene_entities = []
+    seen = set()
+    for entity in scene.entities:
+        key = str(entity).strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            deduped_scene_entities.append(str(entity).strip())
+    return deduped_scene_entities
+
+
 def select_identity_anchor(
     *,
     scene: Scene,
@@ -72,6 +98,30 @@ def select_identity_anchor(
         return _missing_anchor_result(identity_config, "no_anchor_characters")
 
     route_hint = route_hint or {}
+    visible_character_ids = _effective_visible_character_ids(route_hint, scene)
+    visible_character_count, scene_focus_mode = _scene_policy(
+        {
+            **route_hint,
+            "primary_visible_character_ids": visible_character_ids,
+        }
+    )
+    max_primary_visible = int(identity_config.get("max_primary_visible_characters_for_ip_adapter", 1))
+    if scene_focus_mode == "dual_primary":
+        return {
+            "identity_conditioning_enabled": False,
+            "identity_conditioning_reason": "policy_skip:dual_primary_scene",
+        }
+    if scene_focus_mode != "single_primary" or visible_character_count != 1 or len(visible_character_ids) != 1:
+        return {
+            "identity_conditioning_enabled": False,
+            "identity_conditioning_reason": "policy_skip:no_clear_primary_visible_character",
+        }
+    if visible_character_count > max_primary_visible:
+        return {
+            "identity_conditioning_enabled": False,
+            "identity_conditioning_reason": "policy_skip:no_clear_primary_visible_character",
+        }
+
     selected_character_id = _single_matching_character(
         [route_hint.get("identity_conditioning_subject_id")],
         anchor_characters,
@@ -86,6 +136,12 @@ def select_identity_anchor(
     if selected_character_id is None:
         selected_character_id = _single_matching_character(scene.entities, anchor_characters)
         reason = "scene_entity"
+    if selected_character_id is None and len(anchor_characters) > 1:
+        selected_character_id = _single_matching_character(
+            visible_character_ids,
+            anchor_characters,
+        )
+        reason = "primary_visible_character"
     if selected_character_id is None and len(anchor_characters) == 1:
         selected_character_id = next(iter(anchor_characters))
         reason = "single_anchor_character"

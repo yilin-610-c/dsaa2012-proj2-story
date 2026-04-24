@@ -69,6 +69,7 @@ Available profiles in the base config:
 - `llm_prompt_img2img_guided`: LLM-assisted prompts with LLM-guided small/medium/large route execution.
 - `llm_prompt_anchor_bank`: LLM-assisted prompts plus run-local anchor generation; anchors are not consumed by scene generation yet.
 - `llm_prompt_ip_adapter_text2img`: LLM-assisted prompts, run-local anchors, and IP-Adapter identity conditioning for text2img scenes.
+- `llm_prompt_two_character_text2img`: conservative two-character text2img policy layer with run-local anchors and IP-Adapter allowed only for single-primary scenes.
 - `llm_prompt_hybrid_identity`: guided routing plus IP-Adapter identity conditioning for text2img scenes.
 
 ## LLM-Assisted Prompts
@@ -89,6 +90,14 @@ PromptBundle.metadata["character_specs"] = dict[character_id, JSON-serialized Ch
 ```
 
 These specs are metadata-only identity plans for future anchor/IP-Adapter conditioning; they are not consumed by generation, scoring, routing, or selection yet. Rule-based runs write minimal specs for all recurring characters, or all parsed entities when no recurring characters are tagged. LLM-assisted runs can write stable visual identity fields such as hair, outfit, body build, and accessories.
+
+The canonical per-scene planning metadata is:
+
+```text
+PromptBundle.metadata["scene_plans"] = dict[scene_id, scene_plan]
+```
+
+`scene_plan` carries visible-character planning, interaction/composition hints, and derived local policy fields such as `policy.visible_character_count` and `policy.scene_focus_mode`. `scene_route_hints` remains available as a route-only derived view for routing.
 
 For generation, `negative_prompt` is passed directly into both text2img and img2img diffusers calls. In the LLM-assisted path, human-character prompts may add narrow pet-substitution suppression terms to reduce failures where a human character is replaced by a pet. Non-human characters should not receive a generic non-human suppression term.
 
@@ -145,15 +154,18 @@ IP-Adapter identity conditioning is opt-in. It consumes the run-local Anchor Ban
 
 The v1 default uses the selected `canonical_half_body.png` and applies IP-Adapter only to `text2img` scenes. This keeps previous-frame img2img behavior separate from identity conditioning. Portrait anchors are generated for inspection only and are not selected by the default identity-conditioning path.
 
-For multi-character stories, LLM-assisted prompt metadata can specify `identity_conditioning_subject_id` per scene. Anchor selection uses that explicit subject first, then continuity subjects, then unambiguous scene entities, then single-character fallback. Ambiguous multi-character scenes are skipped or raised according to `generation.identity_conditioning.fail_on_missing_anchor`.
+For multi-character stories, scene planning now derives local policy from `primary_visible_character_ids`. Ordinary IP-Adapter is only allowed for `policy.scene_focus_mode="single_primary"` scenes. Dual-primary scenes are forced to plain text2img with stronger prompt composition cues, and identity conditioning is skipped with an explicit policy reason instead of guessing a single anchor target.
 
-For example, `test_set/06.txt` contains Jack and Sara in every scene. With v7 metadata, the safe behavior is to set `identity_conditioning_subject_id: null` and `primary_visible_character_ids: ["jack", "sara"]`; when `fail_on_missing_anchor=false`, this skips IP-Adapter instead of incorrectly forcing one character's anchor onto a two-character panel. This is an interface validation case, not an IP-Adapter-applied result.
+For example, `test_set/06.txt` contains Jack and Sara in every scene. In the conservative two-character policy layer, those panels should resolve to `policy.scene_focus_mode: "dual_primary"` with `identity_conditioning_subject_id: null`, and the identity-conditioning path should record `policy_skip:dual_primary_scene` instead of forcing one character anchor onto a two-character panel.
 
 The IP-Adapter profiles disable `model.enable_attention_slicing` by default. Attention slicing is a memory-saving diffusers option, but in the current SDXL + IP-Adapter setup it can conflict with IP-Adapter attention processor loading. Non-IP-Adapter profiles keep the base setting unchanged.
 
 ```bash
 # LLM prompt + text2img + anchor bank + IP-Adapter identity conditioning
 PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_ip_adapter_text2img --input test_set/01.txt
+
+# Conservative two-character text2img experiment
+PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_two_character_text2img --input test_set/06.txt
 
 # LLM guided routing + anchor bank + IP-Adapter on text2img scenes
 PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_hybrid_identity --input test_set/01.txt

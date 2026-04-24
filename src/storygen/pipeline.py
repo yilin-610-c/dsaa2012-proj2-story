@@ -66,6 +66,25 @@ def _build_scorer(config: dict[str, Any]):
     raise ValueError(f"Unsupported scorer type: {scorer_type}")
 
 
+def _scene_route_hints_from_plans(scene_plans: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    route_hints = {}
+    for scene_id, scene_plan in scene_plans.items():
+        if not isinstance(scene_plan, dict):
+            continue
+        route_hints[scene_id] = {
+            "identity_conditioning_subject_id": scene_plan.get("identity_conditioning_subject_id"),
+            "primary_visible_character_ids": list(scene_plan.get("primary_visible_character_ids", [])),
+            "continuity_subject_ids": list(scene_plan.get("continuity_subject_ids", [])),
+            "continuity_route_hint": scene_plan.get("continuity_route_hint"),
+            "llm_route_change_level": scene_plan.get("llm_route_change_level"),
+            "route_change_level": scene_plan.get("route_change_level"),
+            "route_level_adjustment_reason": scene_plan.get("route_level_adjustment_reason"),
+            "route_factors": dict(scene_plan.get("route_factors", {})),
+            "route_reason": scene_plan.get("route_reason"),
+        }
+    return route_hints
+
+
 def _build_story_generation_request(
     story: Story,
     prompt_bundle: PromptBundle,
@@ -143,7 +162,10 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
     save_json(run_context.logs_directory / "prompt_pipeline.json", prompt_pipeline.metadata())
     save_json(run_context.logs_directory / "prompt_bundle.json", prompt_bundle.metadata)
     prompt_specs = prompt_bundle.scene_prompts
+    scene_plans = prompt_bundle.metadata.get("scene_plans", {})
     scene_route_hints = prompt_bundle.metadata.get("scene_route_hints", {})
+    if not isinstance(scene_route_hints, dict) or not scene_route_hints:
+        scene_route_hints = _scene_route_hints_from_plans(scene_plans if isinstance(scene_plans, dict) else {})
     generator = build_generation_backend(config["model"], config["runtime"])
     backend_metadata = build_backend_metadata(config["model"], config["runtime"])
     backend_metadata["img2img_enabled"] = bool(config.get("generation", {}).get("routing", {}).get("img2img_enabled", False))
@@ -206,6 +228,7 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         candidate_scores = []
         previous_selected_path = previous_results[-1].selected_image_path if previous_results else None
         previous_scene = story.scenes[scene.index - 1] if scene.index > 0 else None
+        scene_plan = scene_plans.get(scene.scene_id) if isinstance(scene_plans, dict) else None
         route_hint = scene_route_hints.get(scene.scene_id) if isinstance(scene_route_hints, dict) else None
         previous_route_hint = (
             scene_route_hints.get(previous_scene.scene_id)
@@ -236,8 +259,14 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 "llm_route_change_level": route_decision.llm_route_change_level,
                 "route_level_adjustment_reason": route_decision.route_level_adjustment_reason,
                 "route_factors": route_decision.route_factors,
-                "identity_conditioning_subject_id": (route_hint or {}).get("identity_conditioning_subject_id"),
-                "primary_visible_character_ids": list((route_hint or {}).get("primary_visible_character_ids", [])),
+                "identity_conditioning_subject_id": (scene_plan or {}).get("identity_conditioning_subject_id"),
+                "primary_visible_character_ids": list((scene_plan or {}).get("primary_visible_character_ids", [])),
+                "interaction_summary": (scene_plan or {}).get("interaction_summary"),
+                "spatial_relation": (scene_plan or {}).get("spatial_relation"),
+                "framing": (scene_plan or {}).get("framing"),
+                "setting_focus": (scene_plan or {}).get("setting_focus"),
+                "visible_character_count": ((scene_plan or {}).get("policy") or {}).get("visible_character_count"),
+                "scene_focus_mode": ((scene_plan or {}).get("policy") or {}).get("scene_focus_mode"),
             }
             reference_image_path = None
             identity_config = config.get("generation", {}).get("identity_conditioning", {})
@@ -245,7 +274,7 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 try:
                     identity_options = select_identity_anchor(
                         scene=scene,
-                        route_hint=route_hint,
+                        route_hint=scene_plan or route_hint,
                         generation_mode=route_decision.generation_mode,
                         anchor_bank_summary=anchor_bank_summary,
                         identity_config=identity_config,
@@ -275,14 +304,27 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                         generation_mode=route_decision.generation_mode,
                     )
                 else:
-                    append_event(
-                        run_context,
-                        "identity_anchor_missing",
-                        stage="identity_conditioning",
-                        scene_id=scene.scene_id,
-                        candidate_index=candidate_index,
-                        reason=identity_options.get("identity_conditioning_reason"),
-                    )
+                    reason = identity_options.get("identity_conditioning_reason")
+                    if str(reason).startswith("policy_skip:"):
+                        append_event(
+                            run_context,
+                            "identity_conditioning_skipped",
+                            stage="identity_conditioning",
+                            scene_id=scene.scene_id,
+                            candidate_index=candidate_index,
+                            scene_focus_mode=route_options.get("scene_focus_mode"),
+                            primary_visible_character_ids=route_options.get("primary_visible_character_ids"),
+                            reason=reason,
+                        )
+                    else:
+                        append_event(
+                            run_context,
+                            "identity_anchor_missing",
+                            stage="identity_conditioning",
+                            scene_id=scene.scene_id,
+                            candidate_index=candidate_index,
+                            reason=reason,
+                        )
             append_event(
                 run_context,
                 "generation_route_selected",
