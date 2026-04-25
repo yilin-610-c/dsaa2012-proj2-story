@@ -240,6 +240,49 @@ def _build_dual_primary_character_snippet(character_spec: dict[str, Any]) -> str
     return sentence.rstrip(", ")
 
 
+def _dual_primary_name_phrase(visible_character_ids: list[str]) -> str:
+    display_names = [_normalize_text(character_id) for character_id in visible_character_ids if _normalize_text(character_id)]
+    if not display_names:
+        return ""
+    if len(display_names) == 1:
+        return display_names[0]
+    if len(display_names) == 2:
+        return f"{display_names[0]} and {display_names[1]}"
+    return f"{', '.join(display_names[:-1])}, and {display_names[-1]}"
+
+
+def _with_explicit_dual_primary_names(interaction_summary: str, visible_character_ids: list[str]) -> str:
+    summary = _normalize_text(interaction_summary)
+    if not summary:
+        return ""
+    name_phrase = _dual_primary_name_phrase(visible_character_ids)
+    if not name_phrase:
+        return summary
+    if re.match(r"^they\b", summary, flags=re.IGNORECASE):
+        return re.sub(r"^they\b", name_phrase, summary, count=1, flags=re.IGNORECASE)
+    return summary
+
+
+def _format_dual_primary_setting_focus(setting_focus: str | None) -> str:
+    normalized = _normalize_text(setting_focus)
+    lowered = normalized.lower()
+    if not normalized:
+        return ""
+    if lowered.startswith(("in ", "at ", "on ", "inside ", "near ")):
+        return normalized
+    if "cafe table" in lowered:
+        return "at a cafe table"
+    if "exhibition wall" in lowered:
+        return "at an exhibition wall"
+    if lowered == "park":
+        return "in a park"
+    if lowered == "cafe":
+        return "in a cafe"
+    if lowered == "exhibition":
+        return "at an exhibition"
+    return normalized
+
+
 def build_dual_primary_generation_prompt(
     visible_character_ids: list[str],
     character_specs_by_id: dict[str, dict[str, Any]],
@@ -260,10 +303,10 @@ def build_dual_primary_generation_prompt(
     if not character_sentences and fallback_character_prompt:
         character_sentences = [_ensure_human_identity(fallback_character_prompt)]
 
-    scene_sentences = [_normalize_text(interaction_summary)]
+    scene_sentences = [_with_explicit_dual_primary_names(interaction_summary, visible_character_ids)]
     framing_clause = _normalize_text(framing)
     spatial_clause = _normalize_text(spatial_relation)
-    setting_clause = _normalize_text(setting_focus)
+    setting_clause = _format_dual_primary_setting_focus(setting_focus)
     if framing_clause and spatial_clause:
         scene_sentences.append(f"{framing_clause}, {spatial_clause}")
     elif framing_clause:
@@ -833,12 +876,16 @@ class LLMAssistedPromptBuilder:
 
                 spatial_relation = spatial_relation or _fallback_dual_spatial_relation(scene_text, generation_prompt)
                 if not spatial_relation:
-                    spatial_relation = "the two characters are clearly separated and not merged"
+                    ordered_visible_ids = [character_id.lower() for character_id in primary_visible_character_ids[:2]]
+                    if len(ordered_visible_ids) == 2:
+                        spatial_relation = f"{ordered_visible_ids[0]} on the left, {ordered_visible_ids[1]} on the right"
+                    else:
+                        spatial_relation = "both characters remain clearly separated"
                     used_default_spatial_relation = True
 
                 framing = framing or _fallback_dual_framing(scene_text, generation_prompt)
                 if not framing:
-                    framing = "clear two-person composition, both characters visible"
+                    framing = "medium two-shot, both characters visible"
                     used_default_framing = True
 
                 setting_focus = setting_focus or _fallback_setting_focus(

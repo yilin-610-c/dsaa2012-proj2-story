@@ -506,8 +506,8 @@ def test_llm_dual_primary_records_default_flags_when_no_specific_cues_exist(tmp_
 
     scene_plan = builder.metadata()["scene_plans"]["SCENE-1"]
     assert scene_plan["interaction_summary"] == "both characters are present in the same scene"
-    assert scene_plan["spatial_relation"] == "the two characters are clearly separated and not merged"
-    assert scene_plan["framing"] == "clear two-person composition, both characters visible"
+    assert scene_plan["spatial_relation"] == "jack on the left, sara on the right"
+    assert scene_plan["framing"] == "medium two-shot, both characters visible"
     assert scene_plan["setting_focus"] is None
     assert scene_plan["used_default_interaction_summary"] is True
     assert scene_plan["used_default_spatial_relation"] is True
@@ -548,6 +548,36 @@ def test_llm_dual_primary_prompt_uses_local_identity_snippets_and_scene_plan(tmp
     assert "Sara is an adult woman" in prompts["SCENE-1"].generation_prompt
     assert "clear two-person composition, both characters visible" in prompts["SCENE-1"].generation_prompt
     assert "Jack, adult, man, black, short hair, black jacket, Sara" not in prompts["SCENE-1"].generation_prompt
+    assert "cafe table" in prompts["SCENE-2"].generation_prompt
+
+
+def test_llm_dual_primary_generation_prompt_replaces_pronoun_with_names(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["scenes"][1]["interaction_summary"] = "They continue talking in a cafe."
+    config = _prompt_config(tmp_path, cache_enabled=False)
+    config["dual_primary_generation_max_words"] = 60
+    config["dual_primary_generation_max_chars"] = 420
+    builder = LLMAssistedPromptBuilder(config, llm_client=FakeLLMClient(payload))
+
+    prompts = builder.build_story_prompts(_two_character_story())
+
+    assert "Jack and Sara continue talking in a cafe." in prompts["SCENE-2"].generation_prompt
+    assert "They continue talking in a cafe." not in prompts["SCENE-2"].generation_prompt
+
+
+def test_llm_dual_primary_generation_prompt_formats_setting_focus_naturally(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["scenes"][0]["setting_focus"] = "park"
+    payload["scenes"][1]["setting_focus"] = "cafe"
+    config = _prompt_config(tmp_path, cache_enabled=False)
+    config["dual_primary_generation_max_words"] = 60
+    config["dual_primary_generation_max_chars"] = 420
+    builder = LLMAssistedPromptBuilder(config, llm_client=FakeLLMClient(payload))
+
+    prompts = builder.build_story_prompts(_two_character_story())
+
+    assert prompts["SCENE-1"].generation_prompt.endswith("in a park.")
+    assert prompts["SCENE-2"].generation_prompt.endswith("in a cafe.")
 
 
 def test_llm_dual_primary_generation_prompt_respects_dual_limits(tmp_path: Path) -> None:

@@ -777,6 +777,39 @@ Validation:
 - command: `PYTHONPATH=src pytest tests/test_llm_assisted_prompt_builder.py -q`
 - command: `PYTHONPATH=src pytest -q`
 
+### 2026-04-25: Dual-Primary Prompt Truncation Verification
+
+Verified actual generated scene prompt files from the latest completed run:
+- run inspected: `outputs/dual_primary_prompt_check`
+- files checked:
+  - `outputs/dual_primary_prompt_check/scenes/scene_001/prompt.json`
+  - `outputs/dual_primary_prompt_check/scenes/scene_002/prompt.json`
+  - `outputs/dual_primary_prompt_check/scenes/scene_003/prompt.json`
+
+Observed:
+- `generation_prompt` was already slot-based natural language rather than a flat comma list
+- both `jack` and `sara` had labeled identity descriptions in every scene prompt
+- scene 1 was truncated mid-sentence (`... Jack and Sara sit in a`), so interaction/framing/setting were not fully preserved in the final generation prompt
+- the inspected run still used the base `generation_max_words=28` / `generation_max_chars=220` limits effectively at generation time
+
+Follow-up patch:
+- added dual-primary-specific prompt limits in `configs/base.yaml`:
+  - `dual_primary_generation_max_words: 70`
+  - `dual_primary_generation_max_chars: 420`
+- these limits are used only when `policy.scene_focus_mode == "dual_primary"`
+- kept single-primary generation prompt behavior unchanged
+- replaced generic dual-primary fallback wording:
+  - spatial default: `jack on the left, sara on the right`
+  - framing default: `medium two-shot, both characters visible`
+
+Validation:
+- command: `PYTHONPATH=src pytest tests/test_llm_assisted_prompt_builder.py -q`
+- command: `PYTHONPATH=src pytest -q`
+- attempted real rerun:
+  - `PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_two_character_text2img --input test_set/06.txt --run-name dual_primary_prompt_check_v2`
+- rerun result:
+  - prompt-building stage completed, but image generation did not finish because the local environment has no available NVIDIA driver, so new `scene_*/prompt.json` files were not produced in that failed run
+
 ## Shared Code Rules
 
 When modifying shared code:

@@ -55,6 +55,8 @@ prompt:
   generation_include_scene_composition: false
   generation_max_words: 28
   generation_max_chars: 220
+  dual_primary_generation_max_words: 70
+  dual_primary_generation_max_chars: 420
   generation_template: "{subject}, {action}{setting_clause}{style_clause}"
   scoring_template: "{subject}, {action}{setting_clause}"
   scoring_include_style: false

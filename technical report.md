@@ -79,6 +79,12 @@ Current Phase 2 preparation:
 - `llm_prompt_hybrid_identity` adds LLM-guided route execution on top of identity conditioning: text2img scenes can use IP-Adapter, while img2img scenes remain previous-frame continuity routes unless explicitly configured otherwise.
 - IP-Adapter profiles disable diffusers attention slicing because the current SDXL IP-Adapter loader is incompatible with pre-installed sliced attention processors. This is treated as a runtime compatibility setting rather than a method component.
 - Multi-character hardening upgrades the prompt metadata to `llm_assisted_v7`: each scene can declare `identity_conditioning_subject_id` and `primary_visible_character_ids`, so the IP-Adapter path can select the intended character anchor instead of guessing from a multi-character scene.
+- The next-stage conservative two-character extension adds a dedicated scene-plan layer: `PromptBundle.metadata["scene_plans"]`.
+- `scene_plans` stores per-scene interaction/composition hints plus locally derived policy fields, while `scene_route_hints` is retained only as a route-execution view.
+- The new scene-plan fields are `interaction_summary`, `spatial_relation`, `framing`, optional `setting_focus`, and local policy fields `visible_character_count` / `scene_focus_mode`.
+- The LLM-assisted prompt builder still outputs a downstream `PromptSpec`, but now uses `character_specs` for local identity snippets and uses scene-level LLM output mainly for action, interaction, composition, and setting emphasis.
+- For `scene_focus_mode="dual_primary"`, the pipeline now defaults to stronger text2img prompts and explicitly disables ordinary single-anchor IP-Adapter conditioning.
+- This policy change is implemented in the orchestration layer (`pipeline.py`) and identity-conditioning layer (`identity_conditioning.py`), not as a generator-side method change.
 - The current canonical anchor policy is to use `half_body` for IP-Adapter conditioning. Portrait anchors are retained as inspect-only artifacts until a later face/anchor consistency design is added.
 - Canonical Anchor Selection v3 keeps the same conditioning contract but upgrades anchor quality: each character now generates multiple `half_body` candidates, runs a lightweight selector, and writes `canonical_half_body.png` plus `canonical_anchor.json`; scene generation consumes only that canonical half-body anchor.
 - Real validation on `test_set/06.txt` generated separate Jack and Sara anchor banks. Because all panels contain both characters equally, v7 metadata left `identity_conditioning_subject_id` empty and listed both characters as visible; the identity-conditioning path then skipped IP-Adapter rather than incorrectly applying one character anchor to a two-character scene.
@@ -188,6 +194,18 @@ Observed multi-character safety behavior:
 - All scenes had `identity_conditioning_subject_id=null` and `primary_visible_character_ids=["jack", "sara"]`, so the identity-conditioning selector logged `ambiguous_or_missing_scene_character` and left `reference_image_path=null`.
 - This is the desired safe behavior for v1 single-anchor conditioning: do not force a Jack or Sara anchor onto a panel where both characters are equally important.
 - This also means the run is not evidence of multi-character IP-Adapter improvement; it validates controlled skipping. A future debug-only forced-subject override or a true multi-anchor/regional design would be needed to study two-character conditioning effects.
+
+Observed conservative two-character policy behavior:
+
+- Run inspected: `outputs/two_character_policy_smoke`.
+- Profile: `llm_prompt_two_character_text2img`.
+- The pipeline generated separate `jack` and `sara` canonical half-body anchors, so `CharacterSpec -> Anchor Bank` still works normally for two-character stories.
+- All three scenes resolved to `policy.visible_character_count=2` and `policy.scene_focus_mode="dual_primary"` inside `scene_plans`.
+- All candidates were generated with `generation_mode="text2img"` because the profile disables img2img entirely for this phase.
+- All candidates logged `identity_conditioning_reason="policy_skip:dual_primary_scene"` and left `reference_image_path=null`, so no ordinary IP-Adapter conditioning was applied.
+- The prompts now include both characters plus generic dual-character composition cues such as “both characters are present in the same scene” and “clear two-person composition, both characters visible”.
+- Experimental interpretation: the current system is now correctly enforcing a conservative two-character policy layer. This run is evidence that the pipeline-level control logic works as intended; it is not yet evidence that two-character interaction prompting is semantically rich enough, because the current fallback interaction/composition phrases are still generic.
+- Next small patch direction: improve dual-primary scene-planning specificity and record `used_default_*` provenance flags in `scene_plans`, so later analysis can separate real LLM planning from local fallback-filled metadata.
 
 ## Data / External Resources / Compliance
 
