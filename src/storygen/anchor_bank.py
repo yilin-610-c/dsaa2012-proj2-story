@@ -31,16 +31,16 @@ def _safe_path_name(value: str) -> str:
 
 def _identity_parts(character_spec: dict[str, Any]) -> list[str]:
     field_names = [
+        "gender_presentation",
+        "profession_marker",
         "character_id",
         "age_band",
-        "gender_presentation",
         "hair_color",
         "hairstyle",
         "skin_tone",
         "body_build",
         "signature_outfit",
         "signature_accessory",
-        "profession_marker",
     ]
     parts = []
     seen = set()

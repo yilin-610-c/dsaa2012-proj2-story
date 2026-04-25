@@ -28,7 +28,17 @@ from storygen.parser import parse_story_file
 from storygen.prompt_pipelines import build_prompt_pipeline
 from storygen.routing import choose_scene_route
 from storygen.scoring import CLIPConsistencyScorer, HeuristicScorer
-from storygen.types import GenerationRequest, PromptBundle, RunContext, RunSummary, Story, StoryGenerationRequest
+from storygen.types import (
+    CandidateScore,
+    GenerationRequest,
+    PromptBundle,
+    RunContext,
+    RunSummary,
+    SceneSelectionResult,
+    Story,
+    StoryGenerationRequest,
+    StoryScenePlan,
+)
 
 
 def _resolve_run_name(config: dict[str, Any], explicit_run_name: str | None = None) -> str:
@@ -70,6 +80,9 @@ def _build_story_generation_request(
     story: Story,
     prompt_bundle: PromptBundle,
     config: dict[str, Any],
+    *,
+    scene_plans: list[StoryScenePlan] | None = None,
+    anchor_bank_summary: dict[str, Any] | None = None,
 ) -> StoryGenerationRequest:
     story_prompt = prompt_bundle.story_prompt
     if story_prompt is not None:
@@ -99,8 +112,71 @@ def _build_story_generation_request(
         width=int(config["model"]["width"]),
         height=int(config["model"]["height"]),
         reference_image_path=config["model"].get("reference_image_path"),
+        scene_plans=scene_plans or [],
+        anchor_bank_summary=anchor_bank_summary or {},
+        character_specs=prompt_bundle.metadata.get("character_specs", {}),
         extra_options=config["model"].get("extra_options", {}),
     )
+
+
+def _build_story_scene_plans(
+    story: Story,
+    prompt_bundle: PromptBundle,
+    anchor_bank_summary: dict[str, Any],
+    config: dict[str, Any],
+) -> list[StoryScenePlan]:
+    prompt_specs = prompt_bundle.scene_prompts
+    scene_route_hints = prompt_bundle.metadata.get("scene_route_hints", {})
+    identity_config = config.get("generation", {}).get("identity_conditioning", {})
+    plans: list[StoryScenePlan] = []
+
+    for scene in story.scenes:
+        prompt_spec = prompt_specs[scene.scene_id]
+        route_hint = scene_route_hints.get(scene.scene_id) if isinstance(scene_route_hints, dict) else {}
+        identity_plan: dict[str, Any]
+        try:
+            identity_plan = select_identity_anchor(
+                scene=scene,
+                route_hint=route_hint,
+                generation_mode="text2img",
+                anchor_bank_summary=anchor_bank_summary,
+                identity_config=identity_config,
+            )
+        except ValueError as exc:
+            identity_plan = {
+                "identity_conditioning_enabled": False,
+                "identity_conditioning_reason": str(exc),
+                "identity_conditioning_error": True,
+            }
+
+        anchor_paths: dict[str, str] = {}
+        selected_character_id = identity_plan.get("identity_anchor_character_id")
+        selected_path = identity_plan.get("identity_anchor_path")
+        if selected_character_id and selected_path:
+            anchor_paths[str(selected_character_id)] = str(selected_path)
+
+        primary_visible_character_ids = list((route_hint or {}).get("primary_visible_character_ids", []))
+        if selected_character_id and str(selected_character_id) not in primary_visible_character_ids:
+            primary_visible_character_ids.append(str(selected_character_id))
+
+        plans.append(
+            StoryScenePlan(
+                scene_id=scene.scene_id,
+                scene_index=scene.index,
+                prompt_spec=prompt_spec,
+                generation_prompt=prompt_spec.generation_prompt,
+                scoring_prompt=prompt_spec.scoring_prompt,
+                route_hint=dict(route_hint or {}),
+                identity_plan=identity_plan,
+                anchor_characters=primary_visible_character_ids,
+                anchor_paths=anchor_paths,
+                metadata={
+                    "scene_entities": list(scene.entities),
+                    "scene_text": scene.clean_text,
+                },
+            )
+        )
+    return plans
 
 
 def _run_story_backend_placeholder(
@@ -109,16 +185,37 @@ def _run_story_backend_placeholder(
     generator: BaseStoryGenerator,
     run_context: RunContext,
     config: dict[str, Any],
-) -> None:
+    *,
+    scene_plans: list[StoryScenePlan],
+    anchor_bank_summary: dict[str, Any],
+) -> StoryGenerationResult:
     append_event(
         run_context,
         "placeholder_backend_attempted",
         stage="generation",
         backend=config["model"].get("backend"),
         granularity=config["model"].get("granularity"),
+        scene_plan_count=len(scene_plans),
+        anchor_bank_enabled=bool(anchor_bank_summary.get("enabled", False)),
     )
-    request = _build_story_generation_request(story, prompt_bundle, config)
-    generator.generate_story(request)
+    request = _build_story_generation_request(
+        story,
+        prompt_bundle,
+        config,
+        scene_plans=scene_plans,
+        anchor_bank_summary=anchor_bank_summary,
+    )
+    save_json(
+        run_context.logs_directory / "story_backend_request.json",
+        {
+            "story_id": request.story_id,
+            "scene_plans": request.scene_plans,
+            "anchor_bank_summary": request.anchor_bank_summary,
+            "character_specs": request.character_specs,
+            "panel_prompts": request.panel_prompts,
+        },
+    )
+    return generator.generate_story(request)
 
 
 def run_pipeline(config: dict[str, Any]) -> RunSummary:
@@ -169,7 +266,105 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
     )
 
     if isinstance(generator, BaseStoryGenerator):
-        _run_story_backend_placeholder(story, prompt_bundle, generator, run_context, config)
+        scene_stub_model_id = str(config["model"].get("anchor_bank_model_id") or config["model"].get("model_id") or "")
+        if not scene_stub_model_id or scene_stub_model_id == "storydiffusion_direct_placeholder":
+            scene_stub_model_id = "stabilityai/sdxl-turbo"
+        scene_stub_generator = build_generation_backend(
+            {
+                **config["model"],
+                "backend": "diffusers_text2img",
+                "granularity": "scene",
+                "model_id": scene_stub_model_id,
+            },
+            config["runtime"],
+        )
+        if not isinstance(scene_stub_generator, BaseSceneGenerator):
+            raise TypeError(f"Expected a scene-level generator, got {type(scene_stub_generator).__name__}")
+        anchor_bank_summary = run_anchor_bank(
+            character_specs=prompt_bundle.metadata.get("character_specs", {}),
+            anchor_config=config.get("generation", {}).get("anchor_bank", {}),
+            run_context=run_context,
+            prompt_config=config.get("prompt", {}),
+            model_config=config.get("model", {}),
+            generator=scene_stub_generator,
+            event_logger=lambda event, **metadata: append_event(run_context, event, stage="anchor_bank", **metadata),
+        )
+        if anchor_bank_summary.get("enabled", False):
+            save_json(run_context.logs_directory / "anchor_bank.json", anchor_bank_summary)
+        scene_plans = _build_story_scene_plans(story, prompt_bundle, anchor_bank_summary, config)
+        save_json(run_context.logs_directory / "story_scene_plans.json", scene_plans)
+        story_result = _run_story_backend_placeholder(
+            story,
+            prompt_bundle,
+            generator,
+            run_context,
+            config,
+            scene_plans=scene_plans,
+            anchor_bank_summary=anchor_bank_summary,
+        )
+        scene_results = []
+        for panel_output, scene in zip(story_result.panel_outputs, story.scenes):
+            scene_dir = scene_directory(run_context, scene.index)
+            scene_dir.mkdir(parents=True, exist_ok=True)
+            save_json(scene_dir / "prompt.json", prompt_specs[scene.scene_id])
+            if panel_output.image_path:
+                selected_path = save_selected_image(panel_output.image_path, run_context, scene.index)
+            elif panel_output.image is not None:
+                candidate_path = save_candidate_image(panel_output.image, run_context, scene.index, 0, int(config["generation"]["base_seed"]) + scene.index)
+                selected_path = save_selected_image(candidate_path, run_context, scene.index)
+            else:
+                selected_path = ""
+            panel_output.image = None
+            panel_output.image_path = selected_path
+            save_json(
+                scene_dir / "scene_result.json",
+                {
+                    "scene": scene,
+                    "selection": panel_output,
+                    "candidates": [panel_output],
+                },
+            )
+            scene_results.append(
+                SceneSelectionResult(
+                    scene_id=scene.scene_id,
+                    selected_candidate_index=0,
+                    selected_seed=int(config["generation"]["base_seed"]) + scene.index,
+                    selected_image_path=selected_path,
+                    selected_score=CandidateScore(
+                        scene_id=scene.scene_id,
+                        candidate_index=0,
+                        seed=int(config["generation"]["base_seed"]) + scene.index,
+                        score=0.0,
+                        scorer_name="storydiffusion_direct",
+                    ),
+                    candidate_scores=[],
+                    candidate_image_paths=[selected_path] if selected_path else [],
+                )
+            )
+        summary = RunSummary(
+            run_name=run_context.run_name,
+            runtime_profile=config["runtime"]["profile"],
+            timestamp=get_timestamp_string(),
+            pipeline_version=__version__,
+            model_id=config["model"]["model_id"],
+            prompt_pipeline=config["prompt"].get("pipeline", "rule_based"),
+            generation_backend=config["model"]["backend"],
+            generation_granularity=config["model"].get("granularity", "scene"),
+            scorer_type=config["scoring"]["type"],
+            scorer_config=config["scoring"],
+            git_commit_id=_get_git_commit_id(repo_root),
+            input_story_path=story.source_path,
+            output_root=str(run_context.output_root),
+            run_directory=str(run_context.run_directory),
+            base_seed=int(config["generation"]["base_seed"]),
+            candidate_count=int(config["generation"]["candidate_count"]),
+            resolved_config=config,
+            scene_results=scene_results,
+        )
+        save_json(run_context.run_directory / "run_summary.json", summary)
+        save_json(run_context.run_directory / "manifest.json", build_manifest(summary))
+        append_event(run_context, "run_completed", stage="run", run_name=summary.run_name)
+        return summary
 
     if not isinstance(generator, BaseSceneGenerator):
         raise TypeError(f"Expected a scene-level generator, got {type(generator).__name__}")

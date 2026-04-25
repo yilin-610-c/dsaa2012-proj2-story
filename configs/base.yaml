@@ -191,6 +191,7 @@ runtime_profiles:
       backend: storydiffusion_direct
       granularity: story
       model_id: storydiffusion_direct_placeholder
+      scene_model_id: stabilityai/sdxl-turbo
       width: 768
       height: 768
       num_inference_steps: 4
@@ -199,6 +200,78 @@ runtime_profiles:
     generation:
       candidate_count: 1
       base_seed: 2026
+  cloud_storydiffusion_aesthetic:
+    runtime:
+      run_name_prefix: cloud_storydiffusion_aesthetic
+    prompt:
+      pipeline: llm_assisted
+    model:
+      backend: storydiffusion_direct
+      granularity: story
+      model_id: storydiffusion_direct_placeholder
+      scene_model_id: stabilityai/sdxl-turbo
+      width: 768
+      height: 768
+      num_inference_steps: 4
+      guidance_scale: 0.0
+      num_identity_panels: 3
+    generation:
+      candidate_count: 1
+      base_seed: 2026
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: false
+        fail_on_missing_anchor: false
+  cloud_storydiffusion_identity:
+    runtime:
+      run_name_prefix: cloud_storydiffusion_identity
+    prompt:
+      pipeline: llm_assisted
+    model:
+      backend: storydiffusion_direct
+      granularity: story
+      model_id: storydiffusion_direct_placeholder
+      scene_model_id: stabilityai/sdxl-turbo
+      width: 768
+      height: 768
+      num_inference_steps: 4
+      guidance_scale: 0.0
+      num_identity_panels: 3
+    generation:
+      candidate_count: 1
+      base_seed: 2026
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: true
+        fail_on_missing_anchor: false
+  cloud_storydiffusion_debug:
+    runtime:
+      run_name_prefix: cloud_storydiffusion_debug
+    prompt:
+      pipeline: llm_assisted
+    model:
+      backend: storydiffusion_direct
+      granularity: story
+      model_id: storydiffusion_direct_placeholder
+      scene_model_id: stabilityai/sdxl-turbo
+      width: 768
+      height: 768
+      num_inference_steps: 4
+      guidance_scale: 0.0
+      num_identity_panels: 3
+    generation:
+      candidate_count: 1
+      base_seed: 2026
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: true
+        fail_on_missing_anchor: false
   llm_prompt_smoke:
     runtime:
       run_name_prefix: llm_prompt

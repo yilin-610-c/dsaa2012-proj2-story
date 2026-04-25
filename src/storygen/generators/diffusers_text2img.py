@@ -40,6 +40,16 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
         pipeline = pipeline.to(self.device)
         if self.model_config.get("enable_attention_slicing", False):
             pipeline.enable_attention_slicing()
+            if hasattr(pipeline, "unet") and hasattr(pipeline.unet, "set_default_attn_processor"):
+                try:
+                    pipeline.unet.set_default_attn_processor()
+                except TypeError:
+                    pass
+            if hasattr(pipeline, "unet") and hasattr(pipeline.unet, "set_default_attn_processor"):
+                try:
+                    pipeline.unet.set_default_attn_processor()
+                except TypeError:
+                    pass
         self.pipeline = pipeline
 
     def load_img2img(self) -> None:

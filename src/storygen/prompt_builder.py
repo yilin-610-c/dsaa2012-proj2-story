@@ -3,7 +3,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from storygen.character_specs import build_rule_based_character_specs
 from storygen.types import PromptSpec, Scene, Story
+
+GENDER_PHRASES = {
+    "male": "male man",
+    "female": "female woman",
+}
 
 LEADING_PRONOUN_PATTERN = re.compile(r"^(she|he|they|it)\b", re.IGNORECASE)
 LOCATION_PATTERN = re.compile(
@@ -99,12 +105,18 @@ class PromptBuilder:
         pronoun = self._infer_story_pronoun(story)
         subject_type = self._infer_subject_type(primary_entity, pronoun)
         location_anchor = self._infer_location_anchor(story)
+        character_specs = build_rule_based_character_specs(story)
+        primary_character_spec = character_specs.get(primary_entity or "", {}) if isinstance(character_specs, dict) else {}
+        gender_presentation = str(primary_character_spec.get("gender_presentation") or "").strip() or None
+        profession_marker = str(primary_character_spec.get("profession_marker") or "").strip() or None
         return {
             "primary_entity": primary_entity,
             "pronoun": pronoun,
             "subject_type": subject_type,
             "location_anchor": location_anchor,
             "recurring_entities": story.recurring_entities,
+            "gender_presentation": gender_presentation,
+            "profession_marker": profession_marker,
         }
 
     def _build_character_prompt(
@@ -121,12 +133,21 @@ class PromptBuilder:
         scene_entities = list(dict.fromkeys(scene.entities))
         effective_entities = scene_entities or self._scene_fallback_entities(scene, story_context)
         continuity_prompt = self._continuity_prompt_for_subject_type(str(story_context.get("subject_type") or "generic"))
+        gender_phrase = self._gender_identity_phrase(story_context)
+        profession_marker = str(story_context.get("profession_marker") or "").strip()
         parts = []
 
         if effective_entities:
-            parts.append(self._join_entities(effective_entities, prefix=subject_prefix))
+            entity_text = self._join_entities(effective_entities, prefix=subject_prefix)
+            if len(effective_entities) == 1:
+                extra_parts = [gender_phrase, profession_marker]
+                entity_text = ", ".join(part for part in [entity_text, *extra_parts] if part)
+            parts.append(entity_text)
         elif primary_entity:
-            parts.append(f"{subject_prefix} {primary_entity}".strip())
+            primary_text = f"{subject_prefix} {primary_entity}".strip()
+            extra_parts = [gender_phrase, profession_marker]
+            primary_text = ", ".join(part for part in [primary_text, *extra_parts] if part)
+            parts.append(primary_text)
 
         recurring_in_scene = [entity for entity in effective_entities if entity in story.recurring_entities]
         if recurring_in_scene or primary_entity:
@@ -354,6 +375,12 @@ class PromptBuilder:
         if subject_type == "animal":
             return self.prompt_config.get("animal_identity_prompt", "").strip()
         return self.prompt_config.get("generic_identity_prompt", "").strip()
+
+    def _gender_identity_phrase(self, story_context: dict[str, str | list[str] | None]) -> str:
+        gender = str(story_context.get("gender_presentation") or "").strip().lower()
+        if not gender:
+            return ""
+        return GENDER_PHRASES.get(gender, gender)
 
     def _build_action_emphasis_prompt(self, local_prompt: str) -> str:
         action_map = self.prompt_config.get("action_emphasis_map", {})

@@ -6,6 +6,10 @@ from typing import Any
 
 from storygen.types import CharacterSpec, Story
 
+MALE_PRONOUNS = {"he", "him", "his"}
+FEMALE_PRONOUNS = {"she", "her", "hers"}
+NEUTRAL_PRONOUNS = {"they", "them", "their", "theirs", "it"}
+
 
 CHARACTER_SPEC_FIELDS = {
     "age_band",
@@ -18,6 +22,8 @@ CHARACTER_SPEC_FIELDS = {
     "signature_accessory",
     "profession_marker",
 }
+
+LEADING_PRONOUN_PATTERN = re.compile(r"^(she|he|they|it)\b", re.IGNORECASE)
 
 
 def _normalize_text(value: Any) -> str:
@@ -37,6 +43,23 @@ def _story_character_ids(story: Story) -> list[str]:
     return character_ids
 
 
+def _infer_story_pronoun(story: Story) -> str | None:
+    for scene in story.scenes:
+        match = LEADING_PRONOUN_PATTERN.match(scene.clean_text)
+        if match:
+            return match.group(1).lower()
+    return None
+
+
+def _infer_gender_presentation(story: Story) -> str | None:
+    pronoun = _infer_story_pronoun(story)
+    if pronoun == "he":
+        return "male"
+    if pronoun == "she":
+        return "female"
+    return None
+
+
 def character_specs_to_metadata(character_specs: list[CharacterSpec]) -> dict[str, dict[str, Any]]:
     return {spec.character_id: asdict(spec) for spec in character_specs if spec.character_id}
 
@@ -45,14 +68,18 @@ def build_rule_based_character_specs(story: Story) -> dict[str, dict[str, Any]]:
     character_ids = _story_character_ids(story)
     if not character_ids:
         return {}
+    inferred_gender = _infer_gender_presentation(story)
     return character_specs_to_metadata(
         [
             CharacterSpec(
                 character_id=character_id,
+                gender_presentation=inferred_gender,
+                profession_marker=character_id.lower(),
                 metadata={
                     "source": "rule_based",
                     "confidence": "minimal",
                     "scene_ids": story.entity_to_scene_ids.get(character_id, []),
+                    "inferred_pronoun_gender": inferred_gender,
                 },
             )
             for character_id in character_ids

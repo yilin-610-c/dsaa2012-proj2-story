@@ -110,6 +110,20 @@ class SceneRouteDecision:
 
 
 @dataclass(slots=True)
+class StoryScenePlan:
+    scene_id: str
+    scene_index: int
+    prompt_spec: PromptSpec
+    generation_prompt: str
+    scoring_prompt: str
+    route_hint: dict[str, Any] = field(default_factory=dict)
+    identity_plan: dict[str, Any] = field(default_factory=dict)
+    anchor_characters: list[str] = field(default_factory=list)
+    anchor_paths: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class StoryGenerationRequest:
     story_id: str
     seed: int
@@ -121,6 +135,9 @@ class StoryGenerationRequest:
     width: int
     height: int
     reference_image_path: str | None = None
+    scene_plans: list[StoryScenePlan] = field(default_factory=list)
+    anchor_bank_summary: dict[str, Any] = field(default_factory=dict)
+    character_specs: dict[str, Any] = field(default_factory=dict)
     extra_options: dict[str, Any] = field(default_factory=dict)
 
 

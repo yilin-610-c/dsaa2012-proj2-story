@@ -26,10 +26,11 @@ def build_generation_backend(
 
 
 def build_backend_metadata(model_config: dict[str, Any], runtime_config: dict[str, Any]) -> dict[str, Any]:
+    backend = model_config.get("backend")
     return {
-        "backend": model_config.get("backend"),
+        "backend": backend,
         "granularity": model_config.get("granularity", "scene"),
-        "implemented": model_config.get("backend") == "diffusers_text2img",
+        "implemented": backend in {"diffusers_text2img", "storydiffusion_direct"},
         "model_id": model_config.get("model_id"),
         "device": runtime_config.get("device"),
         "torch_dtype": runtime_config.get("torch_dtype"),
