@@ -247,6 +247,7 @@ runtime_profiles:
         generate: true
       identity_conditioning:
         enabled: true
+        scale: 0.3
         fail_on_missing_anchor: false
   cloud_storydiffusion_debug:
     runtime:
