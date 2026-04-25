@@ -1,0 +1,14 @@
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "run_started", "stage": "run", "profile": "cloud_storydiffusion_debug"}
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "prompt_pipeline_selected", "stage": "prompt", "prompt_pipeline": "llm_assisted"}
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "llm_prompt_cache_miss", "stage": "prompt", "cache_key": "155bfed5ed0131ef14891787b98b1baa3192825b37225fd81ea4cb5e86562e7d"}
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "llm_prompt_api_call_started", "stage": "prompt", "provider": "openai", "model": "gpt-4o-2024-08-06"}
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "llm_prompt_validation_failed", "stage": "prompt", "error": "Missing OpenAI API key environment variable: OPENAI_API_KEY"}
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "llm_prompt_fallback_to_rule_based", "stage": "prompt", "error": "Missing OpenAI API key environment variable: OPENAI_API_KEY"}
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "backend_selected", "stage": "generation", "backend": "storydiffusion_direct", "granularity": "story"}
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "anchor_bank_started", "stage": "anchor_bank", "character_count": 1, "generate": true, "anchor_types": ["portrait", "half_body"]}
+{"timestamp": "2026-04-25T11:38:21+00:00", "event": "anchor_generation_started", "stage": "anchor_bank", "character_id": "Ryan", "anchor_type": "portrait", "seed": 900000}
+{"timestamp": "2026-04-25T11:38:26+00:00", "event": "anchor_generation_completed", "stage": "anchor_bank", "character_id": "Ryan", "anchor_type": "portrait", "seed": 900000, "image_path": "output_test/compare_aesthetic_02/anchors/Ryan/portrait.png"}
+{"timestamp": "2026-04-25T11:38:26+00:00", "event": "anchor_generation_started", "stage": "anchor_bank", "character_id": "Ryan", "anchor_type": "half_body", "candidate_count": 3}
+{"timestamp": "2026-04-25T11:38:27+00:00", "event": "anchor_generation_completed", "stage": "anchor_bank", "character_id": "Ryan", "anchor_type": "half_body", "seed": 900001, "candidate_index": 0, "image_path": "output_test/compare_aesthetic_02/anchors/Ryan/half_body_cand_0.png"}
+{"timestamp": "2026-04-25T11:38:28+00:00", "event": "anchor_generation_completed", "stage": "anchor_bank", "character_id": "Ryan", "anchor_type": "half_body", "seed": 900002, "candidate_index": 1, "image_path": "output_test/compare_aesthetic_02/anchors/Ryan/half_body_cand_1.png"}
+{"timestamp": "2026-04-25T11:38:29+00:00", "event": "anchor_generation_completed", "stage": "anchor_bank", "character_id": "Ryan", "anchor_type": "half_body", "seed": 900003, "candidate_index": 2, "image_path": "output_test/compare_aesthetic_02/anchors/Ryan/half_body_cand_2.png"}

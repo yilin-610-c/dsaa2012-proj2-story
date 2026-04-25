@@ -1,0 +1,72 @@
+{
+  "character_id": "Leo",
+  "safe_character_id": "Leo",
+  "character_spec": {
+    "character_id": "Leo",
+    "age_band": null,
+    "gender_presentation": null,
+    "hair_color": null,
+    "hairstyle": null,
+    "skin_tone": null,
+    "body_build": null,
+    "signature_outfit": null,
+    "signature_accessory": null,
+    "profession_marker": null,
+    "metadata": {
+      "source": "rule_based",
+      "confidence": "minimal",
+      "scene_ids": [
+        "SCENE-2"
+      ]
+    }
+  },
+  "anchor_spec": {
+    "character_id": "Leo",
+    "portrait_path": "output_test/compare_aesthetic_07/anchors/Leo/portrait.png",
+    "half_body_path": "output_test/compare_aesthetic_07/anchors/Leo/canonical_half_body.png",
+    "full_body_path": null,
+    "metadata": {
+      "source": "character_specs",
+      "output_dir": "output_test/compare_aesthetic_07/anchors/Leo"
+    }
+  },
+  "anchors": {
+    "portrait": {
+      "anchor_type": "portrait",
+      "prompt": "portrait view of Leo, clean identity reference image, simple background, consistent character design",
+      "seed": 900000,
+      "image_path": "output_test/compare_aesthetic_07/anchors/Leo/portrait.png"
+    },
+    "half_body": {
+      "anchor_type": "half_body",
+      "prompt": "half-body view of Leo, clean identity reference image, simple background, consistent character design",
+      "seed": 900001,
+      "candidate_count": 3,
+      "candidates": [
+        {
+          "candidate_index": 0,
+          "prompt": "half-body view of Leo, clean identity reference image, simple background, consistent character design",
+          "seed": 900001,
+          "image_path": "output_test/compare_aesthetic_07/anchors/Leo/half_body_cand_0.png"
+        },
+        {
+          "candidate_index": 1,
+          "prompt": "half-body view of Leo, clean identity reference image, simple background, consistent character design",
+          "seed": 900002,
+          "image_path": "output_test/compare_aesthetic_07/anchors/Leo/half_body_cand_1.png"
+        },
+        {
+          "candidate_index": 2,
+          "prompt": "half-body view of Leo, clean identity reference image, simple background, consistent character design",
+          "seed": 900003,
+          "image_path": "output_test/compare_aesthetic_07/anchors/Leo/half_body_cand_2.png"
+        }
+      ],
+      "canonical_image_path": "output_test/compare_aesthetic_07/anchors/Leo/canonical_half_body.png",
+      "canonical_metadata_path": "output_test/compare_aesthetic_07/anchors/Leo/canonical_anchor.json",
+      "image_path": "output_test/compare_aesthetic_07/anchors/Leo/canonical_half_body.png",
+      "canonical_candidate_index": 1,
+      "canonical_seed": 900002
+    }
+  }
+}

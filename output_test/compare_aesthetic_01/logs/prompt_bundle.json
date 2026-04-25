@@ -1,0 +1,32 @@
+{
+  "pipeline": "llm_assisted",
+  "implemented": true,
+  "provider": "openai",
+  "model": "gpt-4o-2024-08-06",
+  "schema_version": "v1",
+  "builder_version": "llm_assisted_v7",
+  "cache_enabled": true,
+  "artifact_path": null,
+  "scene_route_hints": {},
+  "character_specs": {
+    "Lily": {
+      "character_id": "Lily",
+      "age_band": null,
+      "gender_presentation": null,
+      "hair_color": null,
+      "hairstyle": null,
+      "skin_tone": null,
+      "body_build": null,
+      "signature_outfit": null,
+      "signature_accessory": null,
+      "profession_marker": null,
+      "metadata": {
+        "source": "rule_based",
+        "confidence": "minimal",
+        "scene_ids": [
+          "SCENE-1"
+        ]
+      }
+    }
+  }
+}

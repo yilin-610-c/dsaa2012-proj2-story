@@ -1,0 +1,12 @@
+{
+  "scene_id": "SCENE-3",
+  "style_prompt": "cinematic story illustration, coherent visual style",
+  "character_prompt": "main subject: Lily, same person across all scenes, consistent face, hairstyle, outfit, accessories, and body proportions",
+  "global_context_prompt": "recurring setting: the kitchen, maintain a consistent background identity, lighting direction, color palette, and visual tone across the sequence unless the text clearly changes them",
+  "local_prompt": "Lily sits down to eat with a book beside her., key action: clearly seated or transitioning into a seated pose, body posture visibly sitting, keep the full pose and scene relationship easy to read",
+  "action_prompt": "sits down to eat with a book",
+  "generation_prompt": "Lily, sits down to eat with a book, beside her, cinematic story illustration",
+  "scoring_prompt": "Lily, sits down to eat with a book, beside her",
+  "full_prompt": "cinematic story illustration, coherent visual style, main subject: Lily, same person across all scenes, consistent face, hairstyle, outfit, accessories, and body proportions, recurring setting: the kitchen, maintain a consistent background identity, lighting direction, color palette, and visual tone across the sequence unless the text clearly changes them, Lily sits down to eat with a book beside her., key action: clearly seated or transitioning into a seated pose, body posture visibly sitting, keep the full pose and scene relationship easy to read, clean composition, readable action, consistent framing",
+  "negative_prompt": "blurry, distorted, low detail, bad anatomy, extra limbs, duplicate subjects"
+}

@@ -1,0 +1,12 @@
+{
+  "scene_id": "SCENE-1",
+  "style_prompt": "cinematic story illustration, coherent visual style",
+  "character_prompt": "main subject: Nina, same person across all scenes, consistent face, hairstyle, outfit, accessories, and body proportions",
+  "global_context_prompt": "recurring setting: the snow, maintain a consistent background identity, lighting direction, color palette, and visual tone across the sequence unless the text clearly changes them",
+  "local_prompt": "Nina stands in the snow., show the action clearly with an unambiguous pose, keep the full pose and scene relationship easy to read",
+  "action_prompt": "stands",
+  "generation_prompt": "Nina, stands, in the snow, cinematic story illustration",
+  "scoring_prompt": "Nina, stands, in the snow",
+  "full_prompt": "cinematic story illustration, coherent visual style, main subject: Nina, same person across all scenes, consistent face, hairstyle, outfit, accessories, and body proportions, recurring setting: the snow, maintain a consistent background identity, lighting direction, color palette, and visual tone across the sequence unless the text clearly changes them, Nina stands in the snow., show the action clearly with an unambiguous pose, keep the full pose and scene relationship easy to read, clean composition, readable action, consistent framing",
+  "negative_prompt": "blurry, distorted, low detail, bad anatomy, extra limbs, duplicate subjects"
+}

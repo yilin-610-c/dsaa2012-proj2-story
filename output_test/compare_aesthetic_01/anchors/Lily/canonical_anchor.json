@@ -1,0 +1,65 @@
+{
+  "character_id": "Lily",
+  "anchor_type": "half_body",
+  "selector_method": "clip_text_alignment",
+  "prompt": "half-body view of Lily, clean identity reference image, simple background, consistent character design",
+  "selected_candidate_index": 0,
+  "selected_seed": 900001,
+  "selected_image_path": "output_test/compare_aesthetic_01/anchors/Lily/half_body_cand_0.png",
+  "candidates": [
+    {
+      "candidate_index": 0,
+      "prompt": "half-body view of Lily, clean identity reference image, simple background, consistent character design",
+      "seed": 900001,
+      "image_path": "output_test/compare_aesthetic_01/anchors/Lily/half_body_cand_0.png",
+      "clip_alignment": 0.274923,
+      "quality_score": 1.0,
+      "selector_score": 1.274923,
+      "quality": {
+        "file_exists": true,
+        "image_openable": true,
+        "width": 768,
+        "height": 768,
+        "pixel_count": 589824
+      },
+      "selector_method": "clip_text_alignment",
+      "clip_error": null
+    },
+    {
+      "candidate_index": 1,
+      "prompt": "half-body view of Lily, clean identity reference image, simple background, consistent character design",
+      "seed": 900002,
+      "image_path": "output_test/compare_aesthetic_01/anchors/Lily/half_body_cand_1.png",
+      "clip_alignment": 0.255964,
+      "quality_score": 1.0,
+      "selector_score": 1.255964,
+      "quality": {
+        "file_exists": true,
+        "image_openable": true,
+        "width": 768,
+        "height": 768,
+        "pixel_count": 589824
+      },
+      "selector_method": "clip_text_alignment",
+      "clip_error": null
+    },
+    {
+      "candidate_index": 2,
+      "prompt": "half-body view of Lily, clean identity reference image, simple background, consistent character design",
+      "seed": 900003,
+      "image_path": "output_test/compare_aesthetic_01/anchors/Lily/half_body_cand_2.png",
+      "clip_alignment": 0.26671,
+      "quality_score": 1.0,
+      "selector_score": 1.26671,
+      "quality": {
+        "file_exists": true,
+        "image_openable": true,
+        "width": 768,
+        "height": 768,
+        "pixel_count": 589824
+      },
+      "selector_method": "clip_text_alignment",
+      "clip_error": null
+    }
+  ]
+}

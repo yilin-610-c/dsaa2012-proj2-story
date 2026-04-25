@@ -1,0 +1,12 @@
+{
+  "scene_id": "SCENE-2",
+  "style_prompt": "cinematic story illustration, coherent visual style",
+  "character_prompt": "main subject: Lily, same person across all scenes, consistent face, hairstyle, outfit, accessories, and body proportions",
+  "global_context_prompt": "recurring setting: the kitchen, maintain a consistent background identity, lighting direction, color palette, and visual tone across the sequence unless the text clearly changes them",
+  "local_prompt": "Lily looks out the window quietly., key action: looking out through the window, gaze directed outside, quiet contemplative pose, keep the full pose and scene relationship easy to read",
+  "action_prompt": "looks out the window quietly",
+  "generation_prompt": "Lily, looks out the window quietly, cinematic story illustration",
+  "scoring_prompt": "Lily, looks out the window quietly",
+  "full_prompt": "cinematic story illustration, coherent visual style, main subject: Lily, same person across all scenes, consistent face, hairstyle, outfit, accessories, and body proportions, recurring setting: the kitchen, maintain a consistent background identity, lighting direction, color palette, and visual tone across the sequence unless the text clearly changes them, Lily looks out the window quietly., key action: looking out through the window, gaze directed outside, quiet contemplative pose, keep the full pose and scene relationship easy to read, clean composition, readable action, consistent framing",
+  "negative_prompt": "blurry, distorted, low detail, bad anatomy, extra limbs, duplicate subjects"
+}

@@ -1,0 +1,65 @@
+{
+  "character_id": "Nina",
+  "anchor_type": "half_body",
+  "selector_method": "clip_text_alignment",
+  "prompt": "half-body view of Nina, clean identity reference image, simple background, consistent character design",
+  "selected_candidate_index": 0,
+  "selected_seed": 900101,
+  "selected_image_path": "output_test/compare_aesthetic_07/anchors/Nina/half_body_cand_0.png",
+  "candidates": [
+    {
+      "candidate_index": 0,
+      "prompt": "half-body view of Nina, clean identity reference image, simple background, consistent character design",
+      "seed": 900101,
+      "image_path": "output_test/compare_aesthetic_07/anchors/Nina/half_body_cand_0.png",
+      "clip_alignment": 0.314922,
+      "quality_score": 1.0,
+      "selector_score": 1.314922,
+      "quality": {
+        "file_exists": true,
+        "image_openable": true,
+        "width": 768,
+        "height": 768,
+        "pixel_count": 589824
+      },
+      "selector_method": "clip_text_alignment",
+      "clip_error": null
+    },
+    {
+      "candidate_index": 1,
+      "prompt": "half-body view of Nina, clean identity reference image, simple background, consistent character design",
+      "seed": 900102,
+      "image_path": "output_test/compare_aesthetic_07/anchors/Nina/half_body_cand_1.png",
+      "clip_alignment": 0.297998,
+      "quality_score": 1.0,
+      "selector_score": 1.297998,
+      "quality": {
+        "file_exists": true,
+        "image_openable": true,
+        "width": 768,
+        "height": 768,
+        "pixel_count": 589824
+      },
+      "selector_method": "clip_text_alignment",
+      "clip_error": null
+    },
+    {
+      "candidate_index": 2,
+      "prompt": "half-body view of Nina, clean identity reference image, simple background, consistent character design",
+      "seed": 900103,
+      "image_path": "output_test/compare_aesthetic_07/anchors/Nina/half_body_cand_2.png",
+      "clip_alignment": 0.279857,
+      "quality_score": 1.0,
+      "selector_score": 1.279857,
+      "quality": {
+        "file_exists": true,
+        "image_openable": true,
+        "width": 768,
+        "height": 768,
+        "pixel_count": 589824
+      },
+      "selector_method": "clip_text_alignment",
+      "clip_error": null
+    }
+  ]
+}

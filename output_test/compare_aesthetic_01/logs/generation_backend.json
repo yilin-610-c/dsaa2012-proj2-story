@@ -1,0 +1,23 @@
+{
+  "backend": "storydiffusion_direct",
+  "granularity": "story",
+  "implemented": false,
+  "model_id": "storydiffusion_direct_placeholder",
+  "device": "cuda",
+  "torch_dtype": "float16",
+  "img2img_enabled": false,
+  "route_policy": "disabled",
+  "identity_conditioning": {
+    "enabled": true,
+    "adapter_type": "ip_adapter",
+    "anchor_source": "character_anchor_bank",
+    "anchor_type": "half_body",
+    "apply_to_modes": [
+      "text2img"
+    ],
+    "scale": 0.3,
+    "adapter_model_id": "h94/IP-Adapter",
+    "adapter_subfolder": "sdxl_models",
+    "adapter_weight_name": "ip-adapter_sdxl.bin"
+  }
+}
