@@ -171,6 +171,118 @@ def _merge_identity_into_generation_prompt(character_prompt: str, generation_pro
     return _trim_text(merged, max_words=max_words, max_chars=max_chars)
 
 
+def _natural_language_list(parts: list[str]) -> str:
+    items = [_normalize_text(part) for part in parts if _normalize_text(part)]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
+def _indefinite_article(phrase: str) -> str:
+    normalized = _normalize_text(phrase)
+    if not normalized:
+        return ""
+    return "an" if normalized[0].lower() in {"a", "e", "i", "o", "u"} else "a"
+
+
+def _build_dual_primary_character_snippet(character_spec: dict[str, Any]) -> str:
+    name = _normalize_text(character_spec.get("character_id"))
+    if not name:
+        return ""
+
+    descriptor_parts = " ".join(
+        _normalize_text(part)
+        for part in [
+            character_spec.get("age_band"),
+            character_spec.get("gender_presentation"),
+        ]
+        if _normalize_text(part)
+    )
+
+    hair_color = _normalize_text(character_spec.get("hair_color"))
+    hairstyle = _normalize_text(character_spec.get("hairstyle"))
+    hair_phrase = ""
+    if hair_color and hairstyle:
+        if "hair" in hairstyle.lower():
+            hair_phrase = re.sub(r"\bhair\b", f"{hair_color} hair", hairstyle, count=1, flags=re.IGNORECASE).strip()
+        else:
+            hair_phrase = f"{hairstyle} {hair_color} hair".strip()
+    elif hairstyle:
+        hair_phrase = hairstyle if "hair" in hairstyle.lower() else f"{hairstyle} hair"
+    elif hair_color:
+        hair_phrase = f"{hair_color} hair"
+
+    body_details = [
+        f"with {hair_phrase}" if hair_phrase else "",
+        f"{_normalize_text(character_spec.get('skin_tone'))} skin" if _normalize_text(character_spec.get("skin_tone")) else "",
+        f"{_normalize_text(character_spec.get('body_build'))} build" if _normalize_text(character_spec.get("body_build")) else "",
+    ]
+
+    clothing_parts = [
+        _normalize_text(character_spec.get("signature_outfit")),
+        _normalize_text(character_spec.get("signature_accessory")),
+        _normalize_text(character_spec.get("profession_marker")),
+    ]
+    clothing_phrase = _natural_language_list(clothing_parts)
+
+    sentence_parts = [f"{name} is"]
+    if descriptor_parts:
+        sentence_parts.append(f"{_indefinite_article(descriptor_parts)} {descriptor_parts}")
+    if any(body_details):
+        sentence_parts.append(_natural_language_list(body_details))
+    sentence = " ".join(sentence_parts).strip()
+    if clothing_phrase:
+        sentence = f"{sentence}, wearing {clothing_phrase}"
+    return sentence.rstrip(", ")
+
+
+def build_dual_primary_generation_prompt(
+    visible_character_ids: list[str],
+    character_specs_by_id: dict[str, dict[str, Any]],
+    interaction_summary: str,
+    spatial_relation: str,
+    framing: str,
+    setting_focus: str | None,
+    *,
+    fallback_character_prompt: str,
+    max_words: int,
+    max_chars: int,
+) -> str:
+    character_sentences = [
+        _build_dual_primary_character_snippet(character_specs_by_id[character_id])
+        for character_id in visible_character_ids
+        if character_id in character_specs_by_id
+    ]
+    if not character_sentences and fallback_character_prompt:
+        character_sentences = [_ensure_human_identity(fallback_character_prompt)]
+
+    scene_sentences = [_normalize_text(interaction_summary)]
+    framing_clause = _normalize_text(framing)
+    spatial_clause = _normalize_text(spatial_relation)
+    setting_clause = _normalize_text(setting_focus)
+    if framing_clause and spatial_clause:
+        scene_sentences.append(f"{framing_clause}, {spatial_clause}")
+    elif framing_clause:
+        scene_sentences.append(framing_clause)
+    elif spatial_clause:
+        scene_sentences.append(spatial_clause)
+    if setting_clause:
+        scene_sentences.append(setting_clause)
+
+    prompt = ". ".join(
+        sentence.rstrip(".")
+        for sentence in [*character_sentences, *scene_sentences]
+        if _normalize_text(sentence)
+    ).strip()
+    if prompt and not prompt.endswith("."):
+        prompt = f"{prompt}."
+    return _trim_text(prompt, max_words=max_words, max_chars=max_chars)
+
+
 def _merge_human_negative_prompt(character_prompt: str, negative_prompt: str) -> str:
     if not _contains_human_identity(_ensure_human_identity(character_prompt)):
         return negative_prompt
@@ -243,6 +355,94 @@ def _derive_scene_policy(primary_visible_character_ids: list[str]) -> dict[str, 
         "visible_character_count": visible_character_count,
         "scene_focus_mode": scene_focus_mode,
     }
+
+
+def _contains_any_phrase(text: str, phrases: list[str]) -> str | None:
+    normalized = _normalize_text(text).lower()
+    for phrase in phrases:
+        if phrase in normalized:
+            return phrase
+    return None
+
+
+def _fallback_dual_interaction_summary(scene_text: str, primary_action: str, generation_prompt: str) -> str | None:
+    normalized_scene = _trim_text(scene_text, max_words=18, max_chars=160)
+    if normalized_scene and len(normalized_scene.split()) > 3:
+        return normalized_scene
+    normalized_action = _normalize_text(primary_action)
+    if normalized_action:
+        return _trim_text(f"both characters {normalized_action} together", max_words=18, max_chars=160)
+    normalized_generation = _trim_text(generation_prompt, max_words=18, max_chars=160)
+    if normalized_generation and " and " in normalized_generation.lower() and len(normalized_generation.split()) <= 3:
+        normalized_generation = ""
+    if normalized_generation and len(normalized_generation.split()) > 2:
+        return normalized_generation
+    return None
+
+
+def _fallback_dual_spatial_relation(scene_text: str, generation_prompt: str) -> str | None:
+    combined_text = _normalize_text(" ".join([scene_text, generation_prompt]))
+    lowered = combined_text.lower()
+    if "on the left" in lowered and "on the right" in lowered:
+        return "one character on the left, the other on the right"
+    if "facing each other" in lowered:
+        if "across a table" in lowered:
+            return "facing each other across a table"
+        return "facing each other"
+    if "side by side" in lowered:
+        return "standing side by side" if "standing" in lowered else "sitting side by side" if "sitting" in lowered else "side by side"
+    if "across a table" in lowered:
+        return "across a table"
+    if "next to each other" in lowered:
+        return "next to each other"
+    return None
+
+
+def _fallback_dual_framing(scene_text: str, generation_prompt: str) -> str | None:
+    combined_text = _normalize_text(" ".join([scene_text, generation_prompt])).lower()
+    if "medium two-shot" in combined_text or "medium two shot" in combined_text:
+        return "medium two-shot"
+    if "wide shot" in combined_text:
+        if "full bodies" in combined_text or "full body" in combined_text:
+            return "wide shot with both full bodies visible"
+        return "wide shot"
+    if "close-up" in combined_text or "close up" in combined_text:
+        return "close-up two-shot"
+    if "full bodies" in combined_text or "full body" in combined_text:
+        return "wide shot with both full bodies visible"
+    if "portrait" in combined_text:
+        return "portrait-style two-shot"
+    if "two-shot" in combined_text or "two shot" in combined_text:
+        return "two-shot"
+    return None
+
+
+def _fallback_setting_focus(scene_text: str, generation_prompt: str, secondary_elements: list[str]) -> str | None:
+    for element in secondary_elements:
+        normalized_element = _normalize_text(element)
+        if normalized_element:
+            return normalized_element
+
+    combined_text = _normalize_text(" ".join([scene_text, generation_prompt])).lower()
+    ordered_patterns = [
+        ("art exhibition wall", "art exhibition wall"),
+        ("exhibition wall", "exhibition wall"),
+        ("park bench", "park bench"),
+        ("cafe table", "cafe table"),
+        ("kitchen window", "kitchen window"),
+        ("window", "window"),
+        ("kitchen", "kitchen"),
+        ("exhibition", "exhibition"),
+        ("cafe", "cafe"),
+        ("bench", "bench"),
+        ("table", "table"),
+        ("park", "park"),
+        ("wall", "wall"),
+    ]
+    for pattern, value in ordered_patterns:
+        if pattern in combined_text:
+            return value
+    return None
 
 
 class LLMAssistedPromptBuilder:
@@ -392,9 +592,14 @@ class LLMAssistedPromptBuilder:
             "- If multiple characters are equally important, or the scene is ambiguous, set identity_conditioning_subject_id to null instead of guessing.\n"
             "- For pronoun-only scenes, resolve the visible characters from story context when possible. If a plural pronoun such as 'They' refers to multiple characters equally, leave identity_conditioning_subject_id null.\n"
             "- Use interaction_summary for how visible characters relate or act together in the scene.\n"
+            "- For dual_primary scenes, interaction_summary must describe what the two characters are doing together, not just that both are present.\n"
             "- Use spatial_relation for where the visible characters are positioned relative to each other.\n"
+            "- For dual_primary scenes, spatial_relation should be concrete when inferable, such as left/right placement, side by side, or facing each other across a table.\n"
             "- Use framing for composition guidance such as close-up, medium shot, wide shot, or clear two-person composition.\n"
+            "- For dual_primary scenes, framing should be a concrete camera/composition phrase such as medium two-shot, wide shot with both full bodies visible, or clear two-person composition.\n"
             "- setting_focus is optional and should only capture the local setting emphasis for the panel.\n"
+            "- For dual_primary scenes, setting_focus should capture the local visual place or key setting object when present, such as cafe table, art exhibition wall, or park bench.\n"
+            "- Do not leave dual_primary scene-planning fields vague if the story text or scene prompt already supports a specific answer.\n"
             "- Do not repeat long identity descriptions inside scene-level prompts. Character identity is handled locally from global.characters.\n"
             f"Style prompt from local config: {self.prompt_config.get('style_prompt', '')}\n"
             f"Scenes:\n{scene_lines}"
@@ -537,6 +742,7 @@ class LLMAssistedPromptBuilder:
         if actual_ids != expected_ids:
             raise LLMPromptError(f"LLM scene ids do not match parsed story: expected {expected_ids}, got {actual_ids}")
 
+        scene_text_by_id = {scene.scene_id: _normalize_text(scene.clean_text) for scene in story.scenes}
         normalized_characters = self._normalize_character_specs(global_payload.get("characters"))
         valid_character_ids = _character_id_lookup(normalized_characters)
         normalized_scenes = []
@@ -590,6 +796,7 @@ class LLMAssistedPromptBuilder:
             )
             scene_policy = _derive_scene_policy(primary_visible_character_ids)
             scene_focus_mode = scene_policy["scene_focus_mode"]
+            scene_text = scene_text_by_id.get(scene_payload["scene_id"], "")
             interaction_summary = _trim_text(
                 scene_payload.get("interaction_summary"),
                 max_words=18,
@@ -610,10 +817,38 @@ class LLMAssistedPromptBuilder:
                 max_words=14,
                 max_chars=120,
             )
+            used_default_interaction_summary = False
+            used_default_spatial_relation = False
+            used_default_framing = False
+            used_default_setting_focus = False
             if scene_focus_mode == "dual_primary":
-                interaction_summary = interaction_summary or "both characters are present in the same scene"
-                spatial_relation = spatial_relation or "the two characters are clearly separated and not merged"
-                framing = framing or "clear two-person composition, both characters visible"
+                interaction_summary = interaction_summary or _fallback_dual_interaction_summary(
+                    scene_text,
+                    _normalize_text(scene_payload.get("primary_action")),
+                    generation_prompt,
+                )
+                if not interaction_summary:
+                    interaction_summary = "both characters are present in the same scene"
+                    used_default_interaction_summary = True
+
+                spatial_relation = spatial_relation or _fallback_dual_spatial_relation(scene_text, generation_prompt)
+                if not spatial_relation:
+                    spatial_relation = "the two characters are clearly separated and not merged"
+                    used_default_spatial_relation = True
+
+                framing = framing or _fallback_dual_framing(scene_text, generation_prompt)
+                if not framing:
+                    framing = "clear two-person composition, both characters visible"
+                    used_default_framing = True
+
+                setting_focus = setting_focus or _fallback_setting_focus(
+                    scene_text,
+                    generation_prompt,
+                    _normalize_list(scene_payload.get("secondary_elements")),
+                )
+                if not setting_focus:
+                    setting_focus = None
+                    used_default_setting_focus = True
                 if identity_conditioning_subject_id is not None:
                     raise LLMPromptError(
                         f"LLM identity_conditioning_subject_id must be null for dual_primary scene {scene_payload['scene_id']}"
@@ -639,6 +874,10 @@ class LLMAssistedPromptBuilder:
                     "spatial_relation": spatial_relation,
                     "framing": framing,
                     "setting_focus": setting_focus or None,
+                    "used_default_interaction_summary": used_default_interaction_summary,
+                    "used_default_spatial_relation": used_default_spatial_relation,
+                    "used_default_framing": used_default_framing,
+                    "used_default_setting_focus": used_default_setting_focus,
                     "policy": scene_policy,
                 }
             )
@@ -711,6 +950,10 @@ class LLMAssistedPromptBuilder:
                 "spatial_relation": scene_payload.get("spatial_relation"),
                 "framing": scene_payload.get("framing"),
                 "setting_focus": scene_payload.get("setting_focus"),
+                "used_default_interaction_summary": bool(scene_payload.get("used_default_interaction_summary", False)),
+                "used_default_spatial_relation": bool(scene_payload.get("used_default_spatial_relation", False)),
+                "used_default_framing": bool(scene_payload.get("used_default_framing", False)),
+                "used_default_setting_focus": bool(scene_payload.get("used_default_setting_focus", False)),
                 "policy": dict(scene_payload.get("policy", {})),
             }
         return scene_plans
@@ -753,6 +996,8 @@ class LLMAssistedPromptBuilder:
             visible_character_ids = list(scene_payload.get("primary_visible_character_ids", []))
             scene_policy = scene_payload.get("policy", {})
             scene_focus_mode = scene_policy.get("scene_focus_mode")
+            generation_max_words = int(self.prompt_config.get("generation_max_words", 28))
+            generation_max_chars = int(self.prompt_config.get("generation_max_chars", 220))
             if scene_focus_mode == "dual_primary":
                 identity_snippets = [
                     build_character_identity_snippet(character_specs_by_id[character_id])
@@ -790,12 +1035,37 @@ class LLMAssistedPromptBuilder:
                 ]
             )
             full_prompt = _join_parts([style_prompt, character_prompt, global_context_prompt, local_prompt])
-            generation_prompt = _merge_identity_into_generation_prompt(
-                character_prompt,
-                scene_content_prompt,
-                max_words=int(self.prompt_config.get("generation_max_words", 28)),
-                max_chars=int(self.prompt_config.get("generation_max_chars", 220)),
-            )
+            if scene_focus_mode == "dual_primary":
+                dual_primary_max_words = int(
+                    self.prompt_config.get(
+                        "dual_primary_generation_max_words",
+                        max(generation_max_words, 40),
+                    )
+                )
+                dual_primary_max_chars = int(
+                    self.prompt_config.get(
+                        "dual_primary_generation_max_chars",
+                        max(generation_max_chars, 320),
+                    )
+                )
+                generation_prompt = build_dual_primary_generation_prompt(
+                    visible_character_ids,
+                    character_specs_by_id,
+                    scene_payload.get("interaction_summary", ""),
+                    scene_payload.get("spatial_relation", ""),
+                    scene_payload.get("framing", ""),
+                    scene_payload.get("setting_focus"),
+                    fallback_character_prompt=fallback_character_prompt,
+                    max_words=dual_primary_max_words,
+                    max_chars=dual_primary_max_chars,
+                )
+            else:
+                generation_prompt = _merge_identity_into_generation_prompt(
+                    character_prompt,
+                    scene_content_prompt,
+                    max_words=generation_max_words,
+                    max_chars=generation_max_chars,
+                )
             negative_prompt_for_scene = _merge_human_negative_prompt(character_prompt, negative_prompt)
             prompt_specs[scene.scene_id] = PromptSpec(
                 scene_id=scene.scene_id,

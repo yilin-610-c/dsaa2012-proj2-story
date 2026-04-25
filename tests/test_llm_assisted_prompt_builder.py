@@ -56,6 +56,46 @@ def _two_character_story() -> Story:
     )
 
 
+def _two_character_rich_story() -> Story:
+    return Story(
+        source_path="story.txt",
+        raw_text="Jack and Sara sit side by side on a park bench and talk.",
+        scenes=[
+            Scene(
+                "SCENE-1",
+                0,
+                "<Jack> and <Sara> sit side by side on a park bench and talk.",
+                "Jack and Sara sit side by side on a park bench and talk.",
+                ["Jack", "Sara"],
+            ),
+            Scene(
+                "SCENE-2",
+                1,
+                "Jack and Sara face each other across a cafe table.",
+                "Jack and Sara face each other across a cafe table.",
+                ["Jack", "Sara"],
+            ),
+        ],
+        all_entities=["Jack", "Sara"],
+        recurring_entities=[],
+        entity_to_scene_ids={"Jack": ["SCENE-1", "SCENE-2"], "Sara": ["SCENE-1", "SCENE-2"]},
+    )
+
+
+def _sparse_two_character_story() -> Story:
+    return Story(
+        source_path="story.txt",
+        raw_text="Jack and Sara.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Jack> and <Sara>.", "Jack and Sara.", ["Jack", "Sara"]),
+            Scene("SCENE-2", 1, "Jack and Sara.", "Jack and Sara.", ["Jack", "Sara"]),
+        ],
+        all_entities=["Jack", "Sara"],
+        recurring_entities=[],
+        entity_to_scene_ids={"Jack": ["SCENE-1", "SCENE-2"], "Sara": ["SCENE-1", "SCENE-2"]},
+    )
+
+
 def _bird_story() -> Story:
     return Story(
         source_path="story.txt",
@@ -407,20 +447,72 @@ def test_llm_pipeline_accepts_unspecified_identity_conditioning_subject(tmp_path
     assert scene_plans["SCENE-1"]["policy"]["scene_focus_mode"] == "dual_primary"
 
 
+def test_llm_dual_primary_preserves_specific_scene_fields_and_flags(tmp_path: Path) -> None:
+    pipeline = build_prompt_pipeline(_prompt_config(tmp_path, cache_enabled=False), event_logger=None)
+    pipeline.builder.llm_client = FakeLLMClient(_two_character_llm_payload())
+
+    bundle = pipeline.build(_two_character_story())
+
+    scene_plan = bundle.metadata["scene_plans"]["SCENE-1"]
+    assert scene_plan["interaction_summary"] == "Jack and Sara talk together"
+    assert scene_plan["spatial_relation"] == "Jack and Sara sit side by side on the bench"
+    assert scene_plan["framing"] == "clear two-person composition, both characters visible"
+    assert scene_plan["setting_focus"] == "park bench"
+    assert scene_plan["used_default_interaction_summary"] is False
+    assert scene_plan["used_default_spatial_relation"] is False
+    assert scene_plan["used_default_framing"] is False
+    assert scene_plan["used_default_setting_focus"] is False
+
+
 def test_llm_dual_primary_applies_safe_defaults_for_missing_scene_fields(tmp_path: Path) -> None:
     payload = _two_character_llm_payload()
     payload["scenes"][0]["interaction_summary"] = None
     payload["scenes"][0]["spatial_relation"] = None
     payload["scenes"][0]["framing"] = None
+    payload["scenes"][0]["setting_focus"] = None
+    payload["scenes"][0]["generation_prompt"] = "medium two-shot of Jack and Sara sitting side by side on a park bench"
+    payload["scenes"][0]["secondary_elements"] = ["park bench"]
     pipeline = build_prompt_pipeline(_prompt_config(tmp_path, cache_enabled=False), event_logger=None)
     pipeline.builder.llm_client = FakeLLMClient(payload)
 
-    bundle = pipeline.build(_two_character_story())
+    bundle = pipeline.build(_two_character_rich_story())
 
     scene_plan = bundle.metadata["scene_plans"]["SCENE-1"]
+    assert scene_plan["interaction_summary"] == "Jack and Sara sit side by side on a park bench and talk."
+    assert scene_plan["spatial_relation"] == "sitting side by side"
+    assert scene_plan["framing"] == "medium two-shot"
+    assert scene_plan["setting_focus"] == "park bench"
+    assert scene_plan["used_default_interaction_summary"] is False
+    assert scene_plan["used_default_spatial_relation"] is False
+    assert scene_plan["used_default_framing"] is False
+    assert scene_plan["used_default_setting_focus"] is False
+
+
+def test_llm_dual_primary_records_default_flags_when_no_specific_cues_exist(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["scenes"][0]["interaction_summary"] = None
+    payload["scenes"][0]["spatial_relation"] = None
+    payload["scenes"][0]["framing"] = None
+    payload["scenes"][0]["setting_focus"] = None
+    payload["scenes"][0]["primary_action"] = ""
+    payload["scenes"][0]["secondary_elements"] = []
+    payload["scenes"][0]["generation_prompt"] = "Jack and Sara"
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(payload),
+    )
+
+    builder.build_story_prompts(_sparse_two_character_story())
+
+    scene_plan = builder.metadata()["scene_plans"]["SCENE-1"]
     assert scene_plan["interaction_summary"] == "both characters are present in the same scene"
     assert scene_plan["spatial_relation"] == "the two characters are clearly separated and not merged"
     assert scene_plan["framing"] == "clear two-person composition, both characters visible"
+    assert scene_plan["setting_focus"] is None
+    assert scene_plan["used_default_interaction_summary"] is True
+    assert scene_plan["used_default_spatial_relation"] is True
+    assert scene_plan["used_default_framing"] is True
+    assert scene_plan["used_default_setting_focus"] is True
 
 
 def test_llm_dual_primary_rejects_identity_conditioning_subject(tmp_path: Path) -> None:
@@ -439,6 +531,8 @@ def test_llm_dual_primary_prompt_uses_local_identity_snippets_and_scene_plan(tmp
     config = _prompt_config(tmp_path, cache_enabled=False)
     config["generation_max_words"] = 40
     config["generation_max_chars"] = 400
+    config["dual_primary_generation_max_words"] = 48
+    config["dual_primary_generation_max_chars"] = 420
     builder = LLMAssistedPromptBuilder(
         config,
         llm_client=FakeLLMClient(_two_character_llm_payload()),
@@ -450,6 +544,28 @@ def test_llm_dual_primary_prompt_uses_local_identity_snippets_and_scene_plan(tmp
     assert "Sara, adult, woman, brown, shoulder-length hair, yellow scarf" in prompts["SCENE-1"].character_prompt
     assert "Jack and Sara talk together" in prompts["SCENE-1"].local_prompt
     assert "clear two-person composition" in prompts["SCENE-1"].local_prompt
+    assert prompts["SCENE-1"].generation_prompt.startswith("Jack is an adult man")
+    assert "Sara is an adult woman" in prompts["SCENE-1"].generation_prompt
+    assert "clear two-person composition, both characters visible" in prompts["SCENE-1"].generation_prompt
+    assert "Jack, adult, man, black, short hair, black jacket, Sara" not in prompts["SCENE-1"].generation_prompt
+
+
+def test_llm_dual_primary_generation_prompt_respects_dual_limits(tmp_path: Path) -> None:
+    payload = _two_character_llm_payload()
+    payload["scenes"][0]["interaction_summary"] = "Jack and Sara talk quietly while planning their next move together"
+    payload["scenes"][0]["spatial_relation"] = "Jack sits on the left and Sara sits on the right with clear separation"
+    payload["scenes"][0]["framing"] = "medium two-shot with both characters fully visible"
+    payload["scenes"][0]["setting_focus"] = "park bench near a fountain with trees behind them"
+    config = _prompt_config(tmp_path, cache_enabled=False)
+    config["dual_primary_generation_max_words"] = 20
+    config["dual_primary_generation_max_chars"] = 160
+    builder = LLMAssistedPromptBuilder(config, llm_client=FakeLLMClient(payload))
+
+    prompts = builder.build_story_prompts(_two_character_story())
+
+    assert len(prompts["SCENE-1"].generation_prompt.split()) <= 20
+    assert len(prompts["SCENE-1"].generation_prompt) <= 160
+    assert prompts["SCENE-2"].generation_prompt.startswith("Jack is")
 
 
 def test_llm_identity_conditioning_subject_must_match_character_specs(tmp_path: Path) -> None:

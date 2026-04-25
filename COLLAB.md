@@ -672,6 +672,111 @@ Real-run validation on `test_set/06.txt`:
 - interpretation: the multi-character safety path works, but this run is not an IP-Adapter-applied two-character result; it is a safe skip case that avoids incorrectly forcing Jack or Sara as the sole identity anchor
 - next optional debug step would be a config-gated forced-subject override for ablation only, not a default method
 
+### 2026-04-24: Conservative Two-Character Scene-Plan Policy Layer
+
+Implemented:
+- added `PromptBundle.metadata["scene_plans"]` as the canonical per-scene planning surface
+- kept `scene_route_hints` as a derived route-only view for compatibility with the routing path
+- extended `src/storygen/llm_assisted_prompt_builder.py` so scene-level LLM output can carry:
+  - `interaction_summary`
+  - `spatial_relation`
+  - `framing`
+  - optional `setting_focus`
+- added local policy derivation from validated `primary_visible_character_ids`:
+  - `policy.visible_character_count`
+  - `policy.scene_focus_mode`
+- added safe defaults for dual-primary scenes when interaction/spatial/framing are missing
+- changed prompt assembly so:
+  - single-primary scenes preserve the previous short identity style as much as possible
+  - dual-primary scenes assemble local identity snippets from `character_specs`
+  - dual-primary generation/local prompts explicitly include interaction and composition cues
+- moved the identity-conditioning decision boundary into `src/storygen/identity_conditioning.py` and `src/storygen/pipeline.py`
+- added structured logging for:
+  - `scene_plans`
+  - `visible_character_count`
+  - `scene_focus_mode`
+  - `interaction_summary`
+  - `spatial_relation`
+  - `framing`
+  - `identity_conditioning_skipped`
+- added runtime profile `llm_prompt_two_character_text2img`
+
+Pipeline changes:
+- `src/storygen/llm_assisted_prompt_builder.py` now has a two-layer scene output contract:
+  - `scene_plans` for planning/policy metadata
+  - `PromptSpec` for downstream generation/scoring compatibility
+- `src/storygen/pipeline.py` now reads `scene_plans`, forwards scene-plan metadata into `GenerationRequest.extra_options`, and records explicit identity-skip events
+- `src/storygen/identity_conditioning.py` now enforces:
+  - ordinary IP-Adapter allowed only for `scene_focus_mode="single_primary"`
+  - `scene_focus_mode="dual_primary"` skips with `policy_skip:dual_primary_scene`
+  - missing scene-plan visibility can still fall back safely to a single parsed scene entity
+- `src/storygen/generators/diffusers_text2img.py` remains execution-only; it now logs additional scene-plan metadata but does not own policy
+- `src/storygen/character_specs.py` now exposes a deterministic local identity-snippet helper for dual-character prompt assembly
+
+New method components in the pipeline:
+- scene-plan metadata boundary
+- local dual-primary policy layer
+- dual-character prompt enrichment layer
+- explicit identity-conditioning skip logging
+
+Profile semantics:
+- `llm_prompt_two_character_text2img` is the conservative next-step profile:
+  - LLM-assisted prompt planning
+  - run-local anchor bank generation for each character
+  - scene-level text2img only
+  - ordinary IP-Adapter enabled only for single-primary scenes
+  - dual-primary scenes remain text2img and skip ordinary IP-Adapter by policy
+
+Validation:
+- targeted command: `conda run -n storygen env PYTHONPATH=src pytest tests/test_config.py tests/test_llm_assisted_prompt_builder.py tests/test_identity_conditioning.py tests/test_pipeline_logging.py`
+- targeted result: `55 passed`
+
+Run inspection:
+- inspected run: `outputs/two_character_policy_smoke`
+- resolved profile: `llm_prompt_two_character_text2img`
+- input: `test_set/06.txt`
+- anchor bank generated separate `jack` and `sara` canonical half-body anchors
+- all three scenes resolved to:
+  - `policy.visible_character_count = 2`
+  - `policy.scene_focus_mode = "dual_primary"`
+  - `identity_conditioning_subject_id = null`
+- all scene candidates logged:
+  - `generation_mode = "text2img"`
+  - `identity_conditioning_enabled = false`
+  - `identity_conditioning_reason = "policy_skip:dual_primary_scene"`
+- interpretation:
+  - the new policy layer is active and behaving as designed
+  - this run is a conservative two-character text2img result, not an IP-Adapter-conditioned multi-character result
+  - prompt composition is now stronger, but the current default fillers for `interaction_summary` / `spatial_relation` / `framing` are generic, so this run validates control/policy more than qualitative interaction richness
+- next small patch direction:
+  - improve dual-primary scene-planning specificity before using image quality as the main judgment target
+  - record `used_default_*` provenance flags in `scene_plans` so runs can distinguish preserved/inferred planning fields from last-resort defaults
+
+### 2026-04-25: Dual-Primary Generation Prompt Wording Patch
+
+Base checkpoint context:
+- repo had an existing dirty worktree, so no checkpoint commit was created for this small patch
+- inspected baseline commit before edit: `3c0800c`
+
+Implemented:
+- kept `single_primary` generation prompt assembly unchanged
+- changed only the `dual_primary` generation prompt construction path in `src/storygen/llm_assisted_prompt_builder.py`
+- added `build_dual_primary_generation_prompt(...)` to assemble:
+  - labeled natural-language character snippets
+  - `interaction_summary`
+  - `spatial_relation`
+  - `framing`
+  - optional `setting_focus`
+- stopped flattening both visible characters into one comma-separated identity block for dual-primary generation prompts
+- added dual-primary prompt tests to verify:
+  - both labeled characters appear in the generation prompt
+  - the prompt is not just a flat comma-separated identity list
+  - dual-primary prompt length still respects configured limits
+
+Validation:
+- command: `PYTHONPATH=src pytest tests/test_llm_assisted_prompt_builder.py -q`
+- command: `PYTHONPATH=src pytest -q`
+
 ## Shared Code Rules
 
 When modifying shared code:
