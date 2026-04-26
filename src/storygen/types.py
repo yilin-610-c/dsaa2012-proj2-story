@@ -68,6 +68,7 @@ class GenerationRequest:
     num_inference_steps: int
     reference_image_path: str | None = None
     previous_selected_image_path: str | None = None
+    previous_style_reference_path: str | None = None
     extra_options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -139,6 +140,8 @@ class StoryGenerationRequest:
     scene_plans: list[StoryScenePlan] = field(default_factory=list)
     anchor_bank_summary: dict[str, Any] = field(default_factory=dict)
     character_specs: dict[str, Any] = field(default_factory=dict)
+    dual_face_refs: dict[str, Any] = field(default_factory=dict)
+    previous_style_reference_path: str | None = None
     extra_options: dict[str, Any] = field(default_factory=dict)
 
 

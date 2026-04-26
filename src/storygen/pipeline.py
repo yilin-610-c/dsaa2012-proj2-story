@@ -6,6 +6,7 @@ from typing import Any
 
 from storygen import __version__
 from storygen.anchor_bank import run_anchor_bank
+from storygen.dual_face_refs import split_dual_face_refs
 from storygen.generators import (
     BaseSceneGenerator,
     BaseStoryGenerator,
@@ -23,6 +24,7 @@ from storygen.io.results import (
     save_selected_image,
     scene_directory,
 )
+from storygen.dual_face_refs import split_dual_face_refs
 from storygen.identity_conditioning import select_identity_anchor
 from storygen.parser import parse_story_file
 from storygen.prompt_pipelines import build_prompt_pipeline
@@ -115,6 +117,8 @@ def _build_story_generation_request(
         scene_plans=scene_plans or [],
         anchor_bank_summary=anchor_bank_summary or {},
         character_specs=prompt_bundle.metadata.get("character_specs", {}),
+        dual_face_refs=prompt_bundle.metadata.get("dual_face_refs", {}),
+        previous_style_reference_path=prompt_bundle.metadata.get("previous_style_reference_path"),
         extra_options=config["model"].get("extra_options", {}),
     )
 
@@ -124,11 +128,29 @@ def _build_story_scene_plans(
     prompt_bundle: PromptBundle,
     anchor_bank_summary: dict[str, Any],
     config: dict[str, Any],
+    run_context: RunContext,
 ) -> list[StoryScenePlan]:
     prompt_specs = prompt_bundle.scene_prompts
     scene_route_hints = prompt_bundle.metadata.get("scene_route_hints", {})
     identity_config = config.get("generation", {}).get("identity_conditioning", {})
     plans: list[StoryScenePlan] = []
+    dual_face_refs: dict[str, Any] = {}
+    is_dual_story = len([entity for entity in story.all_entities if entity.strip()]) >= 2
+    if is_dual_story and bool(config.get("generation", {}).get("dual_face_refs", {}).get("enabled", True)):
+        for character_id, character_payload in prompt_bundle.metadata.get("character_specs", {}).items():
+            anchor_spec = character_payload.get("anchor_spec", {}) if isinstance(character_payload, dict) else {}
+            anchor_path = anchor_spec.get("half_body_path") or anchor_spec.get("portrait_path")
+            if anchor_path:
+                refs = split_dual_face_refs(
+                    anchor_image_path=str(anchor_path),
+                    output_dir=str(run_context.run_directory / "dual_face_refs" / str(character_id)),
+                )
+                dual_face_refs[str(character_id)] = {
+                    "ref_a_path": refs.ref_a_path,
+                    "ref_b_path": refs.ref_b_path,
+                    "group_style_reference_path": refs.group_style_reference_path,
+                    "metadata": refs.metadata or {},
+                }
 
     for scene in story.scenes:
         prompt_spec = prompt_specs[scene.scene_id]
@@ -242,6 +264,26 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
     prompt_specs = prompt_bundle.scene_prompts
     scene_route_hints = prompt_bundle.metadata.get("scene_route_hints", {})
     generator = build_generation_backend(config["model"], config["runtime"])
+    dual_face_refs: dict[str, Any] = {}
+    if len(story.all_entities) >= 2:
+        first_anchor = next(iter(prompt_bundle.metadata.get("anchor_bank_summary", {}).get("characters", {}).values()), None)
+        group_style_path = None
+        if isinstance(first_anchor, dict):
+            anchors = first_anchor.get("anchors", {})
+            half_body = anchors.get("half_body", {}) if isinstance(anchors, dict) else {}
+            group_style_path = str(half_body.get("canonical_image_path") or half_body.get("image_path") or "").strip()
+        if group_style_path:
+            dual_refs_root = run_context.run_directory / "dual_face_refs"
+            dual_face_refs = {"group_style_reference_path": group_style_path}
+            for character_id, payload in (prompt_bundle.metadata.get("anchor_bank_summary", {}).get("characters", {}) or {}).items():
+                if not isinstance(payload, dict):
+                    continue
+                anchors = payload.get("anchors", {})
+                half_body = anchors.get("half_body", {}) if isinstance(anchors, dict) else {}
+                if isinstance(half_body, dict):
+                    image_path = str(half_body.get("canonical_image_path") or half_body.get("image_path") or "").strip()
+                    if image_path:
+                        dual_face_refs[str(character_id)] = {"source_image_path": image_path}
     backend_metadata = build_backend_metadata(config["model"], config["runtime"])
     backend_metadata["img2img_enabled"] = bool(config.get("generation", {}).get("routing", {}).get("img2img_enabled", False))
     backend_metadata["route_policy"] = config.get("generation", {}).get("routing", {}).get("route_policy", "disabled")
@@ -291,7 +333,10 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         )
         if anchor_bank_summary.get("enabled", False):
             save_json(run_context.logs_directory / "anchor_bank.json", anchor_bank_summary)
-        scene_plans = _build_story_scene_plans(story, prompt_bundle, anchor_bank_summary, config)
+        scene_plans = _build_story_scene_plans(story, prompt_bundle, anchor_bank_summary, config, run_context)
+        prompt_bundle.metadata["dual_face_refs"] = dual_face_refs
+        if scene_plans:
+            prompt_bundle.metadata["previous_style_reference_path"] = next(iter(dual_face_refs.values()), {}).get("group_style_reference_path") if dual_face_refs else None
         save_json(run_context.logs_directory / "story_scene_plans.json", scene_plans)
         story_result = _run_story_backend_placeholder(
             story,

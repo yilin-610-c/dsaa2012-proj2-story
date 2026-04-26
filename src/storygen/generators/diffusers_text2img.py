@@ -99,6 +99,9 @@ class DiffusersTextToImageGenerator(BaseImageGenerator):
             "num_inference_steps": request.num_inference_steps,
             "generator": generator,
         }
+        previous_style_reference_path = request.previous_style_reference_path or request.extra_options.get("style_reference_path")
+        if previous_style_reference_path and not request.extra_options.get("identity_conditioning_enabled"):
+            call_kwargs["ip_adapter_image"] = image_loader(previous_style_reference_path)
         identity_metadata = self._apply_ip_adapter_if_requested(
             self.pipeline,
             request,

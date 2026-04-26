@@ -11,6 +11,15 @@ GENDER_PHRASES = {
     "female": "female woman",
 }
 
+DEFAULT_CHARACTER_APPEARANCE_TEMPLATES: dict[str, dict[str, str]] = {
+    "A": {
+        "appearance": "Character A: black hair, amber eyes",
+    },
+    "B": {
+        "appearance": "Character B: chestnut hair, blue eyes",
+    },
+}
+
 LEADING_PRONOUN_PATTERN = re.compile(r"^(she|he|they|it)\b", re.IGNORECASE)
 LOCATION_PATTERN = re.compile(
     r"\b(?:in|inside|at|on|along|across|under|near|beside|by|outside|through)\s+([^.,;]+)",
@@ -76,10 +85,10 @@ class PromptBuilder:
         scene_consistency_prompt = self._build_scene_consistency_prompt(story, scene, story_context)
         local_prompt = self._build_local_prompt(scene_text, scene_consistency_prompt)
         action_prompt = self._build_action_prompt(scene_text)
-        generation_prompt = self._build_generation_prompt(scene, scene_text, action_prompt, scene_consistency_prompt, story_context)
+        generation_prompt = self._build_generation_prompt(story, scene, scene_text, action_prompt, scene_consistency_prompt, story_context)
         character_prompt = self._build_character_prompt(story, scene, story_context)
         global_context_prompt = self._build_global_context_prompt(story, story_context)
-        scoring_prompt = self._build_scoring_prompt(scene, scene_text, story_context)
+        scoring_prompt = self._build_scoring_prompt(story, scene, scene_text, story_context)
         negative_prompt = self.prompt_config.get("negative_prompt", "").strip()
         full_prompt = self._compose_full_prompt(
             style_prompt=style_prompt,
@@ -117,6 +126,7 @@ class PromptBuilder:
         primary_character_spec = character_specs.get(primary_entity or "", {}) if isinstance(character_specs, dict) else {}
         gender_presentation = str(primary_character_spec.get("gender_presentation") or "").strip() or None
         profession_marker = str(primary_character_spec.get("profession_marker") or "").strip() or None
+        is_dual_subject_story = self._is_dual_subject_story(story)
         return {
             "primary_entity": primary_entity,
             "pronoun": pronoun,
@@ -126,6 +136,7 @@ class PromptBuilder:
             "recurring_entities": story.recurring_entities,
             "gender_presentation": gender_presentation,
             "profession_marker": profession_marker,
+            "is_dual_subject_story": is_dual_subject_story,
         }
 
     def _build_character_prompt(
@@ -144,9 +155,19 @@ class PromptBuilder:
         continuity_prompt = self._continuity_prompt_for_subject_type(str(story_context.get("subject_type") or "generic"))
         gender_phrase = self._gender_identity_phrase(story_context)
         profession_marker = str(story_context.get("profession_marker") or "").strip()
+        is_dual = bool(story_context.get("is_dual_subject_story", False))
+        appearance_prompt = ""
+        if is_dual:
+            appearance_prompt = self._character_appearance_prompt(effective_entities, primary_entity)
         parts = []
 
-        if effective_entities:
+        if is_dual:
+            dual_names = list(dict.fromkeys([entity.strip() for entity in story.all_entities if entity.strip()]))
+            if dual_names:
+                parts.append(" and ".join(dual_names[:2]))
+            elif appearance_prompt:
+                parts.append(appearance_prompt)
+        elif effective_entities:
             entity_text = self._join_entities(effective_entities, prefix=subject_prefix)
             if len(effective_entities) == 1:
                 extra_parts = [gender_phrase, profession_marker]
@@ -215,9 +236,13 @@ class PromptBuilder:
         continuity_subject = self._extract_scene_continuity_subject(scene, story_context)
         continuity_state = self._extract_scene_continuity_state(scene, story_context)
         semantic_completion = self._build_scene_semantic_completion(scene, story_context)
+        scene_focus = self._extract_scene_focus(scene)
+        scene_setting = self._extract_scene_setting(scene.clean_text)
         parts = []
 
-        if location_anchor:
+        if scene_setting:
+            parts.append(f"new scene setting: {scene_setting}")
+        elif location_anchor:
             parts.append(f"same setting: {location_anchor}")
         if vehicle_context:
             parts.append(f"same vehicle context: {vehicle_context}")
@@ -253,6 +278,7 @@ class PromptBuilder:
 
     def _build_generation_prompt(
         self,
+        story: Story,
         scene: Scene,
         scene_text: str,
         action_prompt: str,
@@ -260,7 +286,17 @@ class PromptBuilder:
         story_context: dict[str, str | list[str] | None],
     ) -> str:
         subject = self._extract_scoring_subject(scene, story_context)
-        setting_clause = self._extract_setting_clause(scene_text)
+        if bool(story_context.get("is_dual_subject_story", False)):
+            dual_names = list(dict.fromkeys([entity.strip() for entity in story.all_entities if entity.strip()]))
+            if dual_names:
+                subject = " and ".join(dual_names[:2])
+        scene_focus = self._extract_scene_focus(scene)
+        if scene_focus and scene_focus not in subject.lower():
+            subject = f"{subject}, {scene_focus}" if subject else scene_focus
+        scene_setting = self._extract_scene_setting(scene_text)
+        setting_clause = ""
+        if not scene_setting:
+            setting_clause = self._extract_setting_clause(scene_text)
         style_clause = ""
         global_context_clause = ""
         consistency_clause = ""
@@ -323,11 +359,16 @@ class PromptBuilder:
 
     def _build_scoring_prompt(
         self,
+        story: Story,
         scene: Scene,
         scene_text: str,
         story_context: dict[str, str | list[str] | None],
     ) -> str:
         subject = self._extract_scoring_subject(scene, story_context)
+        if bool(story_context.get("is_dual_subject_story", False)):
+            appearance_prompt = self._character_appearance_prompt(story.all_entities, story_context.get("primary_entity"))
+            if appearance_prompt:
+                subject = appearance_prompt
         action = self._extract_main_action(scene_text)
         setting_clause = self._extract_setting_clause(scene_text)
         template = self.prompt_config.get("scoring_template", "{subject}, {action}{setting_clause}").strip()
@@ -502,6 +543,49 @@ class PromptBuilder:
             return ""
         return GENDER_PHRASES.get(gender, gender)
 
+    def _is_dual_subject_story(self, story: Story) -> bool:
+        recurring_entities = [entity for entity in story.recurring_entities if entity.strip()]
+        if len(recurring_entities) >= 2:
+            return True
+
+        all_entities = [entity.strip() for entity in story.all_entities if entity and entity.strip()]
+        unique_entities = list(dict.fromkeys(all_entities))
+        if len(unique_entities) >= 2:
+            return True
+
+        entity_counts: dict[str, int] = {}
+        for scene in story.scenes:
+            for entity in scene.entities:
+                normalized = entity.strip()
+                if not normalized:
+                    continue
+                entity_counts[normalized] = entity_counts.get(normalized, 0) + 1
+        frequent_entities = [entity for entity, count in entity_counts.items() if count >= 2]
+        return len(frequent_entities) >= 2
+
+    def _character_appearance_prompt(
+        self,
+        effective_entities: list[str],
+        primary_entity: str | None,
+    ) -> str:
+        entities = list(dict.fromkeys(entity.strip() for entity in effective_entities if entity.strip()))
+        if not entities and primary_entity:
+            entities = [str(primary_entity).strip()]
+        if not entities:
+            return ""
+
+        prompts: list[str] = []
+        for index, entity in enumerate(entities):
+            template_key = "A" if index == 0 else "B"
+            template = self.prompt_config.get("character_appearance_templates", {}).get(template_key)
+            if not isinstance(template, dict):
+                template = DEFAULT_CHARACTER_APPEARANCE_TEMPLATES.get(template_key, {})
+            appearance = str(template.get("appearance") or "").strip()
+            if not appearance:
+                continue
+            prompts.append(f"{entity}: {appearance}")
+        return "; ".join(prompts)
+
     def _build_action_emphasis_prompt(self, local_prompt: str) -> str:
         action_map = self.prompt_config.get("action_emphasis_map", {})
         normalized_text = local_prompt.lower()
@@ -545,6 +629,43 @@ class PromptBuilder:
             return ""
         first_fragment = quality_prompt.split(",")[0]
         return self._shorten_prompt_text(first_fragment, max_words=6, max_chars=48)
+
+    def _extract_scene_focus(self, scene: Scene) -> str:
+        text = scene.clean_text.lower()
+        if "exhibition" in text:
+            return "exhibition"
+        if "gallery" in text:
+            return "gallery"
+        if "museum" in text:
+            return "museum"
+        return ""
+
+    def _extract_scene_setting(self, text: str) -> str:
+        normalized = self._normalize_fragment(text).lower()
+        if not normalized:
+            return ""
+        anchors = [
+            "at a cafe",
+            "in a cafe",
+            "at the cafe",
+            "in the cafe",
+            "at an exhibition",
+            "in an exhibition",
+            "at a gallery",
+            "in a gallery",
+            "at a museum",
+            "in a museum",
+            "at the museum",
+            "in the museum",
+        ]
+        for anchor in anchors:
+            if anchor in normalized:
+                return anchor.replace("  ", " ")
+        for match in LOCATION_PATTERN.finditer(text):
+            phrase = self._normalize_fragment(match.group(0)).lower()
+            if phrase:
+                return phrase
+        return ""
 
     def _build_scene_semantic_completion(
         self,

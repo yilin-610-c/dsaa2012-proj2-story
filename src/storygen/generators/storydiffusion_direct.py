@@ -41,11 +41,28 @@ class StoryDiffusionDirectGenerator(BaseStoryGenerator):
         assert self._scene_generator is not None
 
         panel_outputs: list[PanelGenerationOutput] = []
+        dual_face_refs = dict(request.dual_face_refs or {})
+        previous_style_reference_path = request.previous_style_reference_path
+
         for plan in request.scene_plans:
             identity_plan = dict(plan.identity_plan or {})
             reference_image_path = identity_plan.get("identity_anchor_path") if identity_plan.get("identity_conditioning_enabled") else None
-            if not reference_image_path:
-                reference_image_path = plan.anchor_paths.get(plan.anchor_characters[0]) if plan.anchor_characters else None
+            if not reference_image_path and plan.anchor_characters:
+                reference_image_path = plan.anchor_paths.get(plan.anchor_characters[0])
+
+            dual_refs_for_scene = dual_face_refs if dual_face_refs else {}
+            if dual_refs_for_scene and plan.anchor_characters:
+                first_character_id = plan.anchor_characters[0]
+                ref_payload = dual_refs_for_scene.get(first_character_id)
+                if isinstance(ref_payload, dict):
+                    reference_image_path = ref_payload.get("ref_a_path") or reference_image_path
+                    previous_style_reference_path = ref_payload.get("group_style_reference_path") or previous_style_reference_path
+            elif dual_refs_for_scene and not previous_style_reference_path:
+                any_ref = next(iter(dual_refs_for_scene.values()), {})
+                if isinstance(any_ref, dict):
+                    previous_style_reference_path = any_ref.get("group_style_reference_path") or previous_style_reference_path
+
+            style_reference_path = previous_style_reference_path
             consistent_attention_config = dict(self.model_config.get("consistent_attention", {}))
             consistent_attention_enabled = bool(consistent_attention_config.get("enabled", False))
             consistent_attention_character_order = list(
@@ -62,6 +79,7 @@ class StoryDiffusionDirectGenerator(BaseStoryGenerator):
                 num_inference_steps=int(self.model_config.get("num_inference_steps", 4)),
                 reference_image_path=reference_image_path,
                 previous_selected_image_path=None,
+                previous_style_reference_path=style_reference_path,
                 extra_options={
                     "generation_mode": "text2img",
                     "story_backend": "storydiffusion_direct",
@@ -78,6 +96,8 @@ class StoryDiffusionDirectGenerator(BaseStoryGenerator):
                     "anchor_paths": dict(plan.anchor_paths or {}),
                     "anchor_characters": list(plan.anchor_characters or []),
                     "route_hint": dict(plan.route_hint or {}),
+                    "dual_face_refs": dual_face_refs,
+                    "style_reference_path": style_reference_path,
                     "consistent_attention_enabled": consistent_attention_enabled,
                     "consistent_attention_id_length": int(consistent_attention_config.get("id_length", 4)),
                     "consistent_attention_write_mode": bool(consistent_attention_config.get("write_mode", False)),
