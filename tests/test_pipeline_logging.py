@@ -2,10 +2,17 @@ import json
 from pathlib import Path
 
 from storygen.config import resolve_config
-from storygen.generators import BaseSceneGenerator
+from storygen.generators import BaseSceneGenerator, BaseStoryGenerator
 from storygen.pipeline import run_pipeline
 from storygen.prompt_builder import PromptBuilder
-from storygen.types import GenerationCandidate, GenerationRequest, PromptBundle
+from storygen.types import (
+    GenerationCandidate,
+    GenerationRequest,
+    PanelGenerationOutput,
+    PromptBundle,
+    StoryGenerationRequest,
+    StoryGenerationResult,
+)
 
 
 def _selected_scene_suffix(path: str | None) -> str | None:
@@ -39,6 +46,32 @@ class FakeSceneGenerator(BaseSceneGenerator):
             prompt_spec=request.prompt_spec,
             image=FakeImage(),
             metadata={"backend": "fake", **request.extra_options},
+        )
+
+
+class FakeStoryGenerator(BaseStoryGenerator):
+    def __init__(self) -> None:
+        self.requests: list[StoryGenerationRequest] = []
+
+    def load(self) -> None:
+        return None
+
+    def generate_story(self, request: StoryGenerationRequest) -> StoryGenerationResult:
+        self.requests.append(request)
+        return StoryGenerationResult(
+            backend="storydiffusion_direct",
+            seed=request.seed,
+            panel_outputs=[
+                PanelGenerationOutput(
+                    scene_id=plan.scene_id,
+                    panel_index=plan.scene_index,
+                    prompt=plan.generation_prompt,
+                    image=FakeImage(),
+                    metadata={"route_hint": dict(plan.route_hint or {})},
+                )
+                for plan in request.scene_plans
+            ],
+            metadata={"scene_plan_count": len(request.scene_plans)},
         )
 
 
@@ -188,6 +221,71 @@ class FakeMetadataPromptPipeline:
             scene_prompts=PromptBuilder(self.prompt_config).build_story_prompts(story),
             metadata=self._metadata,
         )
+
+    def metadata(self) -> dict:
+        return self._metadata
+
+
+class FakeStoryPromptAuditPipeline:
+    def __init__(self, prompt_config: dict) -> None:
+        self.prompt_config = prompt_config
+        self._metadata = {"pipeline": "llm_assisted", "implemented": True}
+
+    def build(self, story) -> PromptBundle:
+        prompt_specs = PromptBuilder(self.prompt_config).build_story_prompts(story)
+        for scene in story.scenes:
+            prompt_spec = prompt_specs[scene.scene_id]
+            prompt_spec.generation_prompt = f"optimized prompt audit generation for {scene.scene_id}"
+            prompt_spec.scene_consistency_prompt = f"consistent story context for {scene.scene_id}"
+
+        self._metadata = {
+            "pipeline": "llm_assisted",
+            "implemented": True,
+            "provider": "openai",
+            "model": "gpt-4o-2024-08-06",
+            "schema_version": "v1",
+            "builder_version": "llm_assisted_v9",
+            "character_specs": {
+                "Jack": {"character_id": "Jack", "metadata": {"source": "llm_assisted"}},
+                "Sara": {"character_id": "Sara", "metadata": {"source": "llm_assisted"}},
+            },
+            "scene_plans": {
+                scene.scene_id: {
+                    "identity_conditioning_subject_id": None,
+                    "primary_visible_character_ids": ["Jack", "Sara"],
+                    "continuity_subject_ids": ["Jack", "Sara"],
+                    "continuity_route_hint": "text2img",
+                    "llm_route_change_level": "large",
+                    "route_change_level": "large",
+                    "route_level_adjustment_reason": None,
+                    "route_hint_adjustment_reason": "visible_character_change",
+                    "route_factors": {"same_subject": True, "composition_change_needed": True},
+                    "route_reason": "dual-primary prompt audit test",
+                    "interaction_summary": "Jack and Sara talk together",
+                    "spatial_relation": "Jack on the left, Sara on the right",
+                    "framing": "medium two-shot, both characters visible",
+                    "setting_focus": "park bench",
+                    "policy": {"scene_focus_mode": "dual_primary", "visible_character_count": 2},
+                }
+                for scene in story.scenes
+            },
+        }
+        self._metadata["scene_route_hints"] = {
+            scene_id: {
+                "identity_conditioning_subject_id": scene_plan["identity_conditioning_subject_id"],
+                "primary_visible_character_ids": scene_plan["primary_visible_character_ids"],
+                "continuity_subject_ids": scene_plan["continuity_subject_ids"],
+                "continuity_route_hint": scene_plan["continuity_route_hint"],
+                "llm_route_change_level": scene_plan["llm_route_change_level"],
+                "route_change_level": scene_plan["route_change_level"],
+                "route_level_adjustment_reason": scene_plan["route_level_adjustment_reason"],
+                "route_hint_adjustment_reason": scene_plan["route_hint_adjustment_reason"],
+                "route_factors": scene_plan["route_factors"],
+                "route_reason": scene_plan["route_reason"],
+            }
+            for scene_id, scene_plan in self._metadata["scene_plans"].items()
+        }
+        return PromptBundle(scene_prompts=prompt_specs, metadata=self._metadata)
 
     def metadata(self) -> dict:
         return self._metadata
@@ -376,6 +474,74 @@ def test_anchor_bank_disabled_does_not_create_anchor_outputs_or_change_scene_req
     assert not (run_dir / "logs" / "anchor_bank.json").exists()
     assert all(request.reference_image_path is None for request in generator.requests)
     assert all("anchor_type" not in request.extra_options for request in generator.requests)
+
+
+def test_story_backend_receives_prompt_audit_scene_plans(tmp_path, monkeypatch) -> None:
+    story_generator = FakeStoryGenerator()
+    scene_stub_generator = FakeSceneGenerator()
+
+    def fake_build_generation_backend(model_config, runtime_config):
+        if model_config.get("backend") == "storydiffusion_direct":
+            return story_generator
+        return scene_stub_generator
+
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", fake_build_generation_backend)
+    monkeypatch.setattr(
+        "storygen.pipeline.build_prompt_pipeline",
+        lambda prompt, event_logger=None: FakeStoryPromptAuditPipeline(prompt),
+    )
+    monkeypatch.setattr(
+        "storygen.pipeline.run_anchor_bank",
+        lambda **kwargs: {
+            "enabled": True,
+            "characters": {
+                "Jack": {"anchors": {}},
+                "Sara": {"anchors": {}},
+            },
+        },
+    )
+    config = resolve_config(
+        "configs/base.yaml",
+        "cloud_storydiffusion_debug",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "story_prompt_audit",
+            "runtime.input_path": "test_set/06.txt",
+            "scoring.type": "heuristic",
+            "generation.identity_conditioning.fail_on_missing_anchor": False,
+        },
+    )
+
+    summary = run_pipeline(config)
+    run_dir = Path(summary.run_directory)
+    prompt_bundle_log = json.loads((run_dir / "logs" / "prompt_bundle.json").read_text(encoding="utf-8"))
+    story_scene_plans = json.loads((run_dir / "logs" / "story_scene_plans.json").read_text(encoding="utf-8"))
+    story_backend_request = json.loads((run_dir / "logs" / "story_backend_request.json").read_text(encoding="utf-8"))
+
+    assert prompt_bundle_log["builder_version"] == "llm_assisted_v9"
+    assert prompt_bundle_log["scene_route_hints"]["SCENE-1"]["route_hint_adjustment_reason"] == "visible_character_change"
+    prompt_audit_scene_plan = prompt_bundle_log["scene_plans"]["SCENE-1"]
+    assert prompt_audit_scene_plan["interaction_summary"] == "Jack and Sara talk together"
+    assert prompt_audit_scene_plan["spatial_relation"] == "Jack on the left, Sara on the right"
+    assert prompt_audit_scene_plan["framing"] == "medium two-shot, both characters visible"
+    assert prompt_audit_scene_plan["setting_focus"] == "park bench"
+
+    first_scene_plan = story_scene_plans[0]
+    assert first_scene_plan["generation_prompt"] == "optimized prompt audit generation for SCENE-1"
+    assert first_scene_plan["prompt_spec"]["generation_prompt"] == "optimized prompt audit generation for SCENE-1"
+    assert first_scene_plan["prompt_spec"]["scene_consistency_prompt"] == "consistent story context for SCENE-1"
+    assert first_scene_plan["route_hint"]["route_hint_adjustment_reason"] == "visible_character_change"
+
+    assert story_backend_request["scene_plans"][0]["generation_prompt"] == first_scene_plan["generation_prompt"]
+    assert story_backend_request["scene_plans"][0]["route_hint"] == first_scene_plan["route_hint"]
+    assert story_backend_request["scene_plans"][0]["prompt_spec"]["scene_consistency_prompt"] == (
+        "consistent story context for SCENE-1"
+    )
+    assert story_generator.requests
+    request = story_generator.requests[0]
+    assert request.scene_plans[0].generation_prompt == "optimized prompt audit generation for SCENE-1"
+    assert request.scene_plans[0].route_hint["route_hint_adjustment_reason"] == "visible_character_change"
+    assert request.scene_plans[0].prompt_spec.scene_consistency_prompt == "consistent story context for SCENE-1"
 
 
 def test_anchor_bank_enabled_generates_run_local_anchors_without_scene_reference_paths(tmp_path, monkeypatch) -> None:

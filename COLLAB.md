@@ -674,6 +674,31 @@ Real-run validation on `test_set/06.txt`:
 
 ## Shared Code Rules
 
+## 2026-04-26 Prompt Audit Integration
+
+Integrated the prompt-audit optimization path into `0425_luo` without replacing the story backend path.
+
+Preserved story-level contracts:
+- `StoryScenePlan`
+- `StoryGenerationRequest.scene_plans`
+- `anchor_bank_summary`
+- `dual_face_refs`
+- `previous_style_reference_path`
+- `storydiffusion_direct`
+- `diffusers_text2img_consistent`
+
+Prompt updates:
+- LLM-assisted builder namespace is now `llm_assisted_v9`
+- optimized `generation_prompt` remains inside the existing `PromptSpec`, including `scene_consistency_prompt`
+- `PromptBundle.metadata["scene_route_hints"]` carries normalized route hints, including `route_hint_adjustment_reason`
+- `PromptBundle.metadata["scene_plans"]` carries audit-oriented scene-plan details for prompt review and export
+- `_build_story_scene_plans` consumes optimized `PromptSpec.generation_prompt` and `scene_route_hints` when constructing story backend scene plans
+
+Experiment/audit commands:
+- prompt audit export: `PYTHONPATH=src python3 scripts/export_prompts.py --inputs 'test_set/*.txt' --pipelines both --output-dir outputs/prompt_audit`
+- remote matrix dry run: `PYTHONPATH=src python3 scripts/run_experiment_matrix.py --experiment-id prompt_audit_check --profiles llm_prompt_text2img --stories 'test_set/*.txt' --dry-run`
+- storydiffusion smoke profile: `PYTHONPATH=src python3 -m storygen.cli --profile cloud_storydiffusion_debug --input test_set/01.txt --run-name smoke_storydiffusion_prompt_audit`
+
 When modifying shared code:
 - prefer additive and modular changes
 - preserve working baseline behavior unless intentionally upgraded

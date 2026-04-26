@@ -25,6 +25,7 @@ def test_resolve_config_supports_extension_profiles() -> None:
     guided = resolve_config("configs/base.yaml", "llm_prompt_img2img_guided")
     ip_adapter = resolve_config("configs/base.yaml", "llm_prompt_ip_adapter_text2img")
     hybrid = resolve_config("configs/base.yaml", "llm_prompt_hybrid_identity")
+    two_character = resolve_config("configs/base.yaml", "llm_prompt_two_character_text2img")
 
     assert strong["prompt"]["pipeline"] == "rule_based"
     assert strong["model"]["backend"] == "diffusers_text2img"
@@ -35,8 +36,8 @@ def test_resolve_config_supports_extension_profiles() -> None:
     assert guided["generation"]["routing"]["route_policy"] == "llm_guided_conservative"
     assert guided["generation"]["routing"]["strength_by_change_level"]["medium"] == 0.65
     assert guided["generation"]["routing"]["text2img_when_composition_change_needed"] is True
-    assert guided["prompt"]["llm"]["builder_version"] == "llm_assisted_v7"
-    assert guided["prompt"]["artifact"]["export_dir"] == "prompt_artifacts/llm_assisted_v7"
+    assert guided["prompt"]["llm"]["builder_version"] == "llm_assisted_v9"
+    assert guided["prompt"]["artifact"]["export_dir"] == "prompt_artifacts/llm_assisted_v9"
     assert guided["scoring"]["route_aware"]["enabled"] is True
     assert ip_adapter["generation"]["identity_conditioning"]["enabled"] is True
     assert ip_adapter["generation"]["identity_conditioning"]["anchor_type"] == "half_body"
@@ -46,6 +47,12 @@ def test_resolve_config_supports_extension_profiles() -> None:
     assert hybrid["generation"]["identity_conditioning"]["enabled"] is True
     assert hybrid["generation"]["routing"]["route_policy"] == "llm_guided_conservative"
     assert hybrid["model"]["enable_attention_slicing"] is False
+    assert two_character["prompt"]["pipeline"] == "llm_assisted"
+    assert two_character["generation"]["routing"]["img2img_enabled"] is False
+    assert two_character["generation"]["routing"]["route_policy"] == "disabled"
+    assert two_character["generation"]["anchor_bank"]["enabled"] is True
+    assert two_character["generation"]["identity_conditioning"]["enabled"] is True
+    assert two_character["generation"]["identity_conditioning"]["max_primary_visible_characters_for_ip_adapter"] == 1
 
 
 def test_resolve_config_unknown_profile_lists_available_profiles() -> None:

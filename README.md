@@ -63,7 +63,7 @@ Available profiles in the base config:
 - `smoke_test`: cheap local baseline run.
 - `demo_run`: fuller local baseline run.
 - `cloud_strong_backbone`: scene-level `diffusers_text2img` profile reserved for stronger cloud models; override `--model-id` or edit the profile for the target machine.
-- `cloud_storydiffusion`: story-level `storydiffusion_direct` placeholder for future StoryDiffusion integration. It is intentionally not implemented yet.
+- `cloud_storydiffusion`: story-level `storydiffusion_direct` path that builds story scene plans, anchor metadata, dual-face references, and delegates panel rendering through the scene diffusers backend.
 - `llm_prompt_smoke`: optional LLM-assisted prompt planning profile. It calls the configured LLM only when there is no prompt artifact or local cache hit.
 - `llm_prompt_text2img`: LLM-assisted prompts with text-to-image generation only.
 - `rule_prompt_img2img`: rule-based prompts with conservative img2img continuity routing.
@@ -82,7 +82,7 @@ prompt:
   pipeline: llm_assisted
 ```
 
-The LLM-assisted path asks the model for strict JSON containing shared identity, setting, and short per-scene prompts. It does not generate images, score candidates, or write long freeform artistic prompts. The final downstream contract is still `PromptSpec`, so generators use `generation_prompt` and scorers use `scoring_prompt` / `action_prompt` exactly as before.
+The LLM-assisted path asks the model for strict JSON containing shared identity, setting, route hints, and short per-scene prompts. It does not generate images, score candidates, or write long freeform artistic prompts. The final downstream contract is still `PromptSpec`, so generators use the optimized `generation_prompt` and scorers use `scoring_prompt` / `action_prompt` exactly as before. Story-level backends consume the same optimized prompts through `StoryScenePlan`.
 
 The prompt pipeline also writes `character_specs` into `logs/prompt_bundle.json`. The contract is:
 
@@ -112,7 +112,13 @@ To reuse a shared artifact without calling the API:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v7/example.json
+    path: prompt_artifacts/llm_assisted_v9/example.json
+```
+
+Prompt audit exports can be generated without image generation:
+
+```bash
+PYTHONPATH=src python3 scripts/export_prompts.py --inputs 'test_set/*.txt' --pipelines both --output-dir outputs/prompt_audit
 ```
 
 ## Anchor Bank v1
@@ -238,7 +244,7 @@ The run metadata includes the resolved config, runtime profile, model id, timest
 - `prompt.pipeline=rule_based` is implemented and preserves the baseline prompt behavior.
 - `prompt.pipeline=llm_assisted` uses structured OpenAI prompt planning with validation, cache, artifacts, and rule-based fallback.
 - `prompt.pipeline=api` is kept as a compatibility alias for `llm_assisted`.
-- `model.backend=storydiffusion_direct` is a story-level placeholder and raises `NotImplementedError` until the StoryDiffusion backend is implemented.
+- `model.backend=storydiffusion_direct` is a story-level backend entrypoint that preserves story scene plans and delegates current panel rendering to scene-level diffusers generation.
 - `previous_selected_image_path` is used by the optional img2img continuity route when enabled.
 - `character_specs` are written as prompt-bundle metadata for future anchor/IP-Adapter conditioning.
 - `generation.anchor_bank` can generate run-local identity anchors from `character_specs`, but v1 does not feed them back into scene generation.
