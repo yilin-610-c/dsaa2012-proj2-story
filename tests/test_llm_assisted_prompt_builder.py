@@ -191,7 +191,7 @@ def _prompt_config(tmp_path: Path, *, fallback: bool = True, cache_enabled: bool
             "max_output_tokens": 800,
             "timeout_seconds": 30,
             "schema_version": "v1",
-            "builder_version": "llm_assisted_v7",
+            "builder_version": "llm_assisted_v8",
             "fallback_to_rule_based": fallback,
         },
     }

@@ -36,8 +36,8 @@ def test_resolve_config_supports_extension_profiles() -> None:
     assert guided["generation"]["routing"]["route_policy"] == "llm_guided_conservative"
     assert guided["generation"]["routing"]["strength_by_change_level"]["medium"] == 0.65
     assert guided["generation"]["routing"]["text2img_when_composition_change_needed"] is True
-    assert guided["prompt"]["llm"]["builder_version"] == "llm_assisted_v7"
-    assert guided["prompt"]["artifact"]["export_dir"] == "prompt_artifacts/llm_assisted_v7"
+    assert guided["prompt"]["llm"]["builder_version"] == "llm_assisted_v8"
+    assert guided["prompt"]["artifact"]["export_dir"] == "prompt_artifacts/llm_assisted_v8"
     assert guided["scoring"]["route_aware"]["enabled"] is True
     assert ip_adapter["generation"]["identity_conditioning"]["enabled"] is True
     assert ip_adapter["generation"]["identity_conditioning"]["anchor_type"] == "half_body"

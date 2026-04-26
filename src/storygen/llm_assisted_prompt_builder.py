@@ -651,7 +651,7 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v7"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v8"),
             "cache_enabled": bool(self.cache_config.get("enabled", True)),
             "artifact_path": self.artifact_config.get("path"),
             "scene_plans": self.last_scene_plans,
@@ -1310,7 +1310,7 @@ class LLMAssistedPromptBuilder:
     def _export_artifact_if_enabled(self, story: Story, cache_key: str, record: dict[str, Any]) -> None:
         if not self.artifact_config.get("export_enabled", False):
             return
-        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v7"))
+        export_dir = Path(self.artifact_config.get("export_dir", "prompt_artifacts/llm_assisted_v8"))
         story_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(story.source_path).stem).strip("_") or "story"
         model_slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.llm_config.get("model", "model")).strip("_")
         schema_version = self.llm_config.get("schema_version", "v1")
@@ -1332,7 +1332,7 @@ class LLMAssistedPromptBuilder:
             "provider": self.llm_config.get("provider", "openai"),
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
-            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v7"),
+            "builder_version": self.llm_config.get("builder_version", "llm_assisted_v8"),
         }
 
     def _log(self, event: str, **metadata: Any) -> None:

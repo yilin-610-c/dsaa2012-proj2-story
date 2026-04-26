@@ -119,7 +119,7 @@ To reuse a shared artifact without calling the API:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v7/example.json
+    path: prompt_artifacts/llm_assisted_v8/example.json
 ```
 
 ## Prompt-Only Audit
