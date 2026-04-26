@@ -1,7 +1,32 @@
 from pathlib import Path
 
-from storygen.anchor_bank import build_anchor_bank_plan, build_anchor_prompt
-from storygen.types import RunContext
+from storygen.anchor_bank import build_anchor_bank_plan, build_anchor_prompt, run_anchor_bank
+from storygen.generators import BaseSceneGenerator
+from storygen.types import GenerationCandidate, GenerationRequest, RunContext
+
+
+class FakeImage:
+    def save(self, path: str | Path) -> None:
+        Path(path).write_bytes(b"fake image")
+
+
+class FakeSceneGenerator(BaseSceneGenerator):
+    def __init__(self) -> None:
+        self.requests: list[GenerationRequest] = []
+
+    def load(self) -> None:
+        return None
+
+    def generate_scene(self, request: GenerationRequest) -> GenerationCandidate:
+        self.requests.append(request)
+        return GenerationCandidate(
+            scene_id=request.scene_id,
+            candidate_index=request.candidate_index,
+            seed=request.seed,
+            prompt_spec=request.prompt_spec,
+            image=FakeImage(),
+            metadata={"backend": "fake"},
+        )
 
 
 def _run_context(tmp_path: Path) -> RunContext:
@@ -88,7 +113,80 @@ def test_anchor_prompt_uses_stable_identity_fields_only() -> None:
     )
 
     assert "Jane Doe" in prompt
+    assert "one human woman" in prompt
+    assert "single character only" in prompt
+    assert "centered" in prompt
     assert "green jacket" in prompt
     assert "round glasses" in prompt
     assert "running through rain" not in prompt
     assert "scene action should not appear" not in prompt
+
+
+def test_anchor_prompt_normalizes_child_female_identity_without_redundant_field_list() -> None:
+    prompt = build_anchor_prompt(
+        {
+            "character_id": "girl",
+            "age_band": "child",
+            "gender_presentation": "female",
+        },
+        "half_body",
+        "clean identity reference image",
+    )
+
+    assert "half-body view of one human girl child" in prompt
+    assert "single character only" in prompt
+    assert "centered" in prompt
+    assert "female, girl, child" not in prompt
+
+
+def test_anchor_prompt_normalizes_common_human_age_gender_pairs() -> None:
+    adult_man = build_anchor_prompt(
+        {
+            "character_id": "Sam",
+            "age_band": "adult",
+            "gender_presentation": "male",
+        },
+        "portrait",
+        "clean identity reference image",
+    )
+    child_boy = build_anchor_prompt(
+        {
+            "character_id": "boy",
+            "age_band": "child",
+            "gender_presentation": "male",
+        },
+        "portrait",
+        "clean identity reference image",
+    )
+
+    assert "one human man, Sam" in adult_man
+    assert "one human boy child" in child_boy
+
+
+def test_anchor_generation_uses_anchor_specific_negative_prompt(tmp_path: Path) -> None:
+    generator = FakeSceneGenerator()
+    run_anchor_bank(
+        character_specs=_character_specs(),
+        anchor_config={
+            **_anchor_config(),
+            "generate": True,
+            "anchor_types": ["portrait"],
+        },
+        run_context=_run_context(tmp_path),
+        prompt_config={"negative_prompt": "blurry"},
+        model_config={
+            "width": 64,
+            "height": 64,
+            "guidance_scale": 0.0,
+            "num_inference_steps": 1,
+        },
+        generator=generator,
+        event_logger=lambda event, **metadata: None,
+    )
+
+    assert len(generator.requests) == 1
+    negative_prompt = generator.requests[0].prompt_spec.negative_prompt
+    assert "blurry" in negative_prompt
+    assert "multiple people" in negative_prompt
+    assert "duplicate face" in negative_prompt
+    assert "extra person" in negative_prompt
