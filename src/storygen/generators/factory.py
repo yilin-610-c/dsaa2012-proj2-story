@@ -4,6 +4,7 @@ from typing import Any
 
 from .base import BaseSceneGenerator, BaseStoryGenerator
 from .diffusers_text2img import DiffusersTextToImageGenerator
+from .diffusers_text2img_consistent import DiffusersTextToImageConsistentAttentionGenerator
 from .storydiffusion_direct import StoryDiffusionDirectGenerator
 
 
@@ -15,6 +16,8 @@ def build_generation_backend(
     granularity = model_config.get("granularity", "scene")
 
     if backend_type == "diffusers_text2img" and granularity == "scene":
+        if bool(model_config.get("consistent_attention", {}).get("enabled", False)):
+            return DiffusersTextToImageConsistentAttentionGenerator(model_config, runtime_config)
         return DiffusersTextToImageGenerator(model_config, runtime_config)
     if backend_type == "storydiffusion_direct" and granularity == "story":
         return StoryDiffusionDirectGenerator(model_config, runtime_config)

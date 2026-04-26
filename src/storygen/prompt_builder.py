@@ -16,6 +16,10 @@ LOCATION_PATTERN = re.compile(
     r"\b(?:in|inside|at|on|along|across|under|near|beside|by|outside|through)\s+([^.,;]+)",
     re.IGNORECASE,
 )
+TRANSPORT_ANCHOR_PATTERN = re.compile(
+    r"\b(?:bus|train|car|truck|bike|bicycle|subway|tram|boat|ship|plane)\b",
+    re.IGNORECASE,
+)
 HUMAN_HINTS = {
     "artist",
     "boy",
@@ -69,9 +73,10 @@ class PromptBuilder:
         story_context = story_context or self._build_story_context(story)
         style_prompt = self.prompt_config.get("style_prompt", "").strip()
         scene_text = self._build_base_scene_text(scene, story_context)
-        local_prompt = self._build_local_prompt(scene_text)
+        scene_consistency_prompt = self._build_scene_consistency_prompt(story, scene, story_context)
+        local_prompt = self._build_local_prompt(scene_text, scene_consistency_prompt)
         action_prompt = self._build_action_prompt(scene_text)
-        generation_prompt = self._build_generation_prompt(scene, scene_text, action_prompt, story_context)
+        generation_prompt = self._build_generation_prompt(scene, scene_text, action_prompt, scene_consistency_prompt, story_context)
         character_prompt = self._build_character_prompt(story, scene, story_context)
         global_context_prompt = self._build_global_context_prompt(story, story_context)
         scoring_prompt = self._build_scoring_prompt(scene, scene_text, story_context)
@@ -80,6 +85,7 @@ class PromptBuilder:
             style_prompt=style_prompt,
             character_prompt=character_prompt,
             global_context_prompt=global_context_prompt,
+            scene_consistency_prompt=scene_consistency_prompt,
             local_prompt=local_prompt,
         )
         generation_prompt = self._apply_prompt_rewriter("generation", generation_prompt)
@@ -92,6 +98,7 @@ class PromptBuilder:
             style_prompt=style_prompt,
             character_prompt=character_prompt,
             global_context_prompt=global_context_prompt,
+            scene_consistency_prompt=scene_consistency_prompt,
             local_prompt=local_prompt,
             action_prompt=action_prompt,
             generation_prompt=generation_prompt,
@@ -105,6 +112,7 @@ class PromptBuilder:
         pronoun = self._infer_story_pronoun(story)
         subject_type = self._infer_subject_type(primary_entity, pronoun)
         location_anchor = self._infer_location_anchor(story)
+        vehicle_context = self._infer_vehicle_context(story)
         character_specs = build_rule_based_character_specs(story)
         primary_character_spec = character_specs.get(primary_entity or "", {}) if isinstance(character_specs, dict) else {}
         gender_presentation = str(primary_character_spec.get("gender_presentation") or "").strip() or None
@@ -114,6 +122,7 @@ class PromptBuilder:
             "pronoun": pronoun,
             "subject_type": subject_type,
             "location_anchor": location_anchor,
+            "vehicle_context": vehicle_context,
             "recurring_entities": story.recurring_entities,
             "gender_presentation": gender_presentation,
             "profession_marker": profession_marker,
@@ -189,13 +198,46 @@ class PromptBuilder:
             scene_text = LEADING_PRONOUN_PATTERN.sub(primary_entity, scene_text, count=1)
         return scene_text
 
-    def _build_local_prompt(self, scene_text: str) -> str:
+    def _build_scene_consistency_prompt(
+        self,
+        story: Story,
+        scene: Scene,
+        story_context: dict[str, str | list[str] | None],
+    ) -> str:
+        if not self.prompt_config.get("generation_include_scene_consistency", True):
+            return ""
+
+        location_anchor = str(story_context.get("location_anchor") or "").strip()
+        vehicle_context = str(story_context.get("vehicle_context") or "").strip()
+        recurring_entities = [entity for entity in story.recurring_entities if entity.strip()]
+        scene_entities = list(dict.fromkeys(scene.entities))
+        anchor_entities = list(dict.fromkeys([*recurring_entities, *scene_entities]))
+        continuity_subject = self._extract_scene_continuity_subject(scene, story_context)
+        continuity_state = self._extract_scene_continuity_state(scene, story_context)
+        semantic_completion = self._build_scene_semantic_completion(scene, story_context)
+        parts = []
+
+        if location_anchor:
+            parts.append(f"same setting: {location_anchor}")
+        if vehicle_context:
+            parts.append(f"same vehicle context: {vehicle_context}")
+        if anchor_entities:
+            parts.append(f"same scene entities: {', '.join(anchor_entities[:4])}")
+        if semantic_completion:
+            parts.append(semantic_completion)
+        if continuity_subject:
+            parts.append(continuity_subject)
+        if continuity_state:
+            parts.append(continuity_state)
+        return ", ".join(part for part in parts if part)
+
+    def _build_local_prompt(self, scene_text: str, scene_consistency_prompt: str) -> str:
         action_emphasis_prompt = self._build_action_emphasis_prompt(scene_text)
         scene_composition_prompt = self.prompt_config.get("scene_composition_prompt", "").strip()
         local_prompt_suffix = self.prompt_config.get("local_prompt_suffix", "").strip()
         return ", ".join(
             part
-            for part in [scene_text, action_emphasis_prompt, scene_composition_prompt, local_prompt_suffix]
+            for part in [scene_text, scene_consistency_prompt, action_emphasis_prompt, scene_composition_prompt, local_prompt_suffix]
             if part
         )
 
@@ -214,12 +256,14 @@ class PromptBuilder:
         scene: Scene,
         scene_text: str,
         action_prompt: str,
+        scene_consistency_prompt: str,
         story_context: dict[str, str | list[str] | None],
     ) -> str:
         subject = self._extract_scoring_subject(scene, story_context)
         setting_clause = self._extract_setting_clause(scene_text)
         style_clause = ""
         global_context_clause = ""
+        consistency_clause = ""
         quality_clause = ""
         composition_clause = ""
 
@@ -232,6 +276,11 @@ class PromptBuilder:
             short_global_context = self._extract_short_global_context(story_context)
             if short_global_context:
                 global_context_clause = f", {short_global_context}"
+
+        if self.prompt_config.get("generation_include_scene_consistency", True):
+            short_consistency = self._shorten_prompt_text(scene_consistency_prompt, max_words=12, max_chars=96)
+            if short_consistency:
+                consistency_clause = f", {short_consistency}"
 
         if self.prompt_config.get("generation_include_quality_suffix", False):
             short_quality = self._extract_short_quality_prompt()
@@ -253,11 +302,14 @@ class PromptBuilder:
             setting_clause=setting_clause,
             style_clause=style_clause,
             global_context_clause=global_context_clause,
+            consistency_clause=consistency_clause,
             quality_clause=quality_clause,
             composition_clause=composition_clause,
         ).strip(" ,")
         if global_context_clause:
             generation_prompt = ", ".join([generation_prompt, global_context_clause.strip(", ")])
+        if consistency_clause:
+            generation_prompt = ", ".join([generation_prompt, consistency_clause.strip(", ")])
         if quality_clause:
             generation_prompt = ", ".join([generation_prompt, quality_clause.strip(", ")])
         if composition_clause:
@@ -307,12 +359,14 @@ class PromptBuilder:
         style_prompt: str,
         character_prompt: str,
         global_context_prompt: str,
+        scene_consistency_prompt: str,
         local_prompt: str,
     ) -> str:
         parts = [
             style_prompt,
             character_prompt,
             global_context_prompt,
+            scene_consistency_prompt,
             local_prompt,
             self.prompt_config.get("quality_suffix", "").strip(),
         ]
@@ -363,11 +417,77 @@ class PromptBuilder:
         return "generic"
 
     def _infer_location_anchor(self, story: Story) -> str:
+        candidates: list[tuple[int, str]] = []
         for scene in story.scenes:
+            text = scene.clean_text.lower()
+            vehicle = self._extract_vehicle_keyword(text)
+            if vehicle:
+                candidates.append((0, vehicle))
+                continue
+
+            motion_anchor = self._infer_motion_anchor(text)
+            if motion_anchor:
+                candidates.append((1, motion_anchor))
+                continue
+
             match = LOCATION_PATTERN.search(scene.clean_text)
-            if match:
-                return self._normalize_fragment(match.group(1))
+            if not match:
+                continue
+            anchor = self._normalize_fragment(match.group(1))
+            if self._looks_like_scene_anchor(anchor):
+                candidates.append((2, anchor))
+
+        if candidates:
+            candidates.sort(key=lambda item: (item[0], len(item[1]), item[1]))
+            return candidates[0][1]
         return self.prompt_config.get("default_setting_prompt", "").strip()
+
+    def _infer_vehicle_context(self, story: Story) -> str:
+        for scene in story.scenes:
+            text = scene.clean_text.lower()
+            explicit_vehicle = self._extract_vehicle_keyword(text)
+            if explicit_vehicle:
+                return explicit_vehicle
+            if any(keyword in text for keyword in ["drive", "drives", "driving", "rides", "riding"]):
+                return "car"
+            if "outside" in text and any(keyword in text for keyword in ["look", "looks", "looking", "scenery", "view"]):
+                return "car"
+        return ""
+
+    def _infer_motion_anchor(self, text: str) -> str:
+        if any(keyword in text for keyword in ["drive", "drives", "driving"]):
+            return "car"
+        if any(keyword in text for keyword in ["ride", "rides", "riding"]):
+            return "car"
+        if any(keyword in text for keyword in ["walk", "walks", "walking"]):
+            return "road"
+        return ""
+
+    def _infer_vehicle_context(self, story: Story) -> str:
+        candidates: list[tuple[int, str]] = []
+        for scene in story.scenes:
+            text = scene.clean_text.lower()
+            explicit_vehicle = self._extract_vehicle_keyword(text)
+            if explicit_vehicle:
+                candidates.append((0, explicit_vehicle))
+                continue
+            motion_anchor = self._infer_motion_anchor(text)
+            if motion_anchor:
+                candidates.append((1, motion_anchor))
+                continue
+            if "outside" in text and any(keyword in text for keyword in ["look", "looks", "looking", "scenery", "view"]):
+                candidates.append((1, "car"))
+                continue
+        if candidates:
+            candidates.sort(key=lambda item: (item[0], len(item[1]), item[1]))
+            return candidates[0][1]
+        return ""
+
+    def _extract_vehicle_keyword(self, text: str) -> str:
+        for keyword in ["bus", "train", "car", "truck", "bike", "bicycle", "subway", "tram", "boat", "ship", "plane"]:
+            if keyword in text:
+                return keyword
+        return ""
 
     def _continuity_prompt_for_subject_type(self, subject_type: str) -> str:
         if subject_type == "human":
@@ -426,11 +546,60 @@ class PromptBuilder:
         first_fragment = quality_prompt.split(",")[0]
         return self._shorten_prompt_text(first_fragment, max_words=6, max_chars=48)
 
-    def _extract_short_scene_composition_prompt(self) -> str:
-        composition_prompt = self.prompt_config.get("scene_composition_prompt", "").strip()
-        if not composition_prompt:
+    def _build_scene_semantic_completion(
+        self,
+        scene: Scene,
+        story_context: dict[str, str | list[str] | None],
+    ) -> str:
+        scene_text = scene.clean_text.lower()
+        vehicle_context = str(story_context.get("vehicle_context") or "").strip()
+        if not vehicle_context:
             return ""
-        return self._shorten_prompt_text(composition_prompt, max_words=8, max_chars=64)
+        if any(keyword in scene_text for keyword in ["outside", "scenery", "view", "viewing"]):
+            return f"scenery outside the {vehicle_context}"
+        if "door" in scene_text:
+            return f"{vehicle_context} door"
+        if "window" in scene_text:
+            return f"{vehicle_context} window"
+        if any(keyword in scene_text for keyword in ["inside", "into", "enter", "entering", "sits", "sit", "seat"]):
+            return f"inside the {vehicle_context}"
+        return f"inside the {vehicle_context}"
+
+    def _extract_scene_continuity_subject(
+        self,
+        scene: Scene,
+        story_context: dict[str, str | list[str] | None],
+    ) -> str:
+        location_anchor = str(story_context.get("location_anchor") or "").strip()
+        vehicle_context = str(story_context.get("vehicle_context") or "").strip()
+        primary_entity = str(story_context.get("primary_entity") or "").strip()
+        scene_entities = list(dict.fromkeys(scene.entities))
+        if vehicle_context:
+            return f"maintain the same vehicle context around the {vehicle_context}"
+        if location_anchor and scene_entities:
+            return f"maintain the same location identity around {location_anchor}"
+        if location_anchor:
+            return f"maintain the same location identity at {location_anchor}"
+        if primary_entity:
+            return f"maintain the same scene context around {primary_entity}"
+        return ""
+
+    def _extract_scene_continuity_state(
+        self,
+        scene: Scene,
+        story_context: dict[str, str | list[str] | None],
+    ) -> str:
+        location_anchor = str(story_context.get("location_anchor") or "").strip()
+        vehicle_context = str(story_context.get("vehicle_context") or "").strip()
+        if not location_anchor and not vehicle_context:
+            return ""
+        if LEADING_PRONOUN_PATTERN.match(scene.clean_text):
+            if vehicle_context:
+                return f"keep the same vehicle interior and scenery cues as the previous scene"
+            return f"keep the same background and setting cues as the previous scene"
+        if vehicle_context:
+            return f"keep the same vehicle interior and outside scenery cues around the {vehicle_context}"
+        return f"keep the same background and setting cues around {location_anchor}"
 
     def _extract_main_action(self, scene_text: str) -> str:
         action_text = scene_text
@@ -476,6 +645,20 @@ class PromptBuilder:
     @staticmethod
     def _normalize_fragment(value: str) -> str:
         return re.sub(r"\s+", " ", value.strip(" ,.;"))
+
+    def _looks_like_scene_anchor(self, anchor: str) -> bool:
+        normalized = self._normalize_fragment(anchor)
+        if not normalized:
+            return False
+        if LEADING_PRONOUN_PATTERN.match(normalized):
+            return False
+        if TRANSPORT_ANCHOR_PATTERN.search(normalized):
+            return True
+        if any(keyword in normalized.lower() for keyword in ["bridge", "street", "room", "bus stop", "station", "window", "door", "park", "road"]):
+            return True
+        if len(normalized.split()) <= 3 and any(token[:1].islower() for token in normalized.split()):
+            return True
+        return False
 
     @staticmethod
     def _join_entities(entities: list[str], prefix: str) -> str:

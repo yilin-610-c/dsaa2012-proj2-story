@@ -30,6 +30,7 @@ class PromptSpec:
     style_prompt: str
     character_prompt: str
     global_context_prompt: str
+    scene_consistency_prompt: str
     local_prompt: str
     action_prompt: str
     generation_prompt: str

@@ -46,6 +46,11 @@ class StoryDiffusionDirectGenerator(BaseStoryGenerator):
             reference_image_path = identity_plan.get("identity_anchor_path") if identity_plan.get("identity_conditioning_enabled") else None
             if not reference_image_path:
                 reference_image_path = plan.anchor_paths.get(plan.anchor_characters[0]) if plan.anchor_characters else None
+            consistent_attention_config = dict(self.model_config.get("consistent_attention", {}))
+            consistent_attention_enabled = bool(consistent_attention_config.get("enabled", False))
+            consistent_attention_character_order = list(
+                dict.fromkeys([*(plan.anchor_characters or []), *list(plan.metadata.get("scene_entities", []))])
+            )
             generation_request = GenerationRequest(
                 scene_id=plan.scene_id,
                 candidate_index=0,
@@ -73,6 +78,11 @@ class StoryDiffusionDirectGenerator(BaseStoryGenerator):
                     "anchor_paths": dict(plan.anchor_paths or {}),
                     "anchor_characters": list(plan.anchor_characters or []),
                     "route_hint": dict(plan.route_hint or {}),
+                    "consistent_attention_enabled": consistent_attention_enabled,
+                    "consistent_attention_id_length": int(consistent_attention_config.get("id_length", 4)),
+                    "consistent_attention_write_mode": bool(consistent_attention_config.get("write_mode", False)),
+                    "consistent_attention_character_order": consistent_attention_character_order,
+                    "consistent_attention_total_count": int(consistent_attention_config.get("total_count", 0)),
                 },
             )
             candidate = self._scene_generator.generate_scene(generation_request)

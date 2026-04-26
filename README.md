@@ -28,6 +28,8 @@ Pick a model id that works on your local setup. The default in `configs/base.yam
 
 The default scorer is `clip_consistency`. It compares each candidate image against the current scene prompt and, for scenes after the first, also compares it with the previous selected frame. This is the first real cross-scene consistency mechanism in the pipeline; prompt wording alone remains a soft bias.
 
+A separate opt-in `diffusers_text2img_consistent` backend now exists as a non-invasive copy point for consistent-attention experiments. It is disabled by default and does not change the baseline pipeline unless you explicitly enable `model.consistent_attention.enabled=true` in a config profile.
+
 ## Run
 
 Profiles are read dynamically from `configs/base.yaml`; the CLI no longer hard-codes the available profile names.

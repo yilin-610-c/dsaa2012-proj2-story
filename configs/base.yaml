@@ -15,6 +15,12 @@ model:
   guidance_scale: 0.0
   num_inference_steps: 4
   enable_attention_slicing: true
+  consistent_attention:
+    enabled: false
+    id_length: 4
+    write_mode: false
+    apply_to_modes:
+      - text2img
 
 prompt:
   pipeline: rule_based
@@ -51,6 +57,7 @@ prompt:
   scene_composition_prompt: keep the full pose and scene relationship easy to read
   generation_include_style: true
   generation_include_global_context: false
+  generation_include_scene_consistency: true
   generation_include_quality_suffix: false
   generation_include_scene_composition: false
   generation_max_words: 28
@@ -264,6 +271,11 @@ runtime_profiles:
       num_inference_steps: 4
       guidance_scale: 0.0
       num_identity_panels: 3
+      consistent_attention:
+        enabled: false
+        id_length: 4
+        write_mode: false
+        total_count: 0
     generation:
       candidate_count: 1
       base_seed: 2026
@@ -388,3 +400,24 @@ runtime_profiles:
     scoring:
       route_aware:
         enabled: true
+  llm_prompt_consistent_attention_debug:
+    runtime:
+      run_name_prefix: llm_consistent_attention
+    prompt:
+      pipeline: llm_assisted
+    model:
+      consistent_attention:
+        enabled: true
+        id_length: 4
+        write_mode: false
+        total_count: 0
+        apply_to_modes:
+          - text2img
+    generation:
+      routing:
+        img2img_enabled: false
+        route_policy: disabled
+      anchor_bank:
+        enabled: false
+      identity_conditioning:
+        enabled: false
