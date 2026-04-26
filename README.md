@@ -122,6 +122,28 @@ prompt:
     path: prompt_artifacts/llm_assisted_v7/example.json
 ```
 
+## Prompt-Only Audit
+
+Use the prompt-only audit script to inspect prompt generation across test stories without loading image models, generating candidates, scoring, or writing normal run artifacts:
+
+```bash
+PYTHONPATH=src python3 scripts/export_prompts.py --inputs 'test_set/*.txt' --pipelines both
+```
+
+By default this writes:
+
+```text
+outputs/prompt_audit/audit.json
+outputs/prompt_audit/audit.md
+outputs/prompt_audit/stories/<story_id>.json
+```
+
+`audit.json` keeps the full structured prompt fields, parsed entities, pipeline metadata, LLM scene plans, and route hints. `audit.md` is a compact human-readable summary for reviewing scene-by-scene prompt quality.
+
+`--pipelines both` runs `rule_based` and `llm_assisted`. The LLM-assisted path can call the configured API when no cache or prompt artifact is available. For audit runs, LLM fallback to rule-based is disabled so failures are recorded as `status: failed` instead of being silently mixed with rule-based output.
+
+Checkpoint note for this prompt-audit change: implementation was started from `abe2863`, then moved to branch `feat/prompt-audit-optimization` with checkpoint commit `055a7b6` (`checkpoint: before prompt-audit-export`).
+
 ## Anchor Bank v1
 
 Anchor Bank v1 is an optional run-local identity asset step. It consumes `PromptBundle.metadata["character_specs"]`, builds portrait and half-body anchor prompts, and writes generated identity anchors under:
