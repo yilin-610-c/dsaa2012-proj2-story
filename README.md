@@ -119,7 +119,7 @@ To reuse a shared artifact without calling the API:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v8/example.json
+    path: prompt_artifacts/llm_assisted_v9/example.json
 ```
 
 ## Prompt-Only Audit
@@ -128,6 +128,16 @@ Use the prompt-only audit script to inspect prompt generation across test storie
 
 ```bash
 PYTHONPATH=src python3 scripts/export_prompts.py --inputs 'test_set/*.txt' --pipelines both
+```
+
+To force a fresh LLM-assisted audit without reading or writing the prompt cache:
+
+```bash
+PYTHONPATH=src python3 scripts/export_prompts.py \
+  --inputs 'test_set/*.txt' \
+  --pipelines both \
+  --output-dir outputs/prompt_audit \
+  --set prompt.cache.enabled=false
 ```
 
 By default this writes:
@@ -142,7 +152,43 @@ outputs/prompt_audit/stories/<story_id>.json
 
 `--pipelines both` runs `rule_based` and `llm_assisted`. The LLM-assisted path can call the configured API when no cache or prompt artifact is available. For audit runs, LLM fallback to rule-based is disabled so failures are recorded as `status: failed` instead of being silently mixed with rule-based output.
 
+The current LLM-assisted prompt builder version is `llm_assisted_v9`. It keeps single-primary scene prompts action/setting focused, avoids repeating the leading subject name after lightweight identity text, filters anonymous secondary people out of tracked identity prompts, and treats named he/she subjects as human unless the story explicitly says they are an animal species. Route hints also conservatively prefer `text2img` for body/action transitions such as entering, leaving, sitting, moving through traffic, standing under cover, lying down, or rolling over.
+
 Checkpoint note for this prompt-audit change: implementation was started from `abe2863`, then moved to branch `feat/prompt-audit-optimization` with checkpoint commit `055a7b6` (`checkpoint: before prompt-audit-export`).
+
+## Local Ablation Runs
+
+Use the local ablation wrapper for one-command full-pipeline checks without running rule-based profiles. It reuses the sequential experiment matrix runner and writes records under `outputs_local/<experiment_id>/`.
+
+Dry-run the latest recommended profile:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=src python3 scripts/run_local_ablation.py \
+  --suite latest \
+  --dry-run
+```
+
+Run the latest recommended profile:
+
+```bash
+export OPENAI_API_KEY="your_key_here"
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=src python3 scripts/run_local_ablation.py \
+  --suite latest
+```
+
+Run the main LLM ablation set:
+
+```bash
+export OPENAI_API_KEY="your_key_here"
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=src python3 scripts/run_local_ablation.py \
+  --suite main \
+  --preset main
+```
+
+Suites:
+
+- `latest`: `llm_prompt_two_character_text2img`
+- `main`: `llm_prompt_text2img`, `llm_prompt_ip_adapter_text2img`, `llm_prompt_two_character_text2img`
 
 ## Anchor Bank v1
 

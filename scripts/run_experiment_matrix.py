@@ -308,6 +308,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--config", default="configs/base.yaml")
+    parser.add_argument(
+        "--output-root",
+        help="Directory for experiment outputs. Defaults to outputs_remote/<experiment-id>.",
+    )
     return parser
 
 
@@ -317,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
     args.cuda_visible_devices = str(args.cuda_visible_devices)
 
     experiment_id = args.experiment_id
-    output_root = Path("outputs_remote") / experiment_id
+    output_root = Path(args.output_root) if args.output_root else Path("outputs_remote") / experiment_id
     batch_logs_dir = output_root / "batch_logs"
     manifest_path = output_root / "manifest.jsonl"
     summary_path = output_root / "summary.csv"

@@ -133,6 +133,34 @@ def test_dry_run_writes_records_and_does_not_call_subprocess(tmp_path: Path, mon
     assert "manifest.jsonl` is append-only" in readme.read_text(encoding="utf-8")
 
 
+def test_output_root_override_writes_records_under_custom_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    story = tmp_path / "01.txt"
+    story.write_text("story", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(matrix, "git_commit_hash", lambda repo_root: "abc123")
+    monkeypatch.setattr(matrix, "repo_is_dirty", lambda repo_root: False)
+
+    result = matrix.main(
+        [
+            "--experiment-id",
+            "local_exp",
+            "--profiles",
+            "llm_prompt_text2img",
+            "--stories",
+            str(story),
+            "--output-root",
+            "outputs_local/local_exp",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    output_root = tmp_path / "outputs_local" / "local_exp"
+    record = json.loads((output_root / "manifest.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert record["output_directory"] == "outputs_local/local_exp/local_exp__llm_prompt_text2img__01"
+    assert "runtime.output_root=outputs_local/local_exp" in record["argv"]
+
+
 def test_resume_records_skipped_when_run_summary_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     story = tmp_path / "01.txt"
     story.write_text("story", encoding="utf-8")

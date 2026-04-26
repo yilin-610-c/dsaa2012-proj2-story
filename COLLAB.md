@@ -810,6 +810,63 @@ Validation:
 - rerun result:
   - prompt-building stage completed, but image generation did not finish because the local environment has no available NVIDIA driver, so new `scene_*/prompt.json` files were not produced in that failed run
 
+### 2026-04-26: LLM Prompt Audit Follow-Up Fixes
+
+Implemented:
+- bumped the LLM-assisted prompt builder/artifact version to `llm_assisted_v9`
+- kept single-primary scene prompts action/setting focused and removed duplicate leading subject names after lightweight identity labels
+- added local safeguards so named he/she subjects default to human unless the story explicitly says they are an animal species
+- lightweight single-primary identity labels prefer LLM character specs first, so child + male becomes `human boy`; pronouns only fill missing human labels
+- kept explicit animal stories such as `Dog` and `Bird` on the animal path
+- filtered anonymous secondary people such as `friend` out of `character_prompt`, `full_prompt`, `continuity_subject_ids`, and identity conditioning targets while preserving natural scene wording
+- made route metadata prefer `text2img` for body/action transitions such as entering, leaving, sitting, moving through traffic, standing under cover, lying down, and rolling over
+- prefers resolved local prompt text when the LLM supplies named action text for pronoun-only scenes
+
+Fresh prompt-audit command:
+```bash
+PYTHONPATH=src python3 scripts/export_prompts.py \
+  --inputs 'test_set/*.txt' \
+  --pipelines both \
+  --output-dir outputs/prompt_audit \
+  --set prompt.cache.enabled=false
+```
+
+Validation:
+- command: `PYTHONPATH=src pytest tests/test_llm_assisted_prompt_builder.py -q`
+- command: `PYTHONPATH=src pytest tests/test_identity_conditioning.py -q`
+- command: `PYTHONPATH=src pytest -q`
+
+### 2026-04-26: Local Ablation Runner
+
+Implemented:
+- added `scripts/run_local_ablation.py` as a local wrapper around `scripts/run_experiment_matrix.py`
+- default local suite is `latest`, which runs `llm_prompt_two_character_text2img`
+- `main` suite runs `llm_prompt_text2img`, `llm_prompt_ip_adapter_text2img`, and `llm_prompt_two_character_text2img`
+- rule-based profiles are intentionally excluded from local suites
+- local outputs go to `outputs_local/<experiment_id>/`
+- matrix runner now accepts `--output-root` while preserving the default `outputs_remote/<experiment_id>`
+
+Traceability note:
+- worktree already contained prompt-audit follow-up edits, so a new checkpoint commit would have mixed changes
+- baseline before this local runner patch: `e6de78b`
+
+Local dry-run command:
+```bash
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=src python3 scripts/run_local_ablation.py \
+  --suite latest \
+  --dry-run
+```
+
+Local latest full-pipeline command:
+```bash
+export OPENAI_API_KEY="your_key_here"
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH=src python3 scripts/run_local_ablation.py \
+  --suite latest
+```
+
+Validation:
+- command: `PYTHONPATH=src pytest tests/test_experiment_matrix.py tests/test_local_ablation_runner.py -q`
+
 ## Shared Code Rules
 
 When modifying shared code:

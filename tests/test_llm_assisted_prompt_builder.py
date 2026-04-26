@@ -107,6 +107,35 @@ def _bird_story() -> Story:
     )
 
 
+def _milo_story() -> Story:
+    return Story(
+        source_path="story.txt",
+        raw_text="<Milo> sits on the floor with toys.\nHe rolls over and laughs.\nHe lies down and rests.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Milo> sits on the floor with toys.", "Milo sits on the floor with toys.", ["Milo"]),
+            Scene("SCENE-2", 1, "He rolls over and laughs.", "He rolls over and laughs.", []),
+            Scene("SCENE-3", 2, "He lies down and rests.", "He lies down and rests.", []),
+        ],
+        all_entities=["Milo"],
+        recurring_entities=["Milo"],
+        entity_to_scene_ids={"Milo": ["SCENE-1"]},
+    )
+
+
+def _ryan_bus_story() -> Story:
+    return Story(
+        source_path="story.txt",
+        raw_text="<Ryan> walks quickly toward a bus.\nHe pauses at the door and looks ahead.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Ryan> walks quickly toward a bus.", "Ryan walks quickly toward a bus.", ["Ryan"]),
+            Scene("SCENE-2", 1, "He pauses at the door and looks ahead.", "He pauses at the door and looks ahead.", []),
+        ],
+        all_entities=["Ryan"],
+        recurring_entities=["Ryan"],
+        entity_to_scene_ids={"Ryan": ["SCENE-1"]},
+    )
+
+
 def _emma_city_lights_story() -> Story:
     return Story(
         source_path="story.txt",
@@ -191,7 +220,7 @@ def _prompt_config(tmp_path: Path, *, fallback: bool = True, cache_enabled: bool
             "max_output_tokens": 800,
             "timeout_seconds": 30,
             "schema_version": "v1",
-            "builder_version": "llm_assisted_v8",
+            "builder_version": "llm_assisted_v9",
             "fallback_to_rule_based": fallback,
         },
     }
@@ -402,6 +431,155 @@ def _bird_llm_payload() -> dict:
             }
         ],
     }
+
+
+def _milo_llm_payload() -> dict:
+    return {
+        "global": {
+            "main_character": "Milo",
+            "identity_cues": ["dog"],
+            "shared_setting": ["living room"],
+            "style_cues": [],
+            "characters": [
+                {
+                    "character_id": "Milo",
+                    "age_band": "",
+                    "gender_presentation": "dog",
+                    "hair_color": "",
+                    "hairstyle": "",
+                    "skin_tone": "",
+                    "body_build": "small dog body",
+                    "signature_outfit": "",
+                    "signature_accessory": "",
+                    "profession_marker": "",
+                }
+            ],
+        },
+        "scenes": [
+            {
+                "scene_id": "SCENE-1",
+                "primary_action": "Milo sits on the floor with toys",
+                "secondary_elements": ["toys"],
+                "generation_prompt": "dog sitting on the floor with toys",
+                "scoring_prompt": "Milo sitting",
+                "action_prompt": "sitting",
+                "continuity_subject_ids": ["Milo"],
+                "continuity_route_hint": "text2img",
+                "route_change_level": "large",
+                "route_factors": _route_factors(body_state_change=True, primary_action_change=True),
+                "route_reason": "First scene establishes Milo.",
+                "identity_conditioning_subject_id": "Milo",
+                "primary_visible_character_ids": ["Milo"],
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "medium shot",
+                "setting_focus": "floor with toys",
+            },
+            {
+                "scene_id": "SCENE-2",
+                "primary_action": "Milo rolls over and laughs",
+                "secondary_elements": [],
+                "generation_prompt": "dog rolling over and laughing",
+                "scoring_prompt": "Milo rolling over",
+                "action_prompt": "rolling over",
+                "continuity_subject_ids": ["Milo"],
+                "continuity_route_hint": "img2img",
+                "route_change_level": "medium",
+                "route_factors": _route_factors(body_state_change=True, primary_action_change=True),
+                "route_reason": "Action changes.",
+                "identity_conditioning_subject_id": "Milo",
+                "primary_visible_character_ids": ["Milo"],
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "medium shot",
+                "setting_focus": "floor with toys",
+            },
+            {
+                "scene_id": "SCENE-3",
+                "primary_action": "Milo lies down and rests",
+                "secondary_elements": [],
+                "generation_prompt": "dog lying down and resting",
+                "scoring_prompt": "Milo resting",
+                "action_prompt": "resting",
+                "continuity_subject_ids": ["Milo"],
+                "continuity_route_hint": "img2img",
+                "route_change_level": "medium",
+                "route_factors": _route_factors(body_state_change=True, primary_action_change=True),
+                "route_reason": "Body state changes.",
+                "identity_conditioning_subject_id": "Milo",
+                "primary_visible_character_ids": ["Milo"],
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "medium shot",
+                "setting_focus": "floor",
+            },
+        ],
+    }
+
+
+def _ryan_bus_payload() -> dict:
+    payload = _llm_payload()
+    payload["global"] = {
+        "main_character": "Ryan",
+        "identity_cues": ["human man"],
+        "shared_setting": ["urban bus stop"],
+        "style_cues": [],
+        "characters": [
+            {
+                "character_id": "Ryan",
+                "age_band": "adult",
+                "gender_presentation": "man",
+                "hair_color": "",
+                "hairstyle": "",
+                "skin_tone": "",
+                "body_build": "",
+                "signature_outfit": "",
+                "signature_accessory": "",
+                "profession_marker": "",
+            }
+        ],
+    }
+    payload["scenes"] = [
+        {
+            "scene_id": "SCENE-1",
+            "primary_action": "Ryan walks quickly toward a bus",
+            "secondary_elements": ["bus"],
+            "generation_prompt": "Ryan walking quickly toward a bus",
+            "scoring_prompt": "Ryan walking",
+            "action_prompt": "walking",
+            "continuity_subject_ids": ["Ryan"],
+            "continuity_route_hint": "text2img",
+            "route_change_level": "large",
+            "route_factors": _route_factors(body_state_change=True, primary_action_change=True),
+            "route_reason": "First scene.",
+            "identity_conditioning_subject_id": "Ryan",
+            "primary_visible_character_ids": ["Ryan"],
+            "interaction_summary": "",
+            "spatial_relation": "",
+            "framing": "medium shot",
+            "setting_focus": "bus stop",
+        },
+        {
+            "scene_id": "SCENE-2",
+            "primary_action": "Ryan pauses at the bus door and looks ahead",
+            "secondary_elements": ["bus door"],
+            "generation_prompt": "Ryan pausing at the bus door",
+            "scoring_prompt": "Ryan at bus door",
+            "action_prompt": "pausing",
+            "continuity_subject_ids": ["Ryan"],
+            "continuity_route_hint": "img2img",
+            "route_change_level": "medium",
+            "route_factors": _route_factors(body_state_change=True, primary_action_change=True),
+            "route_reason": "Same subject but action changes.",
+            "identity_conditioning_subject_id": "Ryan",
+            "primary_visible_character_ids": ["Ryan"],
+            "interaction_summary": "",
+            "spatial_relation": "",
+            "framing": "medium shot",
+            "setting_focus": "bus door",
+        },
+    ]
+    return payload
 
 
 def _emma_city_lights_payload() -> dict:
@@ -652,7 +830,7 @@ def test_llm_builder_cache_miss_calls_client_and_writes_cache(tmp_path: Path) ->
 
     assert client.calls == 1
     assert (tmp_path / "cache" / f"{cache_key}.json").exists()
-    assert prompts["SCENE-1"].generation_prompt == "Hero, human person, Hero runs along the path"
+    assert prompts["SCENE-1"].generation_prompt == "Hero, human person, runs along the path, path"
     assert prompts["SCENE-1"].character_prompt == "Hero, human person"
     assert prompts["SCENE-1"].scoring_prompt == "Hero runs"
     assert prompts["SCENE-1"].action_prompt == "running"
@@ -837,6 +1015,8 @@ def test_llm_dual_primary_generation_prompt_replaces_pronoun_with_names(tmp_path
     payload = _two_character_llm_payload()
     payload["scenes"][1]["interaction_summary"] = "They continue talking in a cafe."
     config = _prompt_config(tmp_path, cache_enabled=False)
+    config["generation_max_words"] = 40
+    config["generation_max_chars"] = 260
     config["dual_primary_generation_max_words"] = 60
     config["dual_primary_generation_max_chars"] = 420
     builder = LLMAssistedPromptBuilder(config, llm_client=FakeLLMClient(payload))
@@ -928,6 +1108,49 @@ def test_llm_non_human_character_does_not_get_human_negative_suppression(tmp_pat
     assert prompts["SCENE-1"].negative_prompt == "blurry"
 
 
+def test_llm_named_subject_with_human_pronouns_does_not_infer_animal_from_actions(tmp_path: Path) -> None:
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(_milo_llm_payload()),
+    )
+
+    prompts = builder.build_story_prompts(_milo_story())
+    character_specs = builder.metadata()["character_specs"]
+
+    assert prompts["SCENE-1"].character_prompt == "Milo, human man"
+    assert "dog" not in prompts["SCENE-1"].generation_prompt.lower()
+    assert "dog" not in prompts["SCENE-2"].generation_prompt.lower()
+    assert "dog" not in prompts["SCENE-3"].generation_prompt.lower()
+    assert character_specs["Milo"]["gender_presentation"] == "man"
+    assert "dog" not in (character_specs["Milo"]["body_build"] or "").lower()
+    assert "cat, dog, pet animal" in prompts["SCENE-1"].negative_prompt
+
+
+def test_llm_lightweight_identity_uses_llm_age_before_pronoun_fallback(tmp_path: Path) -> None:
+    payload = _milo_llm_payload()
+    payload["global"]["identity_cues"] = ["human boy"]
+    payload["global"]["characters"][0].update(
+        {
+            "age_band": "child",
+            "gender_presentation": "male",
+            "body_build": "slim",
+        }
+    )
+    payload["scenes"][0]["generation_prompt"] = "Milo sitting on the floor with toys"
+    payload["scenes"][1]["generation_prompt"] = "Milo rolling over and laughing"
+    payload["scenes"][2]["generation_prompt"] = "Milo lying down and resting"
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(payload),
+    )
+
+    prompts = builder.build_story_prompts(_milo_story())
+
+    assert prompts["SCENE-1"].character_prompt == "Milo, human boy"
+    assert prompts["SCENE-1"].generation_prompt.startswith("Milo, human boy")
+    assert "human man" not in prompts["SCENE-1"].generation_prompt
+
+
 def test_llm_no_character_scene_omits_identity_from_generation_prompt(tmp_path: Path) -> None:
     builder = LLMAssistedPromptBuilder(
         _prompt_config(tmp_path, cache_enabled=False),
@@ -976,6 +1199,22 @@ def test_llm_route_metadata_forces_text2img_when_new_character_appears(tmp_path:
     assert route_hint["route_hint_adjustment_reason"] == "visible_character_change"
 
 
+def test_llm_route_metadata_forces_text2img_for_body_action_transitions(tmp_path: Path) -> None:
+    payload = _ryan_bus_payload()
+    payload["scenes"][1]["generation_prompt"] = "Ryan gets inside and sits by the window"
+    payload["scenes"][1]["primary_action"] = "Ryan gets inside and sits by the window"
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(payload),
+    )
+
+    builder.build_story_prompts(_ryan_bus_story())
+    route_hint = builder.metadata()["scene_route_hints"]["SCENE-2"]
+
+    assert route_hint["continuity_route_hint"] == "text2img"
+    assert route_hint["route_hint_adjustment_reason"] == "body_action_transition"
+
+
 def test_llm_first_scene_route_metadata_is_initial_setup(tmp_path: Path) -> None:
     pipeline = build_prompt_pipeline(_prompt_config(tmp_path, cache_enabled=False), event_logger=None)
     pipeline.builder.llm_client = FakeLLMClient(_emma_city_lights_payload())
@@ -990,16 +1229,28 @@ def test_llm_first_scene_route_metadata_is_initial_setup(tmp_path: Path) -> None
 
 def test_llm_anonymous_friend_prompt_avoids_unknown_identity_text(tmp_path: Path) -> None:
     config = _prompt_config(tmp_path, cache_enabled=False)
+    config["generation_max_words"] = 40
+    config["generation_max_chars"] = 260
     config["dual_primary_generation_max_words"] = 60
     config["dual_primary_generation_max_chars"] = 420
     builder = LLMAssistedPromptBuilder(config, llm_client=FakeLLMClient(_friend_payload()))
 
     prompts = builder.build_story_prompts(_friend_story())
+    scene_plan = builder.metadata()["scene_plans"]["SCENE-2"]
+    route_hint = builder.metadata()["scene_route_hints"]["SCENE-2"]
     generation_prompt = prompts["SCENE-2"].generation_prompt.lower()
 
+    assert prompts["SCENE-2"].character_prompt == "Tom, human man"
     assert "friend is an adult unknown" not in generation_prompt
     assert "unknown" not in generation_prompt
+    assert "unknown" not in prompts["SCENE-2"].full_prompt.lower()
+    assert "friend, adult" not in prompts["SCENE-2"].full_prompt.lower()
     assert "tom meets an adult friend" in generation_prompt
+    assert scene_plan["primary_visible_character_ids"] == ["Tom"]
+    assert scene_plan["identity_conditioning_subject_id"] == "Tom"
+    assert scene_plan["continuity_subject_ids"] == ["Tom"]
+    assert route_hint["identity_conditioning_subject_id"] == "Tom"
+    assert route_hint["continuity_subject_ids"] == ["Tom"]
 
 
 def test_llm_route_factors_adjust_small_to_medium(tmp_path: Path) -> None:
@@ -1042,7 +1293,7 @@ def test_llm_builder_cache_hit_skips_client(tmp_path: Path) -> None:
 
     assert first_client.calls == 1
     assert second_client.calls == 0
-    assert prompts["SCENE-2"].generation_prompt == "Hero, human person, Hero stops on the path"
+    assert prompts["SCENE-2"].generation_prompt == "Hero, human person, stops on the path, path"
 
 
 def test_llm_payload_missing_characters_falls_back_when_enabled(tmp_path: Path) -> None:
@@ -1183,9 +1434,34 @@ def test_llm_builder_normalizes_prompt_instruction_phrasing(tmp_path: Path) -> N
 
     prompts = builder.build_story_prompts(_story())
 
-    assert prompts["SCENE-1"].generation_prompt == "Hero, human person, Hero running through the park"
+    assert prompts["SCENE-1"].generation_prompt == "Hero, human person, running through the park, path"
     assert prompts["SCENE-1"].scoring_prompt == "Hero running through the park"
     assert prompts["SCENE-1"].action_prompt == "Hero running"
+
+
+def test_llm_single_primary_generation_prompt_removes_duplicate_leading_name(tmp_path: Path) -> None:
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(_ryan_bus_payload()),
+    )
+
+    prompts = builder.build_story_prompts(_ryan_bus_story())
+
+    assert prompts["SCENE-1"].generation_prompt == "Ryan, human man, walking quickly toward a bus"
+    assert "Ryan, human man, Ryan walking" not in prompts["SCENE-1"].generation_prompt
+
+
+def test_llm_local_prompt_prefers_resolved_text_over_pronoun_scene_text(tmp_path: Path) -> None:
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(_ryan_bus_payload()),
+    )
+
+    prompts = builder.build_story_prompts(_ryan_bus_story())
+
+    assert "Ryan pauses at the bus door" in prompts["SCENE-2"].local_prompt
+    assert "He pauses at the door" not in prompts["SCENE-2"].local_prompt
+    assert "He pauses at the door" not in prompts["SCENE-2"].full_prompt
 
 
 def test_llm_builder_preserves_explicit_human_identity_without_duplicate_prefix(tmp_path: Path) -> None:

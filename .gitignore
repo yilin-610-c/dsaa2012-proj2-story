@@ -4,4 +4,5 @@ __pycache__/
 outputs/*
 !outputs/.gitkeep
 outputs_remote/
+outputs_local/
 .cache/
