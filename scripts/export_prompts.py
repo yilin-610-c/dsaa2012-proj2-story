@@ -24,6 +24,7 @@ ROUTE_HINT_KEYS = {
     "llm_route_change_level",
     "route_change_level",
     "route_level_adjustment_reason",
+    "route_hint_adjustment_reason",
     "route_factors",
     "route_reason",
 }

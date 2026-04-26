@@ -79,6 +79,7 @@ def _scene_route_hints_from_plans(scene_plans: dict[str, Any]) -> dict[str, dict
             "llm_route_change_level": scene_plan.get("llm_route_change_level"),
             "route_change_level": scene_plan.get("route_change_level"),
             "route_level_adjustment_reason": scene_plan.get("route_level_adjustment_reason"),
+            "route_hint_adjustment_reason": scene_plan.get("route_hint_adjustment_reason"),
             "route_factors": dict(scene_plan.get("route_factors", {})),
             "route_reason": scene_plan.get("route_reason"),
         }
@@ -258,6 +259,7 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 "continuity_route_hint": route_decision.continuity_route_hint,
                 "llm_route_change_level": route_decision.llm_route_change_level,
                 "route_level_adjustment_reason": route_decision.route_level_adjustment_reason,
+                "route_hint_adjustment_reason": (scene_plan or route_hint or {}).get("route_hint_adjustment_reason"),
                 "route_factors": route_decision.route_factors,
                 "identity_conditioning_subject_id": (scene_plan or {}).get("identity_conditioning_subject_id"),
                 "primary_visible_character_ids": list((scene_plan or {}).get("primary_visible_character_ids", [])),

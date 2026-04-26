@@ -101,7 +101,7 @@ def choose_scene_route(
     strength = float(routing_config.get("img2img_strength", 0.45))
 
     if scene.index == 0:
-        return SceneRouteDecision("text2img", route_policy, "first_scene_uses_text2img")
+        return SceneRouteDecision("text2img", route_policy, "Initial scene setup")
     if not routing_config.get("img2img_enabled", False):
         return SceneRouteDecision("text2img", route_policy, "img2img_disabled")
     if not routing_config.get("use_previous_selected_as_init", True):

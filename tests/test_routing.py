@@ -66,7 +66,7 @@ def test_scene_one_always_uses_text2img() -> None:
     )
 
     assert decision.generation_mode == "text2img"
-    assert decision.route_reason == "first_scene_uses_text2img"
+    assert decision.route_reason == "Initial scene setup"
 
 
 def test_routing_disabled_uses_text2img() -> None:
