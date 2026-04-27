@@ -19,6 +19,8 @@ ANCHOR_TYPE_TEMPLATES = {
     "full_body": "full-body view of {identity}",
 }
 
+ANCHOR_NEGATIVE_PROMPT_SUFFIX = "multiple people, group, duplicate face, extra face, extra person, split face, collage"
+
 
 def _normalize_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
@@ -29,27 +31,84 @@ def _safe_path_name(value: str) -> str:
     return safe or "character"
 
 
+def _dedupe_parts(parts: list[str]) -> list[str]:
+    output = []
+    seen = set()
+    for part in parts:
+        text = _normalize_text(part)
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            output.append(text)
+    return output
+
+
+def _is_generic_human_character_id(character_id: str) -> bool:
+    return _normalize_text(character_id).lower() in {
+        "girl",
+        "boy",
+        "woman",
+        "man",
+        "person",
+        "child",
+        "kid",
+        "lady",
+    }
+
+
+def _human_identity_label(character_spec: dict[str, Any]) -> str | None:
+    character_id = _normalize_text(character_spec.get("character_id")).lower()
+    age = _normalize_text(character_spec.get("age_band")).lower()
+    gender = _normalize_text(character_spec.get("gender_presentation")).lower()
+    combined = " ".join([character_id, age, gender])
+
+    child = any(term in combined for term in ["child", "kid", "young", "girl", "boy"])
+    female = any(term in combined for term in ["female", "woman", "girl", "lady"])
+    male = any(term in combined for term in ["male", "man", "boy"])
+    human = any(term in combined for term in ["human", "person", "child", "kid", "female", "male", "woman", "man", "girl", "boy", "lady"])
+
+    if female:
+        return "human girl child" if child else "human woman"
+    if male:
+        return "human boy child" if child else "human man"
+    if child:
+        return "human child"
+    if human:
+        return "human person"
+    return None
+
+
 def _identity_parts(character_spec: dict[str, Any]) -> list[str]:
-    field_names = [
-        "gender_presentation",
-        "profession_marker",
-        "character_id",
-        "age_band",
+    human_label = _human_identity_label(character_spec)
+    character_id = _normalize_text(character_spec.get("character_id"))
+    visual_field_names = [
         "hair_color",
         "hairstyle",
         "skin_tone",
         "body_build",
         "signature_outfit",
         "signature_accessory",
+        "profession_marker",
     ]
-    parts = []
-    seen = set()
-    for field_name in field_names:
-        text = _normalize_text(character_spec.get(field_name))
-        key = text.lower()
-        if text and key not in seen:
-            seen.add(key)
-            parts.append(text)
+    if human_label:
+        name_part = "" if _is_generic_human_character_id(character_id) else character_id
+        return _dedupe_parts([f"one {human_label}", name_part, *[character_spec.get(field_name) for field_name in visual_field_names]])
+
+    field_names = [
+        "character_id",
+        "age_band",
+        "gender_presentation",
+        "hair_color",
+        "hairstyle",
+        "skin_tone",
+        "body_build",
+        "signature_outfit",
+        "signature_accessory",
+        "profession_marker",
+    ]
+    parts = _dedupe_parts([character_spec.get(field_name) for field_name in field_names])
+    if parts and not parts[0].lower().startswith("one "):
+        parts[0] = f"one {parts[0]}"
     return parts
 
 
@@ -58,7 +117,11 @@ def build_anchor_prompt(character_spec: dict[str, Any], anchor_type: str, prompt
     identity = ", ".join(_identity_parts(character_spec))
     prompt = template.format(identity=identity).strip()
     suffix = _normalize_text(prompt_suffix)
-    return ", ".join(part for part in [prompt, suffix] if part)
+    return ", ".join(part for part in [prompt, "single character only", "centered", suffix] if part)
+
+
+def _anchor_negative_prompt(base_negative_prompt: str) -> str:
+    return ", ".join(_dedupe_parts([base_negative_prompt, ANCHOR_NEGATIVE_PROMPT_SUFFIX]))
 
 
 def _anchor_prompt_spec(
@@ -383,7 +446,7 @@ def run_anchor_bank(
                         character["character_id"],
                         anchor_type,
                         anchor_payload["prompt"],
-                        str(prompt_config.get("negative_prompt", "")).strip(),
+                        _anchor_negative_prompt(str(prompt_config.get("negative_prompt", "")).strip()),
                         candidate_index=int(candidate_payload["candidate_index"]),
                     )
                     request = GenerationRequest(
@@ -455,7 +518,7 @@ def run_anchor_bank(
                 character["character_id"],
                 anchor_type,
                 anchor_payload["prompt"],
-                str(prompt_config.get("negative_prompt", "")).strip(),
+                _anchor_negative_prompt(str(prompt_config.get("negative_prompt", "")).strip()),
             )
             request = GenerationRequest(
                 scene_id=prompt_spec.scene_id,

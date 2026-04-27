@@ -32,7 +32,7 @@ prompt:
   artifact:
     path: null
     export_enabled: false
-    export_dir: prompt_artifacts/llm_assisted_v7
+    export_dir: prompt_artifacts/llm_assisted_v9
   llm:
     provider: openai
     model: gpt-4o-2024-08-06
@@ -41,7 +41,7 @@ prompt:
     max_output_tokens: 800
     timeout_seconds: 30
     schema_version: v1
-    builder_version: llm_assisted_v7
+    builder_version: llm_assisted_v9
     fallback_to_rule_based: true
   style_prompt: cinematic story illustration, coherent visual style
   subject_prefix: "main subject:"
@@ -62,6 +62,8 @@ prompt:
   generation_include_scene_composition: false
   generation_max_words: 28
   generation_max_chars: 220
+  dual_primary_generation_max_words: 70
+  dual_primary_generation_max_chars: 420
   generation_template: "{subject}, {action}{setting_clause}{style_clause}"
   scoring_template: "{subject}, {action}{setting_clause}"
   scoring_include_style: false
@@ -113,6 +115,7 @@ generation:
     adapter_type: ip_adapter
     anchor_source: character_anchor_bank
     anchor_type: half_body
+    max_primary_visible_characters_for_ip_adapter: 1
     apply_to_modes:
       - text2img
     scale: 0.6
@@ -421,3 +424,19 @@ runtime_profiles:
         enabled: false
       identity_conditioning:
         enabled: false
+  llm_prompt_two_character_text2img:
+    runtime:
+      run_name_prefix: llm_two_character
+    model:
+      enable_attention_slicing: false
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: false
+        route_policy: disabled
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: true

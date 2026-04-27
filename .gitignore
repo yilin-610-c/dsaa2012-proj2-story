@@ -3,5 +3,7 @@ __pycache__/
 *.pyc
 outputs/*
 output_test/*
+outputs_local/*
+outputs_remote/*
 !outputs/.gitkeep
 .cache/
