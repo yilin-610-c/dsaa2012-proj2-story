@@ -12,6 +12,9 @@ ENTITY_PATTERN = re.compile(r"<([^<>]+)>")
 # Must match lines like [SCENE-1] ... (same as storygen.parser)
 SCENE_PATTERN = re.compile(r"^\[(SCENE-\d+)\]\s*(.*)$", re.DOTALL)
 
+# Applied only to the single-character (storygen) path; user --set for the same key wins.
+DEFAULT_SINGLE_SET_OVERRIDES: tuple[str, ...] = ("generation.identity_conditioning.scale=0.3",)
+
 
 def _parse_set_override(value: str) -> tuple[str, Any]:
     if "=" not in value:
@@ -58,6 +61,18 @@ def classify_story(story_path: Path) -> tuple[str, int]:
     return "single", unique_count
 
 
+def _merged_single_set_overrides(user_overrides: list[str]) -> list[str]:
+    """Defaults first, then user overrides so explicit --set always wins."""
+    user_keys = {_parse_set_override(s)[0] for s in user_overrides}
+    merged: list[str] = []
+    for default_s in DEFAULT_SINGLE_SET_OVERRIDES:
+        key, _ = _parse_set_override(default_s)
+        if key not in user_keys:
+            merged.append(default_s)
+    merged.extend(user_overrides)
+    return merged
+
+
 def build_storygen_argv(args: argparse.Namespace) -> list[str]:
     argv = [
         "conda",
@@ -78,7 +93,7 @@ def build_storygen_argv(args: argparse.Namespace) -> list[str]:
     ]
     if args.output_root:
         argv.extend(["--set", f"runtime.output_root={args.output_root}"])
-    for override in args.set_overrides:
+    for override in _merged_single_set_overrides(args.set_overrides):
         key, value = _parse_set_override(override)
         argv.extend(["--set", f"{key}={value}"])
     return argv
@@ -168,7 +183,10 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="KEY=VALUE",
-        help="Forwarded to storygen.cli (repeatable). Example: --set generation.identity_conditioning.scale=0.3",
+        help=(
+            "Forwarded to storygen.cli (repeatable; single path only). "
+            "Single-character runs default to generation.identity_conditioning.scale=0.3 unless you override the same key here."
+        ),
     )
 
     parser.add_argument(
