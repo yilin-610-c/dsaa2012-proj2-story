@@ -61,7 +61,7 @@ Current working layout:
 - `third_party/`: optional git submodules (e.g. DiT for **standalone** research demos). Not imported by the baseline pipeline; no default runtime dependency. Submodule init/update commands live in `docs/dit_smoke.md`.
 - `src/storygen/parser.py`: scene text parsing
 - `src/storygen/types.py`: active internal contracts
-- `src/storygen/prompt_builder.py`: rule-based prompt construction (default `prompt.builder: legacy`)
+- `src/storygen/prompt_builder.py`: rule-based prompt construction (default `prompt.builder: legacy`). Optional `prompt.cinematography` and `prompt.dynamic_negative` blocks in `configs/base.yaml` append lighting phrases / extra negatives when enabled. Vehicle + “at the door” scenes suppress false `new_scene_setting` extractions; `generation_trim_truncation_artifacts` cleans truncated tails on `generation_prompt`.
 - `src/storygen/prompt_stack/`: opt-in modular rule prompt assembly (`prompt.builder: modular` in `configs/base.yaml`). `prompt.modular.backend: sdxl` matches legacy strings; `storydiffusion` applies YAML-driven post-filter for the Gradio probe. Templates under `configs/prompt_templates/`.
 - `scripts/run_auto_story_pipeline_modular.py`: same routing as `scripts/run_auto_story_pipeline.py`, but enables the modular stack (single path via `--set`, double path via `run_test_set.py --prompt-builder modular --prompt-modular-backend storydiffusion`).
 - `src/storygen/prompt_pipelines.py`: prompt pipeline selector and placeholders

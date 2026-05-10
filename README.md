@@ -192,6 +192,8 @@ The batch script rewrites leading pronouns back to the detected story subject, f
 
 Optional **modular prompt stack** for the probe (strips SDXL-only spatial hacks before StoryDiffusion): `python storydiffusion_gradio_probe/run_test_set.py --prompt-builder modular --prompt-modular-backend storydiffusion ...`. Rule-based `storygen.cli` can set `prompt.builder: modular` in a profile or via `--set` (see `configs/base.yaml` and `src/storygen/prompt_stack/`). A convenience router is `scripts/run_auto_story_pipeline_modular.py`.
 
+Rule-based **cinematography** and **dynamic negative** clauses are opt-in under `prompt.cinematography.enabled` and `prompt.dynamic_negative.enabled` in `configs/base.yaml` (off by default).
+
 Multi-character safety validation:
 
 ```bash
