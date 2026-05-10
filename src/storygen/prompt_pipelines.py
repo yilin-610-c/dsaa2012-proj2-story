@@ -6,7 +6,7 @@ from typing import Any
 from storygen.character_specs import build_rule_based_character_specs
 from storygen.llm_assisted_prompt_builder import LLMAssistedPromptBuilder
 from storygen.llm_client import BaseLLMClient
-from storygen.prompt_builder import PromptBuilder
+from storygen.prompt_stack.factory import build_rule_prompt_builder
 from storygen.types import PromptBundle, Story
 
 
@@ -23,7 +23,7 @@ class BasePromptPipeline(ABC):
 class RuleBasedPromptPipeline(BasePromptPipeline):
     def __init__(self, prompt_config: dict[str, Any]) -> None:
         self.prompt_config = prompt_config
-        self.builder = PromptBuilder(prompt_config)
+        self.builder = build_rule_prompt_builder(prompt_config)
         self.last_character_specs: dict[str, dict[str, Any]] = {}
 
     def build(self, story: Story) -> PromptBundle:
@@ -38,6 +38,7 @@ class RuleBasedPromptPipeline(BasePromptPipeline):
         return {
             "pipeline": "rule_based",
             "implemented": True,
+            "prompt_builder": str(self.prompt_config.get("builder", "legacy")),
             "rewriter_type": self.prompt_config.get("rewriter", {}).get("type", "rule_based"),
             "character_specs": self.last_character_specs,
         }

@@ -10,7 +10,7 @@ The prompt builder is rule-based and continuity-oriented: it keeps a stable main
 configs/        YAML config and runtime profiles
 docs/           optional deep dives and report notes
 scripts/        demo entrypoint
-src/storygen/   package code
+src/storygen/   package code (includes optional `prompt_stack/` modular rule prompts)
 test_set/       sample scene files
 outputs/        generated runs
 third_party/    optional vendored research code (git submodules)
@@ -189,6 +189,8 @@ python storydiffusion_gradio_probe/run_test_set.py --run
 ```
 
 The batch script rewrites leading pronouns back to the detected story subject, formats scene lines as `[Character] prompt`, and adds temporary per-character identity prompts for multi-character stories while saving only the original story-scene images.
+
+Optional **modular prompt stack** for the probe (strips SDXL-only spatial hacks before StoryDiffusion): `python storydiffusion_gradio_probe/run_test_set.py --prompt-builder modular --prompt-modular-backend storydiffusion ...`. Rule-based `storygen.cli` can set `prompt.builder: modular` in a profile or via `--set` (see `configs/base.yaml` and `src/storygen/prompt_stack/`). A convenience router is `scripts/run_auto_story_pipeline_modular.py`.
 
 Multi-character safety validation:
 

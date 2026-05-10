@@ -309,6 +309,9 @@ def _build_scene_prompt_array_with_pipeline(
     profile: str,
     generation_max_words: int,
     generation_max_chars: int,
+    prompt_builder_kind: str = "legacy",
+    prompt_modular_backend: str = "sdxl",
+    prompt_template_pack: str | None = None,
 ) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
     """
     Uses the repo PromptBuilder to expand scene prompts, then formats them
@@ -318,23 +321,30 @@ def _build_scene_prompt_array_with_pipeline(
     _ensure_storygen_imports()
     from storygen.config import resolve_config
     from storygen.parser import parse_story_file
-    from storygen.prompt_builder import PromptBuilder
+    from storygen.prompt_stack.factory import build_rule_prompt_builder
+
+    probe_overrides: dict[str, Any] = {
+        # Probe-only overrides: avoid hard truncation mid-clause (e.g. "maintain ... at").
+        "prompt.generation_max_words": int(generation_max_words),
+        "prompt.generation_max_chars": int(generation_max_chars),
+        "prompt.dual_primary_generation_max_words": int(max(generation_max_words, 70)),
+        "prompt.dual_primary_generation_max_chars": int(max(generation_max_chars, 420)),
+        "prompt.generation_scene_consistency_max_words": 40,
+        "prompt.generation_scene_consistency_max_chars": 240,
+    }
+    if str(prompt_builder_kind).strip().lower() == "modular":
+        probe_overrides["prompt.builder"] = "modular"
+        probe_overrides["prompt.modular.backend"] = str(prompt_modular_backend).strip().lower()
+        if prompt_template_pack:
+            probe_overrides["prompt.modular.template_pack"] = str(prompt_template_pack).strip()
 
     resolved = resolve_config(
         DEFAULT_BASE_CONFIG,
         profile,
-        overrides={
-            # Probe-only overrides: avoid hard truncation mid-clause (e.g. "maintain ... at").
-            "prompt.generation_max_words": int(generation_max_words),
-            "prompt.generation_max_chars": int(generation_max_chars),
-            "prompt.dual_primary_generation_max_words": int(max(generation_max_words, 70)),
-            "prompt.dual_primary_generation_max_chars": int(max(generation_max_chars, 420)),
-            "prompt.generation_scene_consistency_max_words": 40,
-            "prompt.generation_scene_consistency_max_chars": 240,
-        },
+        overrides=probe_overrides,
     )
     prompt_config = dict(resolved.get("prompt") or {})
-    builder = PromptBuilder(prompt_config)
+    builder = build_rule_prompt_builder(prompt_config)
 
     story = parse_story_file(input_path)
     prompt_specs = builder.build_story_prompts(story)
@@ -361,6 +371,8 @@ def _build_scene_prompt_array_with_pipeline(
 
     debug = {
         "prompt_pipeline": "prompt_builder:generation_prompt",
+        "prompt_builder": str(prompt_builder_kind),
+        "prompt_modular_backend": str(prompt_modular_backend),
         "profile": profile,
         "base_config": str(DEFAULT_BASE_CONFIG),
         "probe_overrides": {
@@ -395,6 +407,9 @@ def build_probe_config(
     prompt_generation_max_words: int,
     prompt_generation_max_chars: int,
     anchor_bank_summary: dict[str, Any] | None,
+    prompt_builder_kind: str = "legacy",
+    prompt_modular_backend: str = "sdxl",
+    prompt_template_pack: str | None = None,
 ) -> dict[str, Any]:
     scenes = _parse_story_file(input_path)
     entities = _primary_entities(scenes)
@@ -404,6 +419,9 @@ def build_probe_config(
         profile=prompt_profile,
         generation_max_words=prompt_generation_max_words,
         generation_max_chars=prompt_generation_max_chars,
+        prompt_builder_kind=prompt_builder_kind,
+        prompt_modular_backend=prompt_modular_backend,
+        prompt_template_pack=prompt_template_pack,
     )
     resolved_reference_images: list[str] = list(reference_images)
     resolved_use_reference_images = bool(use_reference_images)
@@ -513,6 +531,9 @@ def write_configs(args: argparse.Namespace) -> list[Path]:
             prompt_generation_max_words=int(args.prompt_generation_max_words),
             prompt_generation_max_chars=int(args.prompt_generation_max_chars),
             anchor_bank_summary=anchor_bank_summary,
+            prompt_builder_kind=str(args.prompt_builder),
+            prompt_modular_backend=str(args.prompt_modular_backend),
+            prompt_template_pack=(str(args.prompt_template_pack).strip() or None),
         )
         config_path = args.config_dir / f"{input_path.stem}.yaml"
         config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
@@ -568,6 +589,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=768)
     parser.add_argument("--width", type=int, default=768)
     parser.add_argument("--prompt-profile", default=DEFAULT_PROFILE, help="Runtime profile used for prompt_builder config.")
+    parser.add_argument(
+        "--prompt-builder",
+        choices=("legacy", "modular"),
+        default="legacy",
+        help="Rule prompt assembly: legacy PromptBuilder only, or modular stack (see prompt.builder in configs/base.yaml).",
+    )
+    parser.add_argument(
+        "--prompt-modular-backend",
+        choices=("sdxl", "storydiffusion"),
+        default="sdxl",
+        help="When --prompt-builder=modular: sdxl matches legacy strings; storydiffusion strips SDXL spatial hacks.",
+    )
+    parser.add_argument(
+        "--prompt-template-pack",
+        default="",
+        help="Optional template pack name under configs/prompt_templates/<name>.yaml (default: profile prompt.modular.template_pack).",
+    )
     parser.add_argument("--prompt-generation-max-words", type=int, default=60)
     parser.add_argument("--prompt-generation-max-chars", type=int, default=420)
     return parser.parse_args()

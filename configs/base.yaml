@@ -23,6 +23,11 @@ model:
       - text2img
 
 prompt:
+  # rule prompt assembly: `legacy` uses PromptBuilder directly; `modular` uses prompt_stack (same SDXL strings, optional StoryDiffusion sanitizer).
+  builder: legacy
+  modular:
+    backend: sdxl
+    template_pack: default
   pipeline: rule_based
   rewriter:
     type: rule_based

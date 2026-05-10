@@ -66,6 +66,10 @@ class PromptBuilder:
     def __init__(self, prompt_config: dict[str, Any]) -> None:
         self.prompt_config = prompt_config
 
+    def build_story_context(self, story: Story) -> dict[str, Any]:
+        """Expose per-story context for modular prompt stacks (same dict as internal pipeline)."""
+        return self._build_story_context(story)
+
     def build_story_prompts(self, story: Story) -> dict[str, PromptSpec]:
         story_context = self._build_story_context(story)
         return {
