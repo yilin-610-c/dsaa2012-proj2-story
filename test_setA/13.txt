@@ -1,0 +1,9 @@
+[SCENE-1] <Robot> works in a factory.
+
+[SEP]
+
+[SCENE-2] It stops and scans the area.
+
+[SEP]
+
+[SCENE-3] It continues its task.

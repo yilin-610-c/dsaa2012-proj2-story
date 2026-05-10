@@ -1,0 +1,9 @@
+[SCENE-1] <Sam> sits at a computer.
+
+[SEP]
+
+[SCENE-2] He types quickly.
+
+[SEP]
+
+[SCENE-3] He leans back and relaxes.

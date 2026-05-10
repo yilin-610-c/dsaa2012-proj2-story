@@ -1,0 +1,9 @@
+[SCENE-1] <Traveler> arrives at an airport.
+
+[SEP]
+
+[SCENE-2] He checks his ticket.
+
+[SEP]
+
+[SCENE-3] He walks toward the gate.

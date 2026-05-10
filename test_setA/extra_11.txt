@@ -1,0 +1,9 @@
+[SCENE-1] <Runner> stretches before a race.
+
+[SEP]
+
+[SCENE-2] He starts running.
+
+[SEP]
+
+[SCENE-3] He crosses the finish line.

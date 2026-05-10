@@ -23,6 +23,7 @@ Non-goals for the current repo stage:
 - large custom training stack first
 - paper-faithful reimplementation at the cost of engineering stability
 - large academic ablation infrastructure
+- replacing the SDXL + diffusers story pipeline with ImageNet-class DiT sampling as a default backend (DiT may live under `third_party/` for **optional** comparison docs and smoke tests only)
 
 ## Team Split
 
@@ -57,6 +58,7 @@ Rules:
 ## Current Code Map
 
 Current working layout:
+- `third_party/`: optional git submodules (e.g. DiT for **standalone** research demos). Not imported by the baseline pipeline; no default runtime dependency. Submodule init/update commands live in `docs/dit_smoke.md`.
 - `src/storygen/parser.py`: scene text parsing
 - `src/storygen/types.py`: active internal contracts
 - `src/storygen/prompt_builder.py`: rule-based prompt construction

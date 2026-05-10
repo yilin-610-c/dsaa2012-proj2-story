@@ -8,10 +8,12 @@ The prompt builder is rule-based and continuity-oriented: it keeps a stable main
 
 ```text
 configs/        YAML config and runtime profiles
+docs/           optional deep dives and report notes
 scripts/        demo entrypoint
 src/storygen/   package code
 test_set/       sample scene files
 outputs/        generated runs
+third_party/    optional vendored research code (git submodules)
 ```
 
 ## Setup
@@ -167,6 +169,27 @@ PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_ip_adapter_text2img 
 PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_hybrid_identity --input test_set/01.txt
 ```
 
+## Original StoryDiffusion Gradio Probe
+
+For a direct comparison against the upstream StoryDiffusion Gradio implementation, use the isolated adapter in `storydiffusion_gradio_probe/`. It imports the original repo at `/home/xyz/Desktop/xluo/StoryDiffusion`, disables Gradio launch, calls the same `process_generation(...)` function as the UI, and saves images under `outputs/storydiffusion_gradio_probe/`.
+
+```bash
+conda activate "story diffusion"
+python storydiffusion_gradio_probe/run_probe.py \
+  --config storydiffusion_gradio_probe/example_config.yaml
+```
+
+Edit `storydiffusion_gradio_probe/example_config.yaml` to change character reference images, `general_prompt`, frame prompts, and StoryDiffusion settings such as `id_length`, `sa32`, and `sa64`.
+
+To run the project `test_set/*.txt` stories through the same upstream Gradio path, first convert them into StoryDiffusion prompt configs, then optionally execute generation:
+
+```bash
+python storydiffusion_gradio_probe/run_test_set.py
+python storydiffusion_gradio_probe/run_test_set.py --run
+```
+
+The batch script rewrites leading pronouns back to the detected story subject, formats scene lines as `[Character] prompt`, and adds temporary per-character identity prompts for multi-character stories while saving only the original story-scene images.
+
 Multi-character safety validation:
 
 ```bash
@@ -185,6 +208,32 @@ adapter_model_id: h94/IP-Adapter
 adapter_subfolder: sdxl_models
 adapter_weight_name: ip-adapter_sdxl.bin
 ```
+
+## Story Identity Memory
+
+Story identity memory is off in the base config and all normal profiles. Use the separate `cloud_storydiffusion_debug_story_identity_memory` profile for A/B debugging of the existing `storydiffusion_direct` path.
+
+```bash
+PYTHONPATH=src python3 -m storygen.cli --profile cloud_storydiffusion_debug_story_identity_memory --input test_set/01.txt
+```
+
+The state protocol is per story run:
+
+- `write`: the first eligible single-character scene initializes that character's attention feature bank.
+- `read`: later eligible scenes for the same character read from the bank.
+- `disabled`: ambiguous, multi-character, non-recurring, or globally disabled scenes skip the memory path.
+
+The feature reuses `GenerationRequest.extra_options` for runtime control and writes audit metadata to `logs/story_identity_memory.json`, `logs/events.jsonl`, `logs/generation_backend.json`, `scenes/scene_XXX/prompt.json`, and `scenes/scene_XXX/scene_result.json`.
+
+For two-person stories, keep single-reference IP-Adapter and story identity memory disabled unless a scene has exactly one explicit primary identity. Multi-character continuity should rely on prompt continuity, `scene_consistency_prompt`, Anchor Bank metadata, and routing/scoring until a multi-subject conditioning strategy is added.
+
+## DiT exploration (optional submodule)
+
+The upstream [facebookresearch/DiT](https://github.com/facebookresearch/DiT) repository is **archived (read-only)** and ships **ImageNet class-conditional** diffusion with a **Transformer (DiT) backbone**, not open-vocabulary text-to-image story generation. It is **not** wired into `storygen.cli`, `requirements.txt`, or CI. Use it only for **optional** architecture comparison or a standalone sampling smoke test.
+
+- **License**: the DiT code and weights are **CC-BY-NC**; cite and respect non-commercial terms in course reports.
+- **Submodule path**: `third_party/facebookresearch-DiT`. After cloning this repo, fetch it explicitly: `git submodule update --init --recursive third_party/facebookresearch-DiT` (details in [docs/dit_smoke.md](docs/dit_smoke.md)).
+- **Report framing**: see [docs/dit_report_framing.md](docs/dit_report_framing.md) for how to compare DiT against this pipeline without unfair metrics.
 
 ## Ablation Runs
 

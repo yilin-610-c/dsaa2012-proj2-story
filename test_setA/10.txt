@@ -1,0 +1,9 @@
+[SCENE-1] <Baby> plays in the kitchen.
+
+[SEP]
+
+[SCENE-2] He sits in the car and looks around.
+
+[SEP]
+
+[SCENE-3] He smiles happily.

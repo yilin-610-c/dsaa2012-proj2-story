@@ -1,0 +1,9 @@
+[SCENE-1] <Ethan> walks by the sea.
+
+[SEP]
+
+[SCENE-2] He stops and watches the water.
+
+[SEP]
+
+[SCENE-3] He continues walking.

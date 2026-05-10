@@ -1,0 +1,9 @@
+[SCENE-1] <Driver> starts the car.
+
+[SEP]
+
+[SCENE-2] He waits at a crossing.
+
+[SEP]
+
+[SCENE-3] He drives away.

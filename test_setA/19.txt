@@ -1,0 +1,9 @@
+[SCENE-1] <Student> reads in the library.
+
+[SEP]
+
+[SCENE-2] He takes notes.
+
+[SEP]
+
+[SCENE-3] He closes the book and leaves.

@@ -313,8 +313,16 @@ class PromptBuilder:
             if short_global_context:
                 global_context_clause = f", {short_global_context}"
 
-        if self.prompt_config.get("generation_include_scene_consistency", True):
-            short_consistency = self._shorten_prompt_text(scene_consistency_prompt, max_words=12, max_chars=96)
+        if self.prompt_config.get("generation_include_scene_consistency", True) and not bool(
+            story_context.get("is_dual_subject_story", False)
+        ):
+            consistency_max_words = int(self.prompt_config.get("generation_scene_consistency_max_words", 12))
+            consistency_max_chars = int(self.prompt_config.get("generation_scene_consistency_max_chars", 96))
+            short_consistency = self._shorten_prompt_text(
+                scene_consistency_prompt,
+                max_words=consistency_max_words,
+                max_chars=consistency_max_chars,
+            )
             if short_consistency:
                 consistency_clause = f", {short_consistency}"
 
@@ -476,7 +484,12 @@ class PromptBuilder:
                 continue
             anchor = self._normalize_fragment(match.group(1))
             if self._looks_like_scene_anchor(anchor):
-                candidates.append((2, anchor))
+                anchor_lower = anchor.lower()
+                # Prefer concrete place anchors (bridge/street/park/...) over vague short anchors ("view", "there").
+                place_keywords = ["bridge", "street", "room", "bus stop", "station", "window", "door", "park", "road", "kitchen", "cafe"]
+                is_place = any(keyword in anchor_lower for keyword in place_keywords)
+                rank = 2 if is_place else 3
+                candidates.append((rank, anchor))
 
         if candidates:
             candidates.sort(key=lambda item: (item[0], len(item[1]), item[1]))
@@ -695,12 +708,13 @@ class PromptBuilder:
         vehicle_context = str(story_context.get("vehicle_context") or "").strip()
         primary_entity = str(story_context.get("primary_entity") or "").strip()
         scene_entities = list(dict.fromkeys(scene.entities))
+        location_core = self._strip_leading_preposition(location_anchor)
         if vehicle_context:
             return f"maintain the same vehicle context around the {vehicle_context}"
         if location_anchor and scene_entities:
-            return f"maintain the same location identity around {location_anchor}"
+            return f"maintain the same location identity around {location_core or location_anchor}"
         if location_anchor:
-            return f"maintain the same location identity at {location_anchor}"
+            return f"maintain the same location identity at {location_core or location_anchor}"
         if primary_entity:
             return f"maintain the same scene context around {primary_entity}"
         return ""
@@ -712,6 +726,7 @@ class PromptBuilder:
     ) -> str:
         location_anchor = str(story_context.get("location_anchor") or "").strip()
         vehicle_context = str(story_context.get("vehicle_context") or "").strip()
+        location_core = self._strip_leading_preposition(location_anchor)
         if not location_anchor and not vehicle_context:
             return ""
         if LEADING_PRONOUN_PATTERN.match(scene.clean_text):
@@ -720,7 +735,30 @@ class PromptBuilder:
             return f"keep the same background and setting cues as the previous scene"
         if vehicle_context:
             return f"keep the same vehicle interior and outside scenery cues around the {vehicle_context}"
-        return f"keep the same background and setting cues around {location_anchor}"
+        return f"keep the same background and setting cues around {location_core or location_anchor}"
+
+    @staticmethod
+    def _strip_leading_preposition(text: str) -> str:
+        normalized = PromptBuilder._normalize_fragment(text).lower()
+        if not normalized:
+            return ""
+        for prefix in [
+            "in ",
+            "inside ",
+            "at ",
+            "on ",
+            "under ",
+            "near ",
+            "beside ",
+            "by ",
+            "outside ",
+            "through ",
+            "along ",
+            "across ",
+        ]:
+            if normalized.startswith(prefix):
+                return normalized[len(prefix) :].strip(" ,.;")
+        return normalized
 
     def _extract_main_action(self, scene_text: str) -> str:
         action_text = scene_text
@@ -770,6 +808,21 @@ class PromptBuilder:
     def _looks_like_scene_anchor(self, anchor: str) -> bool:
         normalized = self._normalize_fragment(anchor)
         if not normalized:
+            return False
+        time_only = {
+            "night",
+            "at night",
+            "morning",
+            "at morning",
+            "evening",
+            "at evening",
+            "noon",
+            "at noon",
+            "today",
+            "tomorrow",
+            "yesterday",
+        }
+        if normalized.lower() in time_only:
             return False
         if LEADING_PRONOUN_PATTERN.match(normalized):
             return False

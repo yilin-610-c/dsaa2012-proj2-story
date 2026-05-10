@@ -1,0 +1,9 @@
+[SCENE-1] <Traveler> pulls a suitcase forward.
+
+[SEP]
+
+[SCENE-2] He checks a map.
+
+[SEP]
+
+[SCENE-3] He walks into a new place.
