@@ -161,8 +161,39 @@ def validate_config(config: ProbeConfig) -> None:
             raise ValueError('Reference-image mode needs the PhotoMaker trigger word " img" in general_prompt')
 
 
+def _patch_gradio_launch_methods() -> list[tuple[Any, str, Any]]:
+    patched: list[tuple[Any, str, Any]] = []
+
+    def skipped_launch(*args: Any, **kwargs: Any) -> None:
+        print("[storydiffusion_probe] skipped Gradio launch during import")
+        return None
+
+    try:
+        import gradio
+    except Exception:
+        return patched
+
+    blocks = getattr(getattr(gradio, "blocks", None), "Blocks", None)
+    if blocks is not None and hasattr(blocks, "launch"):
+        patched.append((blocks, "launch", blocks.launch))
+        blocks.launch = skipped_launch
+
+    interface = getattr(gradio, "Interface", None)
+    if interface is not None and hasattr(interface, "launch"):
+        patched.append((interface, "launch", interface.launch))
+        interface.launch = skipped_launch
+
+    return patched
+
+
+def _restore_gradio_launch_methods(patched: list[tuple[Any, str, Any]]) -> None:
+    for owner, attr_name, original in reversed(patched):
+        setattr(owner, attr_name, original)
+
+
 def import_gradio_app(storydiffusion_root: Path):
     os.environ["STORYDIFFUSION_DISABLE_GRADIO_LAUNCH"] = "1"
+    patched_launch_methods = _patch_gradio_launch_methods()
     sys.path.insert(0, str(storydiffusion_root))
     old_cwd = Path.cwd()
     os.chdir(storydiffusion_root)
@@ -170,6 +201,7 @@ def import_gradio_app(storydiffusion_root: Path):
         import gradio_app_sdxl_specific_id_low_vram as gradio_app
     finally:
         os.chdir(old_cwd)
+        _restore_gradio_launch_methods(patched_launch_methods)
     return gradio_app
 
 
