@@ -108,3 +108,121 @@ def test_single_route_storygen_matches_default_route(tmp_path: Path, monkeypatch
     )
 
     assert result == 0
+    output = capsys.readouterr().out
+    assert "route=single entities=1" in output
+    assert "storygen.cli" in output
+    assert "storydiffusion_gradio_probe/run_test_set.py" not in output
+
+
+def test_single_native_route_forwards_storydiffusion_root_and_native_controls(tmp_path: Path, monkeypatch, capsys) -> None:
+    module = _load_module()
+    _forbid_subprocess(monkeypatch)
+    story = _write_story(tmp_path, "[SCENE-1] <Nina> walks home.")
+
+    result = module.main(
+        [
+            "--input",
+            str(story),
+            "--run-name",
+            "dry_single_native",
+            "--single-route",
+            "native_storydiffusion",
+            "--storydiffusion-root",
+            "/opt/StoryDiffusion",
+            "--native-width",
+            "512",
+            "--native-height",
+            "512",
+            "--native-num-steps",
+            "20",
+            "--native-seed",
+            "7",
+            "--native-guidance-scale",
+            "4.5",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "--storydiffusion-root /opt/StoryDiffusion" in output
+    assert "--width 512" in output
+    assert "--height 512" in output
+    assert "--num-steps 20" in output
+    assert "--seed 7" in output
+    assert "--guidance-scale 4.5" in output
+
+
+def test_double_native_route_forwards_storydiffusion_root(tmp_path: Path, monkeypatch, capsys) -> None:
+    module = _load_module()
+    _forbid_subprocess(monkeypatch)
+    story = _write_story(tmp_path, "[SCENE-1] <Nina> meets <Leo> in the snow.")
+
+    result = module.main(
+        [
+            "--input",
+            str(story),
+            "--run-name",
+            "dry_double_native",
+            "--storydiffusion-root",
+            "/opt/StoryDiffusion",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "route=double entities=2" in output
+    assert "storydiffusion_gradio_probe/run_test_set.py" in output
+    assert "--storydiffusion-root /opt/StoryDiffusion" in output
+
+
+def test_dry_run_does_not_require_external_storydiffusion_repo(tmp_path: Path, monkeypatch, capsys) -> None:
+    module = _load_module()
+    _forbid_subprocess(monkeypatch)
+    story = _write_story(tmp_path, "[SCENE-1] <Nina> walks home.")
+    missing_root = tmp_path / "missing-storydiffusion"
+
+    result = module.main(
+        [
+            "--input",
+            str(story),
+            "--run-name",
+            "dry_single_native",
+            "--single-route",
+            "native_storydiffusion",
+            "--storydiffusion-root",
+            str(missing_root),
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert str(missing_root) in output
+
+
+def test_real_native_run_fails_early_when_storydiffusion_repo_is_missing(tmp_path: Path, monkeypatch, capsys) -> None:
+    module = _load_module()
+    _forbid_subprocess(monkeypatch)
+    story = _write_story(tmp_path, "[SCENE-1] <Nina> walks home.")
+    missing_root = tmp_path / "missing-storydiffusion"
+
+    result = module.main(
+        [
+            "--input",
+            str(story),
+            "--run-name",
+            "real_single_native",
+            "--single-route",
+            "native_storydiffusion",
+            "--storydiffusion-root",
+            str(missing_root),
+        ]
+    )
+
+    assert result == 2
+    err = capsys.readouterr().err
+    assert "external official StoryDiffusion repo" in err
+    assert "--storydiffusion-root /path/to/StoryDiffusion" in err
+    assert "gradio_app_sdxl_specific_id_low_vram.py" in err

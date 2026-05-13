@@ -12,12 +12,15 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 
 ENTITY_PATTERN = re.compile(r"<([^<>]+)>")
 SCENE_PATTERN = re.compile(r"^\[(SCENE-\d+)\]\s*(.*)$", re.DOTALL)
+DEFAULT_STORYDIFFUSION_ROOT = Path(__file__).resolve().parents[1].parent
+STORYDIFFUSION_APP = "gradio_app_sdxl_specific_id_low_vram.py"
 
 DEFAULT_SINGLE_SET_OVERRIDES: tuple[str, ...] = (
     "generation.identity_conditioning.scale=0.3",
@@ -99,7 +102,7 @@ def build_storygen_argv(args: argparse.Namespace) -> list[str]:
 
 
 def build_probe_argv(args: argparse.Namespace, *, probe_config: Path) -> list[str]:
-    return [
+    argv = [
         "conda",
         "run",
         "-n",
@@ -109,6 +112,9 @@ def build_probe_argv(args: argparse.Namespace, *, probe_config: Path) -> list[st
         "--config",
         str(probe_config),
     ]
+    if args.storydiffusion_root:
+        argv.extend(["--storydiffusion-root", str(args.storydiffusion_root)])
+    return argv
 
 
 def double_run_directory(args: argparse.Namespace) -> Path:
@@ -119,7 +125,7 @@ def double_run_directory(args: argparse.Namespace) -> Path:
 def build_probe_autogen_and_run_argv(
     args: argparse.Namespace, *, story_path: Path, run_dir: Path
 ) -> list[str]:
-    return [
+    argv = [
         "conda",
         "run",
         "-n",
@@ -143,6 +149,40 @@ def build_probe_autogen_and_run_argv(
         "storydiffusion",
         "--run",
     ]
+    if args.storydiffusion_root:
+        argv.extend(["--storydiffusion-root", str(args.storydiffusion_root)])
+    if args.native_width is not None:
+        argv.extend(["--width", str(args.native_width)])
+    if args.native_height is not None:
+        argv.extend(["--height", str(args.native_height)])
+    if args.native_num_steps is not None:
+        argv.extend(["--num-steps", str(args.native_num_steps)])
+    if args.native_seed is not None:
+        argv.extend(["--seed", str(args.native_seed)])
+    if args.native_guidance_scale is not None:
+        argv.extend(["--guidance-scale", str(args.native_guidance_scale)])
+    return argv
+
+
+def storydiffusion_root(args: argparse.Namespace) -> Path:
+    if args.storydiffusion_root:
+        return Path(args.storydiffusion_root).expanduser().resolve()
+    return DEFAULT_STORYDIFFUSION_ROOT.resolve()
+
+
+def validate_native_storydiffusion_root(args: argparse.Namespace) -> bool:
+    root = storydiffusion_root(args)
+    app_path = root / STORYDIFFUSION_APP
+    if app_path.exists():
+        return True
+    print(
+        "Native StoryDiffusion route requires the external official StoryDiffusion repo.\n"
+        f"Expected Gradio app file: {app_path}\n"
+        "Clone https://github.com/HVision-NKU/StoryDiffusion and pass "
+        "--storydiffusion-root /path/to/StoryDiffusion.",
+        file=sys.stderr,
+    )
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,6 +218,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Forwarded to storygen.cli (repeatable). Modular defaults include prompt.builder=modular.",
     )
     parser.add_argument("--double-env", default="storydiffusion", help="Conda env for StoryDiffusion probe path")
+    parser.add_argument(
+        "--storydiffusion-root",
+        type=Path,
+        default=None,
+        help="Path to the external official StoryDiffusion repo for native probe routes.",
+    )
+    parser.add_argument("--native-width", type=int, default=None, help="Forwarded to native StoryDiffusion probe as --width.")
+    parser.add_argument("--native-height", type=int, default=None, help="Forwarded to native StoryDiffusion probe as --height.")
+    parser.add_argument("--native-num-steps", type=int, default=None, help="Forwarded to native StoryDiffusion probe as --num-steps.")
+    parser.add_argument("--native-seed", type=int, default=None, help="Forwarded to native StoryDiffusion probe as --seed.")
+    parser.add_argument(
+        "--native-guidance-scale",
+        type=float,
+        default=None,
+        help="Forwarded to native StoryDiffusion probe as --guidance-scale.",
+    )
     parser.add_argument("--probe-config", type=Path, default=None, help="Explicit probe config YAML/JSON")
     parser.add_argument(
         "--probe-config-dir",
@@ -208,8 +264,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 manifest = run_dir / "manifest.json"
             if manifest.exists():
-                print(f"[auto/modular] route=double entities={n_entities} -> SKIP (manifest exists): {manifest}")
+                print(f"[auto/modular] route={route} entities={n_entities} -> SKIP (manifest exists): {manifest}")
                 return 0
+
+        if not args.dry_run and not validate_native_storydiffusion_root(args):
+            return 2
 
         if args.probe_config is not None:
             probe_config = args.probe_config.resolve()
