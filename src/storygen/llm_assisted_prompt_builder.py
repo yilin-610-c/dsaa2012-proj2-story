@@ -850,7 +850,7 @@ class LLMAssistedPromptBuilder:
             "model": self.llm_config.get("model", "gpt-4o-2024-08-06"),
             "schema_version": self.llm_config.get("schema_version", "v1"),
             "builder_version": self.llm_config.get("builder_version", "llm_assisted_v9"),
-            "cache_enabled": bool(self.cache_config.get("enabled", True)),
+            "cache_enabled": bool(self.cache_config.get("enabled", False)),
             "artifact_path": self.artifact_config.get("path"),
             "scene_plans": self.last_scene_plans,
             "scene_route_hints": self.last_route_hints,
@@ -869,7 +869,7 @@ class LLMAssistedPromptBuilder:
                 raise
 
         cache_key = build_prompt_cache_key(story, self.prompt_config)
-        cache_enabled = bool(self.cache_config.get("enabled", True))
+        cache_enabled = bool(self.cache_config.get("enabled", False))
         cache = PromptCache(self.cache_config.get("cache_dir", ".cache/prompt_builder"))
         if cache_enabled:
             try:
@@ -881,6 +881,8 @@ class LLMAssistedPromptBuilder:
                 self._log("llm_prompt_cache_hit", cache_key=cache_key)
                 return self._validate_structured_output(story, cached["validated_output"])
             self._log("llm_prompt_cache_miss", cache_key=cache_key)
+        else:
+            self._log("llm_prompt_cache_disabled", cache_key=cache_key)
 
         response = self._call_llm(story)
         structured_output = self._validate_structured_output(story, response.parsed_json)

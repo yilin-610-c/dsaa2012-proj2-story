@@ -147,6 +147,8 @@ def build_probe_autogen_and_run_argv(
         "modular",
         "--prompt-modular-backend",
         "storydiffusion",
+        "--storydiffusion-prompt-mode",
+        args.storydiffusion_prompt_mode,
         "--run",
     ]
     if args.storydiffusion_root:
@@ -233,6 +235,12 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=None,
         help="Forwarded to native StoryDiffusion probe as --guidance-scale.",
+    )
+    parser.add_argument(
+        "--storydiffusion-prompt-mode",
+        choices=("current", "clean"),
+        default="current",
+        help="Forwarded to native StoryDiffusion probe. Default preserves current prompt rendering.",
     )
     parser.add_argument("--probe-config", type=Path, default=None, help="Explicit probe config YAML/JSON")
     parser.add_argument(

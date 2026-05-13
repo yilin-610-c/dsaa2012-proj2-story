@@ -840,6 +840,26 @@ def test_llm_builder_cache_miss_calls_client_and_writes_cache(tmp_path: Path) ->
     assert prompts["SCENE-1"].full_prompt
 
 
+def test_llm_builder_defaults_to_cache_disabled_when_config_missing(tmp_path: Path) -> None:
+    client = FakeLLMClient()
+    config = _prompt_config(tmp_path)
+    config.pop("cache")
+    events: list[str] = []
+    builder = LLMAssistedPromptBuilder(
+        config,
+        llm_client=client,
+        event_logger=lambda event, **metadata: events.append(event),
+    )
+
+    builder.build_story_prompts(_story())
+    builder.build_story_prompts(_story())
+
+    assert client.calls == 2
+    assert builder.metadata()["cache_enabled"] is False
+    assert events.count("llm_prompt_cache_disabled") == 2
+    assert "llm_prompt_cache_hit" not in events
+
+
 def test_llm_pipeline_metadata_includes_route_hints(tmp_path: Path) -> None:
     pipeline = build_prompt_pipeline(_prompt_config(tmp_path), event_logger=None)
     pipeline.builder.llm_client = FakeLLMClient()

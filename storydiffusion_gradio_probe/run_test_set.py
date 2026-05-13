@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -303,6 +304,30 @@ def _ensure_anchor_bank_generated(
     return _load_anchor_bank_summary(run_dir)
 
 
+def _prompt_probe_overrides(
+    *,
+    generation_max_words: int,
+    generation_max_chars: int,
+    prompt_builder_kind: str = "legacy",
+    prompt_modular_backend: str = "sdxl",
+    prompt_template_pack: str | None = None,
+) -> dict[str, Any]:
+    overrides: dict[str, Any] = {
+        "prompt.generation_max_words": int(generation_max_words),
+        "prompt.generation_max_chars": int(generation_max_chars),
+        "prompt.dual_primary_generation_max_words": int(max(generation_max_words, 70)),
+        "prompt.dual_primary_generation_max_chars": int(max(generation_max_chars, 420)),
+        "prompt.generation_scene_consistency_max_words": 40,
+        "prompt.generation_scene_consistency_max_chars": 240,
+    }
+    if str(prompt_builder_kind).strip().lower() == "modular":
+        overrides["prompt.builder"] = "modular"
+        overrides["prompt.modular.backend"] = str(prompt_modular_backend).strip().lower()
+        if prompt_template_pack:
+            overrides["prompt.modular.template_pack"] = str(prompt_template_pack).strip()
+    return overrides
+
+
 def _build_scene_prompt_array_with_pipeline(
     input_path: Path,
     *,
@@ -323,20 +348,13 @@ def _build_scene_prompt_array_with_pipeline(
     from storygen.parser import parse_story_file
     from storygen.prompt_stack.factory import build_rule_prompt_builder
 
-    probe_overrides: dict[str, Any] = {
-        # Probe-only overrides: avoid hard truncation mid-clause (e.g. "maintain ... at").
-        "prompt.generation_max_words": int(generation_max_words),
-        "prompt.generation_max_chars": int(generation_max_chars),
-        "prompt.dual_primary_generation_max_words": int(max(generation_max_words, 70)),
-        "prompt.dual_primary_generation_max_chars": int(max(generation_max_chars, 420)),
-        "prompt.generation_scene_consistency_max_words": 40,
-        "prompt.generation_scene_consistency_max_chars": 240,
-    }
-    if str(prompt_builder_kind).strip().lower() == "modular":
-        probe_overrides["prompt.builder"] = "modular"
-        probe_overrides["prompt.modular.backend"] = str(prompt_modular_backend).strip().lower()
-        if prompt_template_pack:
-            probe_overrides["prompt.modular.template_pack"] = str(prompt_template_pack).strip()
+    probe_overrides = _prompt_probe_overrides(
+        generation_max_words=generation_max_words,
+        generation_max_chars=generation_max_chars,
+        prompt_builder_kind=prompt_builder_kind,
+        prompt_modular_backend=prompt_modular_backend,
+        prompt_template_pack=prompt_template_pack,
+    )
 
     resolved = resolve_config(
         DEFAULT_BASE_CONFIG,
@@ -378,11 +396,91 @@ def _build_scene_prompt_array_with_pipeline(
         "probe_overrides": {
             "prompt.generation_max_words": int(generation_max_words),
             "prompt.generation_max_chars": int(generation_max_chars),
+            "prompt.llm.fallback_to_rule_based": False,
         },
         "story_entities": list(story.all_entities),
         "recurring_entities": list(story.recurring_entities),
     }
     return prompt_array, debug, prompt_config
+
+
+def _build_clean_storydiffusion_prompt_payload(
+    input_path: Path,
+    *,
+    profile: str,
+    generation_max_words: int,
+    generation_max_chars: int,
+    prompt_builder_kind: str = "legacy",
+    prompt_modular_backend: str = "sdxl",
+    prompt_template_pack: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    _ensure_storygen_imports()
+    from storygen.config import resolve_config
+    from storygen.parser import parse_story_file
+    from storygen.prompt_pipelines import build_prompt_pipeline
+    from storygen.prompt_stack.renderers.storydiffusion import render_clean_native_storydiffusion_prompts
+
+    probe_overrides = _prompt_probe_overrides(
+        generation_max_words=generation_max_words,
+        generation_max_chars=generation_max_chars,
+        prompt_builder_kind=prompt_builder_kind,
+        prompt_modular_backend=prompt_modular_backend,
+        prompt_template_pack=prompt_template_pack,
+    )
+    probe_overrides["prompt.llm.fallback_to_rule_based"] = False
+    resolved = resolve_config(DEFAULT_BASE_CONFIG, profile, overrides=probe_overrides)
+    prompt_config = dict(resolved.get("prompt") or {})
+    if prompt_config.get("pipeline") != "llm_assisted":
+        raise RuntimeError("clean native StoryDiffusion prompt mode requires prompt.pipeline=llm_assisted")
+    story = parse_story_file(input_path)
+    prompt_pipeline = build_prompt_pipeline(prompt_config)
+    prompt_bundle = prompt_pipeline.build(story)
+    bundle_metadata = prompt_bundle.metadata if isinstance(prompt_bundle.metadata, dict) else {}
+    character_specs = bundle_metadata.get("character_specs", {})
+    non_llm_specs = [
+        name
+        for name, spec in character_specs.items()
+        if not isinstance(spec, dict) or (spec.get("metadata") or {}).get("source") != "llm_assisted"
+    ]
+    if not character_specs or non_llm_specs:
+        raise RuntimeError(
+            "clean native StoryDiffusion prompt mode requires llm_assisted character_specs; "
+            f"non_llm_specs={non_llm_specs or 'missing'}"
+        )
+    rendered = render_clean_native_storydiffusion_prompts(story, prompt_bundle.scene_prompts, character_specs)
+    payload = {
+        "general_prompt": rendered.general_prompt,
+        "identity_prompts": rendered.identity_prompts,
+        "scene_prompts": rendered.scene_prompts,
+        "prompt_array": rendered.final_prompt_array,
+        "save_image_start_index": rendered.save_image_start_index,
+        "debug": {
+            "mode": "clean",
+            "general_prompt": rendered.general_prompt,
+            "identity_prompts": rendered.identity_prompts,
+            "scene_prompts": rendered.scene_prompts,
+            "final_prompt_array": rendered.final_prompt_array,
+            "save_image_start_index": rendered.save_image_start_index,
+            "character_specs": rendered.character_specs,
+            "source_fields": rendered.source_fields,
+        },
+    }
+    debug = {
+        "prompt_pipeline": "prompt_bundle:storydiffusion_clean_renderer",
+        "prompt_builder": str(prompt_builder_kind),
+        "prompt_modular_backend": str(prompt_modular_backend),
+        "storydiffusion_prompt_mode": "clean",
+        "profile": profile,
+        "base_config": str(DEFAULT_BASE_CONFIG),
+        "probe_overrides": {
+            "prompt.generation_max_words": int(generation_max_words),
+            "prompt.generation_max_chars": int(generation_max_chars),
+            "prompt.llm.fallback_to_rule_based": False,
+        },
+        "story_entities": list(story.all_entities),
+        "recurring_entities": list(story.recurring_entities),
+    }
+    return payload, debug, prompt_config
 
 
 def build_probe_config(
@@ -410,19 +508,10 @@ def build_probe_config(
     prompt_builder_kind: str = "legacy",
     prompt_modular_backend: str = "sdxl",
     prompt_template_pack: str | None = None,
+    storydiffusion_prompt_mode: str = "current",
 ) -> dict[str, Any]:
     scenes = _parse_story_file(input_path)
     entities = _primary_entities(scenes)
-    # Prefer the repo prompt pipeline for richer scene prompts.
-    story_prompts, pipeline_debug, prompt_config = _build_scene_prompt_array_with_pipeline(
-        input_path,
-        profile=prompt_profile,
-        generation_max_words=prompt_generation_max_words,
-        generation_max_chars=prompt_generation_max_chars,
-        prompt_builder_kind=prompt_builder_kind,
-        prompt_modular_backend=prompt_modular_backend,
-        prompt_template_pack=prompt_template_pack,
-    )
     resolved_reference_images: list[str] = list(reference_images)
     resolved_use_reference_images = bool(use_reference_images)
     if anchor_bank_summary:
@@ -435,14 +524,41 @@ def build_probe_config(
             resolved_reference_images = discovered
             resolved_use_reference_images = True
 
-    # Always prepend identity prompts so StoryDiffusion writes its bank from a dedicated
-    # "identity-only" image, instead of consuming the first story scene as the id prompt.
-    prepend_identity_prompts = True
-    prompt_array = [_identity_prompt(entity) for entity in entities] + story_prompts
-    character_prompt = "\n".join(
-        f"[{entity}] {_subject_description(entity, use_reference_images=resolved_use_reference_images)}"
-        for entity in entities
-    )
+    prompt_mode = str(storydiffusion_prompt_mode or "current").strip().lower()
+    if prompt_mode not in {"current", "clean"}:
+        raise ValueError(f"Unsupported StoryDiffusion prompt mode: {storydiffusion_prompt_mode}")
+    storydiffusion_prompt_debug: dict[str, Any] | None = None
+    if prompt_mode == "clean":
+        clean_payload, pipeline_debug, prompt_config = _build_clean_storydiffusion_prompt_payload(
+            input_path,
+            profile=prompt_profile,
+            generation_max_words=prompt_generation_max_words,
+            generation_max_chars=prompt_generation_max_chars,
+            prompt_builder_kind=prompt_builder_kind,
+            prompt_modular_backend=prompt_modular_backend,
+            prompt_template_pack=prompt_template_pack,
+        )
+        prompt_array = list(clean_payload["prompt_array"])
+        character_prompt = str(clean_payload["general_prompt"])
+        save_image_start_index = int(clean_payload["save_image_start_index"])
+        storydiffusion_prompt_debug = dict(clean_payload["debug"])
+    else:
+        story_prompts, pipeline_debug, prompt_config = _build_scene_prompt_array_with_pipeline(
+            input_path,
+            profile=prompt_profile,
+            generation_max_words=prompt_generation_max_words,
+            generation_max_chars=prompt_generation_max_chars,
+            prompt_builder_kind=prompt_builder_kind,
+            prompt_modular_backend=prompt_modular_backend,
+            prompt_template_pack=prompt_template_pack,
+        )
+        prompt_array = [_identity_prompt(entity) for entity in entities] + story_prompts
+        character_prompt = "\n".join(
+            f"[{entity}] {_subject_description(entity, use_reference_images=resolved_use_reference_images)}"
+            for entity in entities
+        )
+        save_image_start_index = len(entities)
+
     single_entity_prompt_count = sum(1 for prompt in prompt_array if prompt.count("[") == 1 and not prompt.startswith("[NC]"))
     effective_id_length = max(1, min(id_length, single_entity_prompt_count or len(prompt_array)))
     if unwrap_output_dir:
@@ -456,8 +572,8 @@ def build_probe_config(
         "reference_images": resolved_reference_images,
         "source_story": str(input_path),
         "prompt_debug": pipeline_debug,
-        # Skip the prepended identity images; keep only story scene images.
-        "save_image_start_index": len(entities),
+        **({"storydiffusion_prompt_debug": storydiffusion_prompt_debug} if storydiffusion_prompt_debug else {}),
+        "save_image_start_index": save_image_start_index,
         "prompts": {
             "general_prompt": character_prompt,
             "prompt_array": prompt_array,
@@ -465,8 +581,6 @@ def build_probe_config(
         },
         "generation": {
             "sd_type": sd_type,
-            # When prompts already include a style phrase (e.g. "cinematic story illustration"),
-            # keep Gradio style template neutral by default.
             "style": style or "(No style)",
             "seed": seed,
             "num_steps": num_steps,
@@ -534,9 +648,16 @@ def write_configs(args: argparse.Namespace) -> list[Path]:
             prompt_builder_kind=str(args.prompt_builder),
             prompt_modular_backend=str(args.prompt_modular_backend),
             prompt_template_pack=(str(args.prompt_template_pack).strip() or None),
+            storydiffusion_prompt_mode=str(args.storydiffusion_prompt_mode),
         )
+        prompt_debug = config.get("storydiffusion_prompt_debug")
         config_path = args.config_dir / f"{input_path.stem}.yaml"
         config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        if prompt_debug:
+            debug_text = json.dumps(prompt_debug, indent=2, ensure_ascii=False) + "\n"
+            config_path.with_suffix(".storydiffusion_prompt_debug.json").write_text(debug_text, encoding="utf-8")
+            if len(input_paths) == 1:
+                config_path.with_name("storydiffusion_prompt_debug.json").write_text(debug_text, encoding="utf-8")
         config_paths.append(config_path)
     return config_paths
 
@@ -605,6 +726,12 @@ def parse_args() -> argparse.Namespace:
         "--prompt-template-pack",
         default="",
         help="Optional template pack name under configs/prompt_templates/<name>.yaml (default: profile prompt.modular.template_pack).",
+    )
+    parser.add_argument(
+        "--storydiffusion-prompt-mode",
+        choices=("current", "clean"),
+        default="current",
+        help="Native StoryDiffusion prompt rendering mode. Default preserves the existing generation_prompt prefix behavior.",
     )
     parser.add_argument("--prompt-generation-max-words", type=int, default=60)
     parser.add_argument("--prompt-generation-max-chars", type=int, default=420)

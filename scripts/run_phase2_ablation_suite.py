@@ -55,6 +55,8 @@ def _native_args(args: argparse.Namespace) -> list[str]:
         argv.extend(["--native-seed", str(args.native_seed)])
     if args.native_guidance_scale is not None:
         argv.extend(["--native-guidance-scale", str(args.native_guidance_scale)])
+    if args.storydiffusion_prompt_mode != "current":
+        argv.extend(["--storydiffusion-prompt-mode", args.storydiffusion_prompt_mode])
     return argv
 
 
@@ -124,6 +126,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--native-num-steps", type=int, default=None)
     parser.add_argument("--native-seed", type=int, default=None)
     parser.add_argument("--native-guidance-scale", type=float, default=None)
+    parser.add_argument(
+        "--storydiffusion-prompt-mode",
+        choices=("current", "clean"),
+        default="current",
+        help="Forwarded to native StoryDiffusion routes; clean uses llm_assisted PromptSpec generation_prompt.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")

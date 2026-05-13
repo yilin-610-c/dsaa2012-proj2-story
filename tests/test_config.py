@@ -17,6 +17,17 @@ def test_resolve_config_applies_runtime_profile_and_overrides() -> None:
     assert config["generation"]["base_seed"] == 999
     assert config["model"]["width"] == 768
     assert config["scoring"]["type"] == "clip_consistency"
+    assert config["prompt"]["cache"]["enabled"] is False
+
+
+def test_prompt_cache_can_be_explicitly_enabled() -> None:
+    config = resolve_config(
+        "configs/base.yaml",
+        "demo_run",
+        overrides={"prompt.cache.enabled": True},
+    )
+
+    assert config["prompt"]["cache"]["enabled"] is True
 
 
 def test_resolve_config_supports_extension_profiles() -> None:

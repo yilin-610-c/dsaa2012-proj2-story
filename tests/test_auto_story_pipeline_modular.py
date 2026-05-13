@@ -226,3 +226,26 @@ def test_real_native_run_fails_early_when_storydiffusion_repo_is_missing(tmp_pat
     assert "external official StoryDiffusion repo" in err
     assert "--storydiffusion-root /path/to/StoryDiffusion" in err
     assert "gradio_app_sdxl_specific_id_low_vram.py" in err
+
+
+def test_native_route_forwards_clean_storydiffusion_prompt_mode(tmp_path: Path, monkeypatch, capsys) -> None:
+    module = _load_module()
+    _forbid_subprocess(monkeypatch)
+    story = _write_story(tmp_path, "[SCENE-1] <Nina> meets <Leo> in the snow.")
+
+    result = module.main(
+        [
+            "--input",
+            str(story),
+            "--run-name",
+            "dry_double_clean_prompt",
+            "--storydiffusion-prompt-mode",
+            "clean",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "storydiffusion_gradio_probe/run_test_set.py" in output
+    assert "--storydiffusion-prompt-mode clean" in output

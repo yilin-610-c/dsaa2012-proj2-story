@@ -32,7 +32,7 @@ prompt:
   rewriter:
     type: rule_based
   cache:
-    enabled: true
+    enabled: false
     cache_dir: .cache/prompt_builder
   artifact:
     path: null

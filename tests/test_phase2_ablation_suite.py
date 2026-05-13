@@ -71,6 +71,8 @@ def test_smoke_suite_builds_expected_commands_without_heavy_generation(tmp_path:
             "20",
             "--native-seed",
             "3",
+            "--storydiffusion-prompt-mode",
+            "clean",
             "--dry-run",
         ]
     )
@@ -87,8 +89,11 @@ def test_smoke_suite_builds_expected_commands_without_heavy_generation(tmp_path:
     assert "--native-height 512" in joined[1]
     assert "--native-num-steps 20" in joined[1]
     assert "--native-seed 3" in joined[1]
+    assert "--storydiffusion-prompt-mode clean" in joined[1]
+    assert "--storydiffusion-prompt-mode clean" not in joined[0]
     assert "--run-name double_native_storydiffusion_double" in joined[2]
     assert "--storydiffusion-root /opt/StoryDiffusion" in joined[2]
+    assert "--storydiffusion-prompt-mode clean" in joined[2]
     manifest = output_root / "smoke" / "suite_manifest.jsonl"
     entries = _manifest_entries(manifest)
     assert [entry["status"] for entry in entries] == ["passed", "passed", "passed"]
