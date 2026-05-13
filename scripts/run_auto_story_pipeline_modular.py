@@ -164,6 +164,12 @@ def main(argv: list[str] | None = None) -> int:
         help="storygen runtime profile for the single-character path",
     )
     parser.add_argument(
+        "--single-route",
+        choices=("storygen", "native_storydiffusion"),
+        default="storygen",
+        help="Single-character execution route. Defaults to the existing storygen path.",
+    )
+    parser.add_argument(
         "--set",
         dest="set_overrides",
         action="append",
@@ -189,7 +195,9 @@ def main(argv: list[str] | None = None) -> int:
 
     route, n_entities = classify_story(story_path)
 
-    if route == "single":
+    use_native_probe = route == "double" or (route == "single" and args.single_route == "native_storydiffusion")
+
+    if route == "single" and not use_native_probe:
         chosen = build_storygen_argv(args)
         env = {"PYTHONPATH": "src"}
     else:
@@ -213,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         env = {}
 
     print(f"[auto/modular] route={route} entities={n_entities}")
-    if route == "single":
+    if env:
         print("[auto/modular] command:", "PYTHONPATH=src " + " ".join(str(x) for x in chosen))
     else:
         print("[auto/modular] command:", " ".join(str(x) for x in chosen))
