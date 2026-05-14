@@ -239,9 +239,10 @@ def test_clean_mode_writes_debug_and_renders_native_prompts(tmp_path: Path, monk
     assert "same person across all scenes" not in "\n".join(prompt_array).lower()
     assert "maintain the same background identity" not in "\n".join(prompt_array).lower()
     nina_identity = next(prompt for prompt in prompt_array[:2] if prompt.startswith("[Nina]"))
-    assert "full body character reference of Nina" in nina_identity
-    assert "clear face" in nina_identity
-    assert "simple background" in nina_identity
+    assert "a single human woman" in nina_identity
+    assert "one person in the image" in nina_identity
+    assert "plain background" in nina_identity
+    assert "character reference" not in nina_identity
 
     scene_prompts = debug["scene_prompts"]
     assert scene_prompts[0].startswith("[Nina] LLM optimized Nina stands in the snow")
@@ -353,9 +354,10 @@ def test_natural_student_prompt_uses_case_insensitive_character_spec(tmp_path: P
     assert "casual shirt" in general_prompt
     assert "glasses" in general_prompt
     assert "student" in general_prompt
-    assert "[Student] one full-body portrait" in identity_prompt
-    assert "one person only" in identity_prompt
-    assert "single-view image" in identity_prompt
+    assert "[Student] a single human man" in identity_prompt
+    assert "one person in the image" in identity_prompt
+    assert "no character sheet" in identity_prompt
+    assert "no multiple views" in identity_prompt
     assert "character reference" not in identity_prompt
     assert "human person" not in general_prompt
     assert "human person" not in identity_prompt
@@ -418,8 +420,8 @@ def test_clean_renderer_uses_type_aware_animal_and_robot_prompts() -> None:
     assert "human person" not in joined
     assert "hairstyle" not in joined
     assert "complete outfit visible" not in next(prompt for prompt in rendered.identity_prompts if prompt.startswith("[Cat]")).lower()
-    assert "single animal only" in next(prompt for prompt in rendered.identity_prompts if prompt.startswith("[Cat]")).lower()
-    assert "single robot only" in next(prompt for prompt in rendered.identity_prompts if prompt.startswith("[Robot]")).lower()
+    assert "one animal in the image" in next(prompt for prompt in rendered.identity_prompts if prompt.startswith("[Cat]")).lower()
+    assert "one robot in the image" in next(prompt for prompt in rendered.identity_prompts if prompt.startswith("[Robot]")).lower()
     assert "cat is. dog is." not in joined
     assert "both animals visible" in rendered.scene_prompts[1].lower()
     assert "two-animal composition" in rendered.scene_prompts[1].lower()
@@ -472,8 +474,11 @@ def test_clean_v2_renderer_uses_lightweight_animal_scene_prompts() -> None:
     joined_identity_prompts = "\n".join(rendered.identity_reference_prompts).lower()
     assert "[dog] medium brown dog, visible spotted coat pattern, floppy ears" in rendered.general_prompt.lower()
     assert "visible spotted coat pattern" in joined_identity_prompts
-    assert "one full-body animal portrait" in joined_identity_prompts
-    assert "single-view image" in joined_identity_prompts
+    assert "a single small gray cat" in joined_identity_prompts
+    assert "a single medium brown dog" in joined_identity_prompts
+    assert "one animal in the image" in joined_identity_prompts
+    assert "no character sheet" in joined_identity_prompts
+    assert "no multiple views" in joined_identity_prompts
     assert "side view animal reference" not in joined_identity_prompts
     assert "three-quarter animal reference" not in joined_identity_prompts
     assert "cat is a small gray cat" not in joined_scene_prompts
@@ -606,7 +611,7 @@ def test_natural_renderer_uses_short_animal_storyboard_prompts() -> None:
     assert "right" not in joined_scene_prompts
     assert rendered.source_fields[0]["validation_warnings"] == []
     assert rendered.source_fields[0]["natural_scene_prompt"] == rendered.scene_prompts[0]
-    assert "one full-body animal portrait" in "\n".join(rendered.identity_reference_prompts).lower()
+    assert "a single small gray cat" in "\n".join(rendered.identity_reference_prompts).lower()
     assert "side view animal reference" not in "\n".join(rendered.identity_reference_prompts).lower()
     assert rendered.identity_prompts_per_character == 2
     assert len(rendered.identity_reference_prompts) == 4
@@ -665,6 +670,11 @@ def test_natural_human_dual_scene_stays_story_faithful_to_cafe_text() -> None:
     assert "drinking coffee" not in cafe_prompt
     assert "jack is an adult" not in cafe_prompt
     assert "both characters visible" not in cafe_prompt
+    joined_identity_prompts = "\n".join(rendered.identity_reference_prompts).lower()
+    assert "a single human man" in joined_identity_prompts
+    assert "a single human woman" in joined_identity_prompts
+    assert "one person in the image" in joined_identity_prompts
+    assert "character reference" not in joined_identity_prompts
 
 
 def test_natural_robot_scene_prompt_avoids_human_terms() -> None:
@@ -699,4 +709,9 @@ def test_natural_robot_scene_prompt_avoids_human_terms() -> None:
     assert rendered.scene_prompts[0] == "[Robot] repairing a signal tower, medium shot"
     assert "person" not in joined
     assert "outfit" not in joined
+    identity_prompt = rendered.identity_reference_prompts[0].lower()
+    assert "a single silver metal robot" in identity_prompt
+    assert "one robot in the image" in identity_prompt
+    assert "no character sheet" in identity_prompt
+    assert "character reference" not in identity_prompt
     assert rendered.source_fields[0]["validation_warnings"] == []

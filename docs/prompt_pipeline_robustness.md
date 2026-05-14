@@ -51,13 +51,13 @@ For native quality experiments, prefer:
 
 The saved identity refs are the fastest way to diagnose whether failures come from the identity bank or from later story-frame generation.
 
-The first saved identity refs showed that wording such as `full body character reference` and `side view character reference` can encourage StoryDiffusion to generate character-sheet or turnaround-style identity images. The native `clean_v2` / `natural` identity prompts now use single-subject portrait wording instead:
+The first saved identity refs showed that wording such as `full body character reference`, `full-body portrait`, and `side view character reference` can encourage StoryDiffusion to generate character-sheet or turnaround-style identity images. The native `clean_v2` / `natural` identity prompts now use single-subject wording instead:
 
-- human: `one full-body portrait of ..., single-view image, one person only`
-- animal: `one full-body animal portrait of ..., single-view image, one animal only`
-- robot/object: `one full-body robot/object portrait of ..., single-view image`
+- human: `a single human ..., standing alone, centered, plain background, one person in the image`
+- animal: `a single ... dog/cat, standing alone, centered, plain background, one animal in the image`
+- robot/object: `a single ... robot/object, standing alone, centered, plain background`
 
-This is intentionally limited to the native StoryDiffusion identity bank path; story scene prompts and the default storygen/IP-Adapter pipeline are unchanged.
+The native negative prompt also includes `character sheet`, `turnaround`, `multiple views`, `duplicate person`, `repeated person`, and `triptych`. This is intentionally limited to the native StoryDiffusion identity/debug path; story scene prompts and the default storygen/IP-Adapter pipeline are unchanged.
 
 Native clean/natural prompt generation also raises the LLM structured-output token budget above the base default. A double-character story can exceed the previous 800-token budget and return truncated JSON such as `Unterminated string`; the native probe now uses a larger `prompt.llm.max_output_tokens` override for config/debug generation.
 

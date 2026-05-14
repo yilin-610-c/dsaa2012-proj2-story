@@ -736,38 +736,38 @@ def _saved_image_prompt_map(
 def _identity_prompt(entity: str, descriptor: str, subject_type: str) -> str:
     if subject_type == "animal":
         return (
-            f"[{entity}] full body animal character reference of {entity}, {descriptor}, "
-            "single animal only, centered, neutral pose, simple background"
+            f"[{entity}] a single {descriptor}, standing alone, centered, plain background, "
+            "one animal in the image"
         )
     if subject_type in {"robot", "object", "vehicle"}:
         label = "robot" if subject_type == "robot" else subject_type
         return (
-            f"[{entity}] full body {label} character reference of {entity}, {descriptor}, "
-            f"single {label} only, centered, neutral pose, simple background"
+            f"[{entity}] a single {descriptor}, standing alone, centered, plain background, "
+            f"one {label} in the image"
         )
     return (
-        f"[{entity}] full body character reference of {entity}, {descriptor}, "
-        "clear face, complete outfit visible, single character only, centered, neutral pose, simple background"
+        f"[{entity}] a single {descriptor}, standing alone, centered, plain background, "
+        "one person in the image"
     )
 
 
 def _identity_reference_prompt_v2(entity: str, descriptor: str, subject_type: str, variant_index: int) -> str:
-    pose_variants = ["front-facing standing pose", "three-quarter standing pose", "relaxed standing pose"]
+    pose_variants = ["standing alone", "neutral standing pose", "calm standing pose"]
     pose = pose_variants[variant_index % len(pose_variants)]
     if subject_type == "animal":
         return (
-            f"[{entity}] one full-body animal portrait of {descriptor}, {pose}, "
-            "single-view image, one animal only, centered, simple background"
+            f"[{entity}] a single {descriptor}, {pose}, centered, plain background, "
+            "one animal in the image, no character sheet, no turnaround, no multiple views"
         )
     if subject_type in {"robot", "object", "vehicle"}:
         label = "robot" if subject_type == "robot" else subject_type
         return (
-            f"[{entity}] one full-body {label} portrait of {descriptor}, {pose}, "
-            f"single-view image, one {label} only, centered, simple background"
+            f"[{entity}] a single {descriptor}, {pose}, centered, plain background, "
+            f"one {label} in the image, no character sheet, no turnaround, no multiple views"
         )
     return (
-        f"[{entity}] one full-body portrait of {descriptor}, {pose}, "
-        "single-view image, one person only, centered, simple background"
+        f"[{entity}] a single {descriptor}, {pose}, centered, plain background, "
+        "one person in the image, no character sheet, no turnaround, no multiple views, no duplicate person"
     )
 
 

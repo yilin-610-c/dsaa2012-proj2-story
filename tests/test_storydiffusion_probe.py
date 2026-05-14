@@ -90,7 +90,7 @@ def test_run_generation_saves_identity_images_when_enabled(tmp_path: Path, monke
         use_reference_images=False,
         reference_images=[],
         general_prompt="[Student] human man",
-        prompt_array="[Student] full body character reference, human man\n[Student] reading\n[Student] leaving",
+        prompt_array="[Student] a single human man, standing alone, one person in the image\n[Student] reading\n[Student] leaving",
         negative_prompt="blurry",
         style="(No style)",
         seed=0,
@@ -117,5 +117,8 @@ def test_run_generation_saves_identity_images_when_enabled(tmp_path: Path, monke
     assert (tmp_path / "outputs" / "image_000.png").read_text(encoding="utf-8") == "scene-0"
     manifest = json.loads((tmp_path / "outputs" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["identity_images"][0].endswith("identity_refs/identity_000.png")
-    assert manifest["identity_image_prompt_map"]["identity_000.png"]["prompt"] == "[Student] full body character reference, human man"
+    assert (
+        manifest["identity_image_prompt_map"]["identity_000.png"]["prompt"]
+        == "[Student] a single human man, standing alone, one person in the image"
+    )
     assert manifest["images"][0].endswith("image_000.png")

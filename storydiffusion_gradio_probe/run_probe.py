@@ -18,7 +18,8 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "storydiffusion_gradio_probe"
 DEFAULT_NEGATIVE_PROMPT = (
     "bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, "
     "bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, "
-    "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs"
+    "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs, "
+    "character sheet, turnaround, multiple views, duplicate person, repeated person, triptych"
 )
 
 

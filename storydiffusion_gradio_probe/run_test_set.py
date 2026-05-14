@@ -25,7 +25,8 @@ DEFAULT_ANCHOR_RUN_DIR = REPO_ROOT / "outputs" / "compare_aesthetic_16_low_ip"
 DEFAULT_NEGATIVE_PROMPT = (
     "bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, "
     "bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, "
-    "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs"
+    "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs, "
+    "character sheet, turnaround, multiple views, duplicate person, repeated person, triptych"
 )
 NATIVE_CLEAN_LLM_MAX_OUTPUT_TOKENS = 2400
 
