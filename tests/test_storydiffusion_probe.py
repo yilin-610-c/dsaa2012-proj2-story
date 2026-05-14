@@ -4,6 +4,7 @@ import importlib.util
 import json
 import sys
 import types
+import argparse
 from pathlib import Path
 from types import ModuleType
 
@@ -69,6 +70,45 @@ def process_generation(*args, **kwargs):
     assert FakeBlocks.launch is original_blocks_launch
     assert FakeInterface.launch is original_interface_launch
     assert "[storydiffusion_probe] skipped Gradio launch during import" in capsys.readouterr().out
+
+
+def test_load_probe_config_appends_native_negative_terms(tmp_path: Path) -> None:
+    module = _load_module()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+storydiffusion_root: /opt/StoryDiffusion
+output_dir: outputs/test
+prompts:
+  general_prompt: "[Student] human man"
+  prompt_array:
+    - "[Student] a single human man"
+    - "[Student] reading"
+  negative_prompt: "blurry, duplicate person"
+generation:
+  id_length: 1
+save_image_start_index: 1
+""",
+        encoding="utf-8",
+    )
+
+    config = module.load_probe_config(
+        config_path,
+        argparse.Namespace(
+            output_dir=None,
+            storydiffusion_root=None,
+            general_prompt=None,
+            prompt=None,
+            save_identity_images=False,
+        ),
+    )
+
+    assert "blurry" in config.negative_prompt
+    assert config.negative_prompt.count("duplicate person") == 1
+    assert "character sheet" in config.negative_prompt
+    assert "turnaround" in config.negative_prompt
+    assert "multiple views" in config.negative_prompt
+    assert "triptych" in config.negative_prompt
 
 
 def test_run_generation_saves_identity_images_when_enabled(tmp_path: Path, monkeypatch) -> None:

@@ -21,6 +21,14 @@ DEFAULT_NEGATIVE_PROMPT = (
     "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs, "
     "character sheet, turnaround, multiple views, duplicate person, repeated person, triptych"
 )
+ANTI_CHARACTER_SHEET_NEGATIVE_TERMS = (
+    "character sheet",
+    "turnaround",
+    "multiple views",
+    "duplicate person",
+    "repeated person",
+    "triptych",
+)
 
 
 @dataclass(frozen=True)
@@ -72,6 +80,16 @@ def _as_lines(value: Any) -> str:
     return str(value or "")
 
 
+def _append_native_negative_terms(value: str) -> str:
+    clauses = [clause.strip() for clause in value.split(",") if clause.strip()]
+    seen = {clause.lower() for clause in clauses}
+    for term in ANTI_CHARACTER_SHEET_NEGATIVE_TERMS:
+        if term.lower() not in seen:
+            clauses.append(term)
+            seen.add(term.lower())
+    return ", ".join(clauses)
+
+
 def _path_list(value: Any, *, base_dir: Path, repo_root: Path) -> list[Path]:
     if value is None:
         return []
@@ -114,7 +132,7 @@ def load_probe_config(path: Path, overrides: argparse.Namespace) -> ProbeConfig:
 
     prompt_array = _as_lines(overrides.prompt or prompts.get("prompt_array"))
     general_prompt = _as_lines(overrides.general_prompt or prompts.get("general_prompt"))
-    negative_prompt = _as_lines(prompts.get("negative_prompt") or DEFAULT_NEGATIVE_PROMPT)
+    negative_prompt = _append_native_negative_terms(_as_lines(prompts.get("negative_prompt") or DEFAULT_NEGATIVE_PROMPT))
 
     return ProbeConfig(
         storydiffusion_root=storydiffusion_root,

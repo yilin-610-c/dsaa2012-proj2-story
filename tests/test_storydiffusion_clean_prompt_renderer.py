@@ -236,6 +236,13 @@ def test_clean_mode_writes_debug_and_renders_native_prompts(tmp_path: Path, monk
     assert config["save_image_start_index"] == 2
     prompt_array = config["prompts"]["prompt_array"]
     assert prompt_array[:2] == debug["identity_prompts"]
+    negative_prompt = config["prompts"]["negative_prompt"]
+    assert "blurry" in negative_prompt
+    assert "character sheet" in negative_prompt
+    assert "turnaround" in negative_prompt
+    assert "multiple views" in negative_prompt
+    assert "duplicate person" in negative_prompt
+    assert "triptych" in negative_prompt
     assert "same person across all scenes" not in "\n".join(prompt_array).lower()
     assert "maintain the same background identity" not in "\n".join(prompt_array).lower()
     nina_identity = next(prompt for prompt in prompt_array[:2] if prompt.startswith("[Nina]"))
@@ -298,6 +305,8 @@ def test_natural_mode_writes_storyboard_debug(tmp_path: Path, monkeypatch) -> No
     assert config["save_image_start_index"] == len(identity_reference_prompts)
     assert config["generation"]["id_length"] == len(identity_reference_prompts)
     assert config["generation"]["storydiffusion_internal_id_length"] == 2
+    assert "character sheet" in config["prompts"]["negative_prompt"]
+    assert "multiple views" in config["prompts"]["negative_prompt"]
     assert debug["natural_scene_prompt"] == debug["story_scene_prompts"]
     assert len(debug["structured_source_fields"]) == len(debug["story_scene_prompts"])
     assert config["prompt_debug"]["probe_overrides"]["prompt.llm.max_output_tokens"] == 2400

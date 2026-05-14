@@ -28,6 +28,14 @@ DEFAULT_NEGATIVE_PROMPT = (
     "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs, "
     "character sheet, turnaround, multiple views, duplicate person, repeated person, triptych"
 )
+ANTI_CHARACTER_SHEET_NEGATIVE_TERMS = (
+    "character sheet",
+    "turnaround",
+    "multiple views",
+    "duplicate person",
+    "repeated person",
+    "triptych",
+)
 NATIVE_CLEAN_LLM_MAX_OUTPUT_TOKENS = 2400
 
 SCENE_PATTERN = re.compile(r"^\[(SCENE-\d+)\]\s*(.*)$", re.DOTALL)
@@ -560,6 +568,17 @@ def _identity_image_prompt_map(output_dir: Path, prompt_array: list[str], identi
     return mapping
 
 
+def _native_negative_prompt(prompt_config: dict[str, Any]) -> str:
+    base = str(prompt_config.get("negative_prompt") or DEFAULT_NEGATIVE_PROMPT).strip()
+    clauses = [clause.strip() for clause in base.split(",") if clause.strip()]
+    seen = {clause.lower() for clause in clauses}
+    for term in ANTI_CHARACTER_SHEET_NEGATIVE_TERMS:
+        if term.lower() not in seen:
+            clauses.append(term)
+            seen.add(term.lower())
+    return ", ".join(clauses)
+
+
 def build_probe_config(
     input_path: Path,
     *,
@@ -675,7 +694,7 @@ def build_probe_config(
         "prompts": {
             "general_prompt": character_prompt,
             "prompt_array": prompt_array,
-            "negative_prompt": str(prompt_config.get("negative_prompt") or DEFAULT_NEGATIVE_PROMPT).strip(),
+            "negative_prompt": _native_negative_prompt(prompt_config),
         },
         "generation": {
             "sd_type": sd_type,
