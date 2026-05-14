@@ -249,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--storydiffusion-prompt-mode",
-        choices=("current", "clean", "clean_v2"),
+        choices=("current", "clean", "clean_v2", "natural"),
         default="current",
         help="Forwarded to native StoryDiffusion probe. Default preserves current prompt rendering.",
     )

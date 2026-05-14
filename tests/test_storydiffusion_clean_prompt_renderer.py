@@ -12,6 +12,7 @@ import yaml
 from storygen.prompt_stack.renderers.storydiffusion import (
     render_clean_native_storydiffusion_prompts,
     render_clean_v2_native_storydiffusion_prompts,
+    render_natural_native_storydiffusion_prompts,
 )
 from storygen.types import PromptBundle, PromptSpec, Scene, Story
 
@@ -237,6 +238,33 @@ def test_clean_v2_mode_writes_identity_mapping_debug(tmp_path: Path, monkeypatch
     assert config["prompts"]["prompt_array"][: len(identity_reference_prompts)] == identity_reference_prompts
 
 
+def test_natural_mode_writes_storyboard_debug(tmp_path: Path, monkeypatch) -> None:
+    module = _load_run_test_set()
+    _patch_prompt_pipeline(monkeypatch)
+    _write_double_story(tmp_path)
+    args = _args(tmp_path, mode="natural")
+    args.id_length = 2
+
+    config_paths = module.write_configs(args)
+
+    config = yaml.safe_load(config_paths[0].read_text(encoding="utf-8"))
+    debug = json.loads(config_paths[0].with_name("storydiffusion_prompt_debug.json").read_text(encoding="utf-8"))
+    identity_reference_prompts = debug["identity_reference_prompts"]
+    assert debug["mode"] == "natural"
+    assert debug["identity_prompt_count"] == len(identity_reference_prompts)
+    assert config["save_image_start_index"] == len(identity_reference_prompts)
+    assert config["generation"]["id_length"] == len(identity_reference_prompts)
+    assert config["generation"]["storydiffusion_internal_id_length"] == 2
+    assert debug["natural_scene_prompt"] == debug["story_scene_prompts"]
+    assert len(debug["structured_source_fields"]) == len(debug["story_scene_prompts"])
+    assert debug["validation_warnings"] == [
+        {"scene_id": "SCENE-1", "warnings": []},
+        {"scene_id": "SCENE-2", "warnings": []},
+        {"scene_id": "SCENE-3", "warnings": []},
+    ]
+    assert debug["final_prompt_array"] == config["prompts"]["prompt_array"]
+
+
 def test_clean_renderer_uses_type_aware_animal_and_robot_prompts() -> None:
     story = Story(
         source_path="story.txt",
@@ -410,3 +438,160 @@ def test_clean_v2_human_dual_scene_stays_story_faithful_to_cafe_text() -> None:
     assert cafe_prompt.count("medium two-shot") == 1
     assert "jack is an adult" not in cafe_prompt
     assert "[jack] human man, short brown hair, casual shirt" in rendered.general_prompt.lower()
+
+
+def test_natural_renderer_uses_short_animal_storyboard_prompts() -> None:
+    story = Story(
+        source_path="03.txt",
+        raw_text="<Cat> hides in a corner and watches.\n<Cat> looks at <Dog>.\n<Cat> and <Dog> move forward together.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Cat> hides in a corner and watches.", "Cat hides in a corner and watches.", ["Cat"]),
+            Scene("SCENE-2", 1, "<Cat> looks at <Dog>.", "Cat looks at Dog.", ["Cat", "Dog"]),
+            Scene("SCENE-3", 2, "<Cat> and <Dog> move forward together.", "Cat and Dog move forward together.", ["Cat", "Dog"]),
+        ],
+        all_entities=["Cat", "Dog"],
+        recurring_entities=["Cat", "Dog"],
+        entity_to_scene_ids={"Cat": ["SCENE-1", "SCENE-2", "SCENE-3"], "Dog": ["SCENE-2", "SCENE-3"]},
+    )
+    specs = {
+        "SCENE-1": _prompt_spec("SCENE-1", "Cat hides in a corner and watches", "hiding in a corner", "same setting: room"),
+        "SCENE-2": _prompt_spec("SCENE-2", "Cat looks at Dog", "Cat looks at Dog", "same setting: room"),
+        "SCENE-3": _prompt_spec("SCENE-3", "Cat and Dog move forward together", "moving forward together", ""),
+    }
+    specs["SCENE-2"].generation_prompt = "Cat is a small gray cat, striped. Dog is a medium brown dog, spotted, floppy ears. Cat looks at Dog. medium two-shot"
+    rendered = render_natural_native_storydiffusion_prompts(
+        story,
+        specs,
+        {
+            "Cat": {"subject_type": "animal", "species": "cat", "fur_color": "gray", "fur_pattern": "striped", "body_size": "small"},
+            "Dog": {
+                "subject_type": "animal",
+                "species": "dog",
+                "fur_color": "brown",
+                "fur_pattern": "spotted",
+                "markings": "floppy ears",
+                "body_size": "medium",
+            },
+        },
+        scene_plans={
+            "SCENE-1": {"interaction_summary": "Cat hides in a corner", "framing": "medium shot", "setting_focus": "room corner"},
+            "SCENE-2": {
+                "interaction_summary": "Cat looks at Dog",
+                "spatial_relation": "Cat on the left, Dog on the right",
+                "framing": "medium two-shot",
+                "setting_focus": "living room",
+            },
+            "SCENE-3": {
+                "interaction_summary": "Cat and Dog move forward together",
+                "framing": "wide shot",
+                "setting_focus": "open space",
+            },
+        },
+        identity_prompts_per_character=2,
+    )
+
+    joined_scene_prompts = "\n".join(rendered.scene_prompts).lower()
+    assert rendered.scene_prompts[0] == "[Cat] hiding and watching from a corner, medium shot"
+    assert rendered.scene_prompts[1] == "[Cat] [Dog] Cat looks at Dog, in a living room"
+    assert rendered.scene_prompts[2] == "[Cat] [Dog] Cat and Dog move forward together, in an open space, wide shot"
+    assert "cat is a small gray cat" not in joined_scene_prompts
+    assert "dog is a medium brown dog" not in joined_scene_prompts
+    assert "both animals visible" not in joined_scene_prompts
+    assert "two-animal composition" not in joined_scene_prompts
+    assert "action readable" not in joined_scene_prompts
+    assert "left" not in joined_scene_prompts
+    assert "right" not in joined_scene_prompts
+    assert rendered.source_fields[0]["validation_warnings"] == []
+    assert rendered.source_fields[0]["natural_scene_prompt"] == rendered.scene_prompts[0]
+    assert rendered.identity_prompts_per_character == 2
+    assert len(rendered.identity_reference_prompts) == 4
+    assert rendered.save_image_start_index == 4
+    assert rendered.saved_image_prompt_map["image_000.png"]["prompt"] == rendered.story_scene_prompts[0]
+
+
+def test_natural_human_dual_scene_stays_story_faithful_to_cafe_text() -> None:
+    story = Story(
+        source_path="06.txt",
+        raw_text="<Jack> and <Sara> sit in a park and talk.\nThey continue talking in a cafe.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Jack> and <Sara> sit in a park and talk.", "Jack and Sara sit in a park and talk.", ["Jack", "Sara"]),
+            Scene("SCENE-2", 1, "They continue talking in a cafe.", "They continue talking in a cafe.", []),
+        ],
+        all_entities=["Jack", "Sara"],
+        recurring_entities=["Jack", "Sara"],
+        entity_to_scene_ids={"Jack": ["SCENE-1"], "Sara": ["SCENE-1"]},
+    )
+    specs = {
+        "SCENE-1": _prompt_spec("SCENE-1", "Jack and Sara talk in a park", "talking together", ""),
+        "SCENE-2": _prompt_spec("SCENE-2", "Jack and Sara talking at a cafe table", "talking together", ""),
+    }
+    rendered = render_natural_native_storydiffusion_prompts(
+        story,
+        specs,
+        {
+            "Jack": {
+                "subject_type": "human",
+                "gender_presentation": "male",
+                "age_band": "adult",
+                "hair_color": "brown",
+                "hairstyle": "short",
+                "signature_outfit": "casual shirt",
+            },
+            "Sara": {
+                "subject_type": "human",
+                "gender_presentation": "female",
+                "age_band": "adult",
+                "hair_color": "blonde",
+                "hairstyle": "long",
+                "signature_outfit": "summer dress",
+            },
+        },
+        scene_plans={
+            "SCENE-1": {"interaction_summary": "Jack and Sara are talking together", "spatial_relation": "side by side", "framing": "medium two-shot", "setting_focus": "park"},
+            "SCENE-2": {"interaction_summary": "Jack and Sara are talking together", "spatial_relation": "across the table", "framing": "medium two-shot", "setting_focus": "cafe table"},
+        },
+        identity_prompts_per_character=1,
+    )
+
+    cafe_prompt = rendered.scene_prompts[1].lower()
+    assert cafe_prompt.startswith("[jack] [sara] jack and sara continue talking in a cafe")
+    assert "across the table" in cafe_prompt
+    assert "medium two-shot" in cafe_prompt
+    assert "drinking coffee" not in cafe_prompt
+    assert "jack is an adult" not in cafe_prompt
+    assert "both characters visible" not in cafe_prompt
+
+
+def test_natural_robot_scene_prompt_avoids_human_terms() -> None:
+    story = Story(
+        source_path="13.txt",
+        raw_text="<Robot> repairs a signal tower.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Robot> repairs a signal tower.", "Robot repairs a signal tower.", ["Robot"]),
+        ],
+        all_entities=["Robot"],
+        recurring_entities=["Robot"],
+        entity_to_scene_ids={"Robot": ["SCENE-1"]},
+    )
+    specs = {
+        "SCENE-1": _prompt_spec("SCENE-1", "Robot repairs a signal tower", "repairing the signal tower", ""),
+    }
+    rendered = render_natural_native_storydiffusion_prompts(
+        story,
+        specs,
+        {
+            "Robot": {
+                "subject_type": "robot",
+                "material": "metal",
+                "color_scheme": "silver",
+                "shape_features": "boxy body",
+            },
+        },
+        scene_plans={"SCENE-1": {"framing": "medium shot", "setting_focus": "signal tower"}},
+    )
+
+    joined = "\n".join(rendered.scene_prompts).lower()
+    assert rendered.scene_prompts[0] == "[Robot] repairing a signal tower, medium shot"
+    assert "person" not in joined
+    assert "outfit" not in joined
+    assert rendered.source_fields[0]["validation_warnings"] == []

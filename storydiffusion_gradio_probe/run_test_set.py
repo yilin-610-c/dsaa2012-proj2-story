@@ -423,6 +423,7 @@ def _build_clean_storydiffusion_prompt_payload(
     from storygen.prompt_stack.renderers.storydiffusion import (
         render_clean_native_storydiffusion_prompts,
         render_clean_v2_native_storydiffusion_prompts,
+        render_natural_native_storydiffusion_prompts,
     )
 
     probe_overrides = _prompt_probe_overrides(
@@ -453,7 +454,15 @@ def _build_clean_storydiffusion_prompt_payload(
             f"non_llm_specs={non_llm_specs or 'missing'}"
         )
     mode = str(storydiffusion_prompt_mode or "clean").strip().lower()
-    if mode == "clean_v2":
+    if mode == "natural":
+        rendered = render_natural_native_storydiffusion_prompts(
+            story,
+            prompt_bundle.scene_prompts,
+            character_specs,
+            scene_plans=bundle_metadata.get("scene_plans", {}),
+            identity_prompts_per_character=identity_prompts_per_character,
+        )
+    elif mode == "clean_v2":
         rendered = render_clean_v2_native_storydiffusion_prompts(
             story,
             prompt_bundle.scene_prompts,
@@ -496,6 +505,20 @@ def _build_clean_storydiffusion_prompt_payload(
             "identity_reference_prompts": rendered.identity_reference_prompts or rendered.identity_prompts,
             "story_scene_prompts": rendered.story_scene_prompts or rendered.scene_prompts,
             "saved_image_prompt_map": saved_image_prompt_map,
+            "structured_source_fields": [
+                field.get("structured_source_fields", {}) for field in rendered.source_fields
+            ],
+            "natural_scene_prompt": [
+                field.get("natural_scene_prompt") for field in rendered.source_fields if field.get("natural_scene_prompt")
+            ],
+            "validation_warnings": [
+                {
+                    "scene_id": field.get("scene_id"),
+                    "warnings": field.get("validation_warnings", []),
+                }
+                for field in rendered.source_fields
+                if field.get("validation_warnings") is not None
+            ],
             "final_prompt_array": rendered.final_prompt_array,
             "save_image_start_index": rendered.save_image_start_index,
             "character_specs": rendered.character_specs,
@@ -563,12 +586,12 @@ def build_probe_config(
             resolved_use_reference_images = True
 
     prompt_mode = str(storydiffusion_prompt_mode or "current").strip().lower()
-    if prompt_mode not in {"current", "clean", "clean_v2"}:
+    if prompt_mode not in {"current", "clean", "clean_v2", "natural"}:
         raise ValueError(f"Unsupported StoryDiffusion prompt mode: {storydiffusion_prompt_mode}")
     storydiffusion_prompt_debug: dict[str, Any] | None = None
     clean_internal_id_length: int | None = None
     generation_id_length_override: int | None = None
-    if prompt_mode in {"clean", "clean_v2"}:
+    if prompt_mode in {"clean", "clean_v2", "natural"}:
         clean_payload, pipeline_debug, prompt_config = _build_clean_storydiffusion_prompt_payload(
             input_path,
             profile=prompt_profile,
@@ -584,7 +607,7 @@ def build_probe_config(
         character_prompt = str(clean_payload["general_prompt"])
         save_image_start_index = int(clean_payload["save_image_start_index"])
         storydiffusion_prompt_debug = dict(clean_payload["debug"])
-        if prompt_mode == "clean_v2":
+        if prompt_mode in {"clean_v2", "natural"}:
             clean_internal_id_length = int(clean_payload["identity_prompts_per_character"])
             generation_id_length_override = int(clean_payload["identity_prompt_count"])
     else:
@@ -779,9 +802,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--storydiffusion-prompt-mode",
-        choices=("current", "clean", "clean_v2"),
+        choices=("current", "clean", "clean_v2", "natural"),
         default="current",
-        help="Native StoryDiffusion prompt rendering mode. Default preserves the existing generation_prompt prefix behavior.",
+        help=(
+            "Native StoryDiffusion prompt rendering mode. Default preserves the existing generation_prompt prefix behavior; "
+            "natural keeps clean_v2 identity prompts but renders shorter storyboard-style scene prompts."
+        ),
     )
     parser.add_argument("--prompt-generation-max-words", type=int, default=60)
     parser.add_argument("--prompt-generation-max-chars", type=int, default=420)

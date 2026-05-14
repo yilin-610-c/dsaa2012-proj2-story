@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--native-guidance-scale", type=float, default=None)
     parser.add_argument(
         "--storydiffusion-prompt-mode",
-        choices=("current", "clean", "clean_v2"),
+        choices=("current", "clean", "clean_v2", "natural"),
         default="current",
         help="Forwarded to native StoryDiffusion routes; clean uses llm_assisted PromptSpec generation_prompt.",
     )

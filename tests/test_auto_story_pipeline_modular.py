@@ -252,3 +252,26 @@ def test_native_route_forwards_clean_v2_storydiffusion_prompt_mode(tmp_path: Pat
     output = capsys.readouterr().out
     assert "storydiffusion_gradio_probe/run_test_set.py" in output
     assert "--storydiffusion-prompt-mode clean_v2" in output
+
+
+def test_native_route_forwards_natural_storydiffusion_prompt_mode(tmp_path: Path, monkeypatch, capsys) -> None:
+    module = _load_module()
+    _forbid_subprocess(monkeypatch)
+    story = _write_story(tmp_path, "[SCENE-1] <Nina> meets <Leo> in the snow.")
+
+    result = module.main(
+        [
+            "--input",
+            str(story),
+            "--run-name",
+            "dry_double_natural_prompt",
+            "--storydiffusion-prompt-mode",
+            "natural",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "storydiffusion_gradio_probe/run_test_set.py" in output
+    assert "--storydiffusion-prompt-mode natural" in output

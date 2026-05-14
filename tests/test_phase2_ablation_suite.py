@@ -103,6 +103,35 @@ def test_smoke_suite_builds_expected_commands_without_heavy_generation(tmp_path:
     assert [entry["status"] for entry in entries] == ["passed", "passed", "passed"]
 
 
+def test_smoke_suite_forwards_natural_prompt_mode_to_native_routes(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    calls = _capture_subprocess(monkeypatch)
+    single = _write_story(tmp_path, "single.txt", "[SCENE-1] <Nina> walks home.")
+    double = _write_story(tmp_path, "double.txt", "[SCENE-1] <Nina> meets <Leo>.")
+
+    result = module.main(
+        [
+            "--suite",
+            "smoke",
+            "--single-stories",
+            str(single),
+            "--double-stories",
+            str(double),
+            "--output-root",
+            str(tmp_path / "outputs_ablation"),
+            "--storydiffusion-prompt-mode",
+            "natural",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    joined = [" ".join(call) for call in calls]
+    assert "--storydiffusion-prompt-mode natural" not in joined[0]
+    assert "--storydiffusion-prompt-mode natural" in joined[1]
+    assert "--storydiffusion-prompt-mode natural" in joined[2]
+
+
 def test_full_suite_builds_expected_command_count_without_heavy_generation(tmp_path: Path, monkeypatch) -> None:
     module = _load_module()
     calls = _capture_subprocess(monkeypatch)

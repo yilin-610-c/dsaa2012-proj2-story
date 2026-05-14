@@ -410,7 +410,8 @@ def _format_setting_clause(value: str) -> str:
         return normalized
     if any(term in lowered for term in ("table", "wall", "door", "window", "bench")):
         return f"at a {normalized}" if not lowered.startswith(("a ", "an ", "the ")) else f"at {normalized}"
-    return f"in a {normalized}" if not lowered.startswith(("a ", "an ", "the ")) else f"in {normalized}"
+    article = "an" if normalized[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
+    return f"in {article} {normalized}" if not lowered.startswith(("a ", "an ", "the ")) else f"in {normalized}"
 
 
 def _clean_framing_clause(value: str, subject_types: list[str]) -> str:
@@ -470,6 +471,235 @@ def _story_scene_prompt_v2(
     prompt = f"{tags} {', '.join(cleaned_clauses)}"
     prompt = re.sub(r"\s+,", ",", prompt)
     return _normalize_whitespace(prompt)
+
+
+def _storydiffusion_tags(resolved_entities: list[str]) -> str:
+    return " ".join(f"[{entity}]" for entity in resolved_entities) if resolved_entities else "[NC]"
+
+
+def _scene_plan_value(scene_plan: dict[str, Any], field_name: str) -> str:
+    return _normalize_whitespace(scene_plan.get(field_name))
+
+
+def _natural_action_source(
+    *,
+    scene_text: str,
+    spec: PromptSpec | None,
+    scene_plan: dict[str, Any],
+    resolved_entities: list[str],
+) -> str:
+    scene_text = _remove_full_identity_sentences(scene_text, resolved_entities)
+    generation_prompt = _remove_full_identity_sentences(getattr(spec, "generation_prompt", "") if spec else "", resolved_entities)
+    generation_prompt = re.sub(r"^LLM optimized\s+", "", generation_prompt, flags=re.IGNORECASE).strip(" ,.;")
+    action_prompt = _normalize_whitespace(getattr(spec, "action_prompt", "") if spec else "")
+    interaction = _scene_plan_value(scene_plan, "interaction_summary")
+    candidates = [scene_text, interaction, action_prompt, generation_prompt]
+    for candidate in candidates:
+        cleaned = _remove_full_identity_sentences(candidate, resolved_entities).strip(" ,.;")
+        if cleaned and cleaned.lower() not in {"unknown", "unspecified"}:
+            return cleaned
+    return scene_text
+
+
+def _gerund_phrase(text: str) -> str:
+    replacements = {
+        "hides": "hiding",
+        "hide": "hiding",
+        "watches": "watching",
+        "watch": "watching",
+        "looks": "looking",
+        "look": "looking",
+        "moves": "moving",
+        "move": "moving",
+        "runs": "running",
+        "run": "running",
+        "walks": "walking",
+        "walk": "walking",
+        "stands": "standing",
+        "stand": "standing",
+        "sits": "sitting",
+        "sit": "sitting",
+        "waits": "waiting",
+        "wait": "waiting",
+        "repairs": "repairing",
+        "repair": "repairing",
+    }
+    phrase = text.strip(" ,.;")
+    if not phrase:
+        return phrase
+    if re.search(r"\bhides?\s+in\s+a\s+corner\s+and\s+watches?\b", phrase, flags=re.IGNORECASE):
+        return re.sub(
+            r"\bhides?\s+in\s+a\s+corner\s+and\s+watches?\b",
+            "hiding and watching from a corner",
+            phrase,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    first, *rest = phrase.split(" ", 1)
+    mapped = replacements.get(first.lower())
+    if mapped:
+        return " ".join([mapped] + rest)
+    return phrase
+
+
+def _naturalize_action(text: str, resolved_entities: list[str]) -> str:
+    action = _normalize_whitespace(text).strip(" ,.;")
+    if not action:
+        return action
+    if len(resolved_entities) == 1:
+        entity = resolved_entities[0]
+        stripped = _strip_leading_entity_names(action, [entity])
+        stripped = re.sub(rf"^{re.escape(entity)}\s+", "", stripped, count=1, flags=re.IGNORECASE).strip(" ,.;")
+        if stripped != action:
+            return _gerund_phrase(stripped)
+        return _gerund_phrase(action)
+    return re.sub(r"\b(are|is)\s+talking\b", "talking", action, flags=re.IGNORECASE).strip(" ,.;")
+
+
+def _setting_already_present(action: str, setting: str) -> bool:
+    if not action or not setting:
+        return False
+    action_low = action.lower()
+    setting_low = setting.lower()
+    if setting_low in action_low:
+        return True
+    setting_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", setting_low)
+        if len(token) >= 4 and token not in {"with", "from", "inside", "near", "under", "over"}
+    }
+    return any(token in action_low for token in setting_tokens)
+
+
+def _natural_setting_clause(setting_focus: str, action: str) -> str:
+    setting = _format_setting_clause(setting_focus)
+    if _setting_already_present(action, setting):
+        return ""
+    return setting
+
+
+def _natural_spatial_clause(spatial_relation: str, scene_text: str) -> str:
+    spatial = _normalize_whitespace(spatial_relation).strip(" ,.;")
+    if not spatial:
+        return ""
+    spatial_low = spatial.lower()
+    scene_low = scene_text.lower()
+    if ("left" in spatial_low or "right" in spatial_low) and not ("left" in scene_low or "right" in scene_low):
+        return ""
+    return spatial
+
+
+def _natural_framing_clause(value: str, subject_types: list[str]) -> str:
+    framing = _clean_framing_clause(value, subject_types)
+    if not framing:
+        return ""
+    allowed = [
+        "close-up",
+        "close up",
+        "medium shot",
+        "wide shot",
+        "full body",
+        "full-body",
+        "medium two-shot",
+        "two-shot",
+    ]
+    low = framing.lower()
+    if any(term in low for term in allowed):
+        return framing
+    return ""
+
+
+def _contains_full_identity_sentence(prompt: str, entity_names: list[str]) -> bool:
+    for entity in entity_names:
+        if re.search(rf"\b{re.escape(entity)}\s+is\s+(?:an?|the)?\s*[^,.;]+", prompt, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _validate_natural_scene_prompt(
+    *,
+    prompt: str,
+    tags: str,
+    resolved_entities: list[str],
+    resolved_subject_types: list[str],
+    spatial_relation: str,
+    scene_text: str,
+) -> list[str]:
+    warnings: list[str] = []
+    low = prompt.lower()
+    if not prompt.startswith(tags):
+        warnings.append("missing_exact_visible_character_tags")
+    if any(subject_type == "animal" for subject_type in resolved_subject_types):
+        for banned in ("person", "outfit", "clothes"):
+            if banned in low:
+                warnings.append(f"animal_prompt_contains_{banned}")
+    if any(subject_type == "robot" for subject_type in resolved_subject_types):
+        for banned in ("human person", "outfit", "clothes"):
+            if banned in low:
+                warnings.append(f"robot_prompt_contains_{banned.replace(' ', '_')}")
+    for banned in ("unknown", "unspecified", "is."):
+        if banned in low:
+            warnings.append(f"prompt_contains_{banned.replace('.', '').replace(' ', '_')}")
+    if _contains_full_identity_sentence(prompt, resolved_entities):
+        warnings.append("prompt_contains_full_identity_sentence")
+    spatial_low = spatial_relation.lower()
+    scene_low = scene_text.lower()
+    if ("left" in low or "right" in low) and not (
+        ("left" in spatial_low or "right" in spatial_low) and ("left" in scene_low or "right" in scene_low)
+    ):
+        warnings.append("left_right_relation_not_supported_by_story_text")
+    return _unique(warnings)
+
+
+def _story_scene_prompt_natural(
+    *,
+    tags: str,
+    scene_text: str,
+    spec: PromptSpec | None,
+    scene_plan: dict[str, Any] | None,
+    resolved_entities: list[str],
+    subject_types: dict[str, str],
+) -> tuple[str, dict[str, Any]]:
+    scene_plan = scene_plan or {}
+    resolved_subject_types = [subject_types.get(entity, "human") for entity in resolved_entities]
+    action_source = _natural_action_source(
+        scene_text=scene_text,
+        spec=spec,
+        scene_plan=scene_plan,
+        resolved_entities=resolved_entities,
+    )
+    action = _naturalize_action(action_source, resolved_entities)
+    spatial_relation = _natural_spatial_clause(_scene_plan_value(scene_plan, "spatial_relation"), scene_text)
+    setting = _natural_setting_clause(_scene_plan_value(scene_plan, "setting_focus"), action)
+    framing = _natural_framing_clause(_scene_plan_value(scene_plan, "framing"), resolved_subject_types)
+
+    clauses = _unique([action, spatial_relation, setting, framing])
+    prompt = f"{tags} {', '.join(clauses)}" if clauses else f"{tags} {scene_text}".strip()
+    prompt = re.sub(r"\s+,", ",", prompt)
+    prompt = re.sub(r"\bin a open\b", "in an open", prompt, flags=re.IGNORECASE)
+    prompt = _normalize_whitespace(prompt).strip(" ,.;")
+    warnings = _validate_natural_scene_prompt(
+        prompt=prompt,
+        tags=tags,
+        resolved_entities=resolved_entities,
+        resolved_subject_types=resolved_subject_types,
+        spatial_relation=_scene_plan_value(scene_plan, "spatial_relation"),
+        scene_text=scene_text,
+    )
+    return prompt, {
+        "natural_scene_prompt": prompt,
+        "validation_warnings": warnings,
+        "structured_source_fields": {
+            "action_source": action_source,
+            "action": action,
+            "setting_focus": _scene_plan_value(scene_plan, "setting_focus"),
+            "spatial_relation": _scene_plan_value(scene_plan, "spatial_relation"),
+            "used_spatial_relation": spatial_relation,
+            "framing": _scene_plan_value(scene_plan, "framing"),
+            "used_framing": framing,
+            "resolved_subject_types": resolved_subject_types,
+        },
+    }
 
 
 def _saved_image_prompt_map(
@@ -672,6 +902,83 @@ def render_clean_v2_native_storydiffusion_prompts(
                 "scene_consistency_prompt": spec.scene_consistency_prompt if spec else "",
                 "generation_prompt": spec.generation_prompt if spec else "",
                 "scene_plan": dict(scene_plans.get(scene.scene_id, {})),
+            }
+        )
+        if resolved_entities:
+            previous_entities = resolved_entities
+
+    final_prompt_array = identity_prompts + scene_prompts
+    story_frame_start_index = len(identity_prompts)
+    return NativeStoryDiffusionPromptRender(
+        general_prompt=general_prompt,
+        identity_prompts=identity_prompts,
+        scene_prompts=scene_prompts,
+        final_prompt_array=final_prompt_array,
+        save_image_start_index=story_frame_start_index,
+        character_specs=character_specs,
+        source_fields=source_fields,
+        identity_prompts_per_character=per_character,
+        identity_reference_prompts=identity_prompts,
+        story_scene_prompts=scene_prompts,
+        saved_image_prompt_map=_saved_image_prompt_map(scene_prompts, source_fields, story_frame_start_index),
+    )
+
+
+def render_natural_native_storydiffusion_prompts(
+    story: Story,
+    prompt_specs: dict[str, PromptSpec],
+    character_specs: dict[str, Any] | None = None,
+    *,
+    scene_plans: dict[str, dict[str, Any]] | None = None,
+    identity_prompts_per_character: int = 1,
+) -> NativeStoryDiffusionPromptRender:
+    character_specs = character_specs or {}
+    scene_plans = scene_plans or {}
+    story_entities = list(story.all_entities or [])
+    if not story_entities:
+        story_entities = ["Subject"]
+
+    descriptors = {
+        entity: _character_descriptor_v2(entity, character_specs.get(entity, {}))
+        for entity in story_entities
+    }
+    subject_types = {
+        entity: _subject_type(entity, character_specs.get(entity, {}))
+        for entity in story_entities
+    }
+    general_prompt = "\n".join(f"[{entity}] {descriptors[entity]}" for entity in story_entities)
+    per_character = max(1, int(identity_prompts_per_character))
+    identity_prompts = _identity_reference_prompts_v2(story_entities, descriptors, subject_types, per_character)
+
+    scene_prompts: list[str] = []
+    source_fields: list[dict[str, Any]] = []
+    previous_entities: list[str] = []
+    for scene in story.scenes:
+        spec = prompt_specs.get(scene.scene_id)
+        resolved_entities = _resolve_scene_entities(scene.entities, scene.clean_text, previous_entities, story_entities)
+        clean_text = _replace_leading_pronoun(_clean_scene_text(scene.clean_text), resolved_entities)
+        tags = _storydiffusion_tags(resolved_entities)
+        prompt, natural_debug = _story_scene_prompt_natural(
+            tags=tags,
+            scene_text=clean_text,
+            spec=spec,
+            scene_plan=scene_plans.get(scene.scene_id),
+            resolved_entities=resolved_entities,
+            subject_types=subject_types,
+        )
+        scene_prompts.append(prompt)
+        source_fields.append(
+            {
+                "scene_id": scene.scene_id,
+                "raw_text": scene.raw_text,
+                "clean_text": scene.clean_text,
+                "scene_entities": list(scene.entities),
+                "resolved_entities": resolved_entities,
+                "action_prompt": spec.action_prompt if spec else "",
+                "scene_consistency_prompt": spec.scene_consistency_prompt if spec else "",
+                "generation_prompt": spec.generation_prompt if spec else "",
+                "scene_plan": dict(scene_plans.get(scene.scene_id, {})),
+                **natural_debug,
             }
         )
         if resolved_entities:
