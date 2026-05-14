@@ -15,6 +15,15 @@ model:
   guidance_scale: 0.0
   num_inference_steps: 4
   enable_attention_slicing: true
+  # DiT (PixArt-α) specific settings
+  max_sequence_length: 120
+  enable_vae_slicing: false
+  enable_vae_tiling: false
+  # Story-level joint attention (dit_story_joint backend)
+  story_attention:
+    enabled: false
+    cross_scene_layers: []
+    scene_position_embedding: learned
   consistent_attention:
     enabled: false
     id_length: 4
@@ -478,3 +487,199 @@ runtime_profiles:
         generate: true
       identity_conditioning:
         enabled: true
+  dit_smoke_test:
+    runtime:
+      run_name_prefix: dit_smoke
+    model:
+      backend: dit_text2img
+      granularity: scene
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      enable_attention_slicing: true
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      max_sequence_length: 120
+    generation:
+      candidate_count: 2
+      base_seed: 1234
+  dit_full_quality:
+    runtime:
+      run_name_prefix: dit_full
+    model:
+      backend: dit_text2img
+      granularity: scene
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 1024
+      height: 1024
+      guidance_scale: 4.5
+      num_inference_steps: 20
+      enable_attention_slicing: false
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      max_sequence_length: 120
+    generation:
+      candidate_count: 4
+      base_seed: 2026
+  dit_story_joint_smoke:
+    runtime:
+      run_name_prefix: dit_story_joint
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [12, 24]
+        blend_strength: 0.15
+        scene_position_embedding: learned
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  dit_story_joint_full:
+    runtime:
+      run_name_prefix: dit_story_joint_full
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 768
+      height: 768
+      guidance_scale: 4.5
+      num_inference_steps: 20
+      max_sequence_length: 120
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [6, 12, 18, 24]
+        scene_position_embedding: learned
+    generation:
+      candidate_count: 1
+      base_seed: 2026
+  # --- DiT Story-Joint tuning presets ---
+  dit_story_joint_light:
+    runtime:
+      run_name_prefix: dit_story_joint_light
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_model_cpu_offload: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [12, 24]
+        blend_strength: 0.05
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  dit_story_joint_medium:
+    runtime:
+      run_name_prefix: dit_story_joint_medium
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_model_cpu_offload: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [6, 12, 18, 24]
+        blend_strength: 0.15
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  dit_story_joint_strong:
+    runtime:
+      run_name_prefix: dit_story_joint_strong
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_model_cpu_offload: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [4, 8, 12, 16, 20, 24]
+        # Use per-layer blend: shallow strong, deep off to protect identity
+        blend_strength_per_layer:
+          4: 0.35
+          8: 0.30
+          12: 0.20
+          16: 0.15
+          20: 0.05
+          24: 0.0
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  # --- DiT + DreamBooth LoRA presets (requires trained LoRA checkpoint) ---
+  dit_lora_smoke:
+    runtime:
+      run_name_prefix: dit_lora
+    model:
+      backend: dit_text2img
+      granularity: scene
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 2.5
+      num_inference_steps: 12
+      enable_attention_slicing: true
+      enable_model_cpu_offload: true
+      max_sequence_length: 120
+      lora_path: null  # Set to your trained LoRA checkpoint path
+      lora_trigger: null  # e.g. "sks " — trigger word from DreamBooth training
+    # Training images from gen_lora_ref_images.py are SDXL + photorealistic captions; the default
+    # global style_prompt ("cinematic story illustration") pushes PixArt away from that domain and
+    # washes out LoRA identity. Keep inference closer to the training distribution.
+    prompt:
+      style_prompt: photorealistic portrait, natural skin texture, soft natural light, sharp facial detail, coherent identity
+    generation:
+      candidate_count: 2
+      base_seed: 1234
+  dit_story_joint_lora:
+    runtime:
+      run_name_prefix: dit_story_joint_lora
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 768
+      height: 768
+      guidance_scale: 4.5
+      num_inference_steps: 20
+      max_sequence_length: 120
+      enable_model_cpu_offload: true
+      lora_path: null  # Set to your trained LoRA checkpoint path
+      lora_trigger: null  # e.g. "sks " — trigger word from DreamBooth training
+      story_attention:
+        enabled: true
+        cross_scene_layers: [12, 24]
+        blend_strength: 0.15
+    prompt:
+      style_prompt: photorealistic portrait, natural skin texture, soft natural light, sharp facial detail, coherent identity
+    generation:
+      candidate_count: 1
+      base_seed: 2026

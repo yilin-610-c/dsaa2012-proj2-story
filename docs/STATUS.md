@@ -164,10 +164,16 @@ bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 2. 训练图是 SDXL 生成的，PixArt 是不同模型 — 跨模型迁移天然有 gap
 3. LoRA 只训练 transformer，text encoder 不变
 4. 训练数据多样性还不够（半身照为主）
+5. **推理风格与训练 caption 不一致**：`gen_lora_ref_images.py` 的 metadata 大量带 `photorealistic`，而默认 profile 的 `style_prompt` 偏「cinematic illustration」，会把脸从训练域拉开
+6. **LoRA alpha 偏弱**：此前训练脚本未设 `lora_alpha`，PEFT 对高 rank 仍用默认 alpha=8，相对 `rank=32` 缩放偏弱
+
+**已缓解（代码）**:
+- `dit_lora_smoke` / `dit_story_joint_lora` 覆盖 `prompt.style_prompt` 为 photorealistic 向，贴近训练图描述
+- `train_pixart_lora_hf.py`：`--lora_alpha` 默认等于 `--rank`（可用 CLI 显式改）
 
 **尝试过**: 加 `--train_text_encoder` 但 mixed_precision fp16 与 T5 LoRA 有 dtype 冲突 (#5.3)。
 
-**建议**: 解决方案待定（见 #8 待办）。
+**建议**: 重新训练一次 LoRA 以吃满 `lora_alpha` 改动；推理用 `dit_lora_smoke` 新 style。根本上限仍受 #1–#4 约束（见 #8 待办）。
 
 ### 5.3 --train_text_encoder 在 mixed_precision=fp16 下报错 ❌
 

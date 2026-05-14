@@ -284,6 +284,8 @@ training_data/my_character/
 # prompt 是: "Lily, makes breakfast..."  ← LoRA 不会生效！
 ```
 
+**风格对齐（重要）**：训练图由 SDXL 生成，caption 里大量 `photorealistic`。若推理仍用默认「cinematic illustration」风格，会把人脸拉离 LoRA 学到的分布。`dit_lora_smoke` / `dit_story_joint_lora` 已在 profile 内覆盖为 photorealistic 向的 `style_prompt`；自定义 profile 时请保持与训练 caption 同一美学域。
+
 ---
 
 ## 5. Story-Joint 跨场景融合机制
