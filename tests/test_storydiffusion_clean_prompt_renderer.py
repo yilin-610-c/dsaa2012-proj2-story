@@ -9,7 +9,8 @@ from types import ModuleType
 
 import yaml
 
-from storygen.types import PromptBundle, PromptSpec
+from storygen.prompt_stack.renderers.storydiffusion import render_clean_native_storydiffusion_prompts
+from storygen.types import PromptBundle, PromptSpec, Scene, Story
 
 
 def _load_run_test_set() -> ModuleType:
@@ -207,3 +208,64 @@ def test_clean_mode_writes_debug_and_renders_native_prompts(tmp_path: Path, monk
     assert scene_prompts[2].startswith("[Nina] [Leo] LLM optimized Nina and Leo look at each other quietly")
     assert "crowd" in scene_prompts[2]
     assert debug["source_fields"][1]["resolved_entities"] == ["Nina", "Leo"]
+
+
+def test_clean_renderer_uses_type_aware_animal_and_robot_prompts() -> None:
+    story = Story(
+        source_path="story.txt",
+        raw_text="<Cat> hides.\n<Cat> meets <Dog>.\n<Robot> helps.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Cat> hides.", "Cat hides.", ["Cat"]),
+            Scene("SCENE-2", 1, "<Cat> meets <Dog>.", "Cat meets Dog.", ["Cat", "Dog"]),
+            Scene("SCENE-3", 2, "<Robot> helps.", "Robot helps.", ["Robot"]),
+        ],
+        all_entities=["Cat", "Dog", "Robot"],
+        recurring_entities=["Cat", "Dog", "Robot"],
+        entity_to_scene_ids={"Cat": ["SCENE-1", "SCENE-2"], "Dog": ["SCENE-2"], "Robot": ["SCENE-3"]},
+    )
+    specs = {
+        "SCENE-1": _prompt_spec("SCENE-1", "Cat hides in a corner", "hiding", "same setting: room"),
+        "SCENE-2": _prompt_spec("SCENE-2", "Cat is. Dog is. Cat looks at Dog", "looking", "same setting: room"),
+        "SCENE-3": _prompt_spec("SCENE-3", "Robot helps", "helping", "same setting: workshop"),
+    }
+    specs["SCENE-2"].generation_prompt = "Cat is. Dog is. Cat looks at Dog, corner of the room"
+    rendered = render_clean_native_storydiffusion_prompts(
+        story,
+        specs,
+        {
+            "Cat": {
+                "subject_type": "animal",
+                "species": "cat",
+                "fur_color": "gray",
+                "fur_pattern": "short fur",
+                "body_size": "small",
+            },
+            "Dog": {
+                "subject_type": "animal",
+                "species": "dog",
+                "fur_color": "brown",
+                "fur_pattern": "short coat",
+                "markings": "floppy ears",
+                "body_size": "medium",
+            },
+            "Robot": {
+                "subject_type": "robot",
+                "material": "metal",
+                "color_scheme": "silver",
+                "shape_features": "boxy body",
+            },
+        },
+    )
+
+    joined = "\n".join([rendered.general_prompt, *rendered.identity_prompts, *rendered.scene_prompts]).lower()
+    assert "[cat] small gray cat, short fur" in rendered.general_prompt.lower()
+    assert "[dog] medium brown dog, short coat, floppy ears" in rendered.general_prompt.lower()
+    assert "[robot] silver metal robot, boxy body" in rendered.general_prompt.lower()
+    assert "human person" not in joined
+    assert "hairstyle" not in joined
+    assert "complete outfit visible" not in next(prompt for prompt in rendered.identity_prompts if prompt.startswith("[Cat]")).lower()
+    assert "single animal only" in next(prompt for prompt in rendered.identity_prompts if prompt.startswith("[Cat]")).lower()
+    assert "single robot only" in next(prompt for prompt in rendered.identity_prompts if prompt.startswith("[Robot]")).lower()
+    assert "cat is. dog is." not in joined
+    assert "both animals visible" in rendered.scene_prompts[1].lower()
+    assert "two-animal composition" in rendered.scene_prompts[1].lower()

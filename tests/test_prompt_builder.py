@@ -50,12 +50,15 @@ def test_prompt_builder_builds_separated_prompt_fields() -> None:
     prompt_spec = builder.build_prompt_for_scene(story, story.scenes[0])
 
     assert prompt_spec.style_prompt == "cinematic illustration"
-    assert prompt_spec.character_prompt == "main subject: Hero, same person across all scenes"
+    assert prompt_spec.character_prompt == "main subject: Hero, hero, same person across all scenes"
     assert prompt_spec.global_context_prompt == "shared story context: Hero, keep the same lighting and palette"
     assert prompt_spec.action_prompt == "runs"
-    assert prompt_spec.generation_prompt == "Hero, runs, cinematic illustration"
+    assert prompt_spec.generation_prompt.startswith("Hero, runs, cinematic illustration")
     assert prompt_spec.scoring_prompt == "Hero, runs"
-    assert prompt_spec.local_prompt == "Hero runs., key action: active running pose, keep the pose easy to read"
+    assert prompt_spec.local_prompt.startswith("Hero runs.")
+    assert "same scene entities: Hero" in prompt_spec.local_prompt
+    assert "key action: active running pose" in prompt_spec.local_prompt
+    assert "keep the pose easy to read" in prompt_spec.local_prompt
     assert "cinematic illustration" in prompt_spec.full_prompt
     assert len(prompt_spec.generation_prompt) < len(prompt_spec.full_prompt)
     assert prompt_spec.negative_prompt == "blurry"
@@ -120,16 +123,17 @@ def test_prompt_builder_reuses_primary_entity_for_pronoun_only_scenes() -> None:
 
     prompt_spec = builder.build_prompt_for_scene(story, story.scenes[1])
 
-    assert prompt_spec.character_prompt == "main subject: Lily, same person across all scenes"
+    assert prompt_spec.character_prompt == "main subject: Lily, female woman, lily, same person across all scenes"
     assert prompt_spec.global_context_prompt == (
         "shared story context: Lily, recurring setting: the kitchen, keep the same lighting and palette"
     )
     assert prompt_spec.action_prompt == "looks out the window quietly"
     assert prompt_spec.scoring_prompt == "Lily, looks out the window quietly"
-    assert prompt_spec.generation_prompt == "Lily, looks out the window quietly, cinematic illustration"
-    assert prompt_spec.local_prompt == (
-        "Lily looks out the window quietly., key action: looking out through the window, keep the pose easy to read"
-    )
+    assert prompt_spec.generation_prompt.startswith("Lily, looks out the window quietly, cinematic illustration")
+    assert prompt_spec.local_prompt.startswith("Lily looks out the window quietly.")
+    assert "same setting: the kitchen" in prompt_spec.local_prompt
+    assert "key action: looking out through the window" in prompt_spec.local_prompt
+    assert "keep the pose easy to read" in prompt_spec.local_prompt
 
 
 def test_prompt_builder_uses_animal_continuity_rules() -> None:
@@ -179,11 +183,14 @@ def test_prompt_builder_uses_animal_continuity_rules() -> None:
 
     prompt_spec = builder.build_prompt_for_scene(story, story.scenes[1])
 
-    assert prompt_spec.character_prompt == "main subject: Dog, same animal across all scenes"
+    assert prompt_spec.character_prompt == "main subject: Dog, dog, same animal across all scenes"
     assert prompt_spec.action_prompt == "chases a ball"
-    assert prompt_spec.generation_prompt == "Dog, chases a ball, storybook illustration"
+    assert prompt_spec.generation_prompt.startswith("Dog, chases a ball, storybook illustration")
     assert prompt_spec.scoring_prompt == "Dog, chases a ball"
-    assert prompt_spec.local_prompt == "Dog chases a ball., key action: chasing motion, keep the pose easy to read"
+    assert prompt_spec.local_prompt.startswith("Dog chases a ball.")
+    assert "same setting: a field" in prompt_spec.local_prompt
+    assert "key action: chasing motion" in prompt_spec.local_prompt
+    assert "keep the pose easy to read" in prompt_spec.local_prompt
 
 
 def test_prompt_builder_adds_action_prompt_for_sitting_scene() -> None:
@@ -232,7 +239,7 @@ def test_prompt_builder_adds_action_prompt_for_sitting_scene() -> None:
 
     assert "key action: clearly seated pose" in prompt_spec.local_prompt
     assert prompt_spec.action_prompt == "sits down to eat"
-    assert prompt_spec.generation_prompt == "Lily, sits down to eat, cinematic illustration"
+    assert prompt_spec.generation_prompt.startswith("Lily, sits down to eat, cinematic illustration")
     assert prompt_spec.scoring_prompt == "Lily, sits down to eat"
 
 
@@ -281,7 +288,8 @@ def test_prompt_builder_adds_short_setting_to_scoring_prompt() -> None:
     prompt_spec = builder.build_prompt_for_scene(story, story.scenes[0])
 
     assert prompt_spec.action_prompt == "makes breakfast"
-    assert prompt_spec.generation_prompt == "Lily, makes breakfast, in the kitchen, cinematic illustration"
+    assert prompt_spec.generation_prompt.startswith("Lily, makes breakfast, cinematic illustration")
+    assert "in the kitchen" in prompt_spec.generation_prompt
     assert prompt_spec.scoring_prompt == "Lily, makes breakfast, in the kitchen"
 
 

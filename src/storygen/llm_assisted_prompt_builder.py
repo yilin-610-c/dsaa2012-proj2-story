@@ -150,6 +150,32 @@ ANIMAL_IDENTITY_TERMS = {
     "pet",
 }
 
+VALID_SUBJECT_TYPES = {"human", "animal", "robot", "object", "vehicle", "unknown"}
+ANIMAL_SPECIES_BY_ID = {
+    "bird": "bird",
+    "cat": "cat",
+    "dog": "dog",
+    "puppy": "dog",
+    "kitten": "cat",
+}
+ROBOT_IDENTITY_TERMS = {"robot", "android", "machine", "mechanical"}
+HUMAN_ROLE_TERMS = {
+    "artist",
+    "baby",
+    "boy",
+    "chef",
+    "child",
+    "driver",
+    "girl",
+    "kid",
+    "lady",
+    "man",
+    "runner",
+    "student",
+    "traveler",
+    "woman",
+}
+
 
 def _contains_animal_identity(character_prompt: str) -> bool:
     lowered = character_prompt.lower()
@@ -162,12 +188,19 @@ def _contains_animal_identity(character_prompt: str) -> bool:
     return any(term in lowered for term in animal_terms)
 
 
+def _contains_robot_identity(character_prompt: str) -> bool:
+    lowered = character_prompt.lower()
+    return any(term in lowered for term in ROBOT_IDENTITY_TERMS)
+
+
 def _ensure_human_identity(character_prompt: str) -> str:
     if not character_prompt:
         return character_prompt
     if _contains_human_identity(character_prompt):
         return character_prompt
     if _contains_animal_identity(character_prompt):
+        return character_prompt
+    if _contains_robot_identity(character_prompt):
         return character_prompt
     return _join_parts(["human person", character_prompt])
 
@@ -251,6 +284,11 @@ def _contains_visual_animal_identity(character_spec: dict[str, Any], identity_cu
     text = " ".join(
         [
             _normalize_text(character_spec.get("character_id")),
+            _normalize_text(character_spec.get("subject_type")),
+            _normalize_text(character_spec.get("species")),
+            _normalize_text(character_spec.get("fur_color")),
+            _normalize_text(character_spec.get("fur_pattern")),
+            _normalize_text(character_spec.get("markings")),
             _normalize_text(character_spec.get("body_build")),
             _normalize_text(character_spec.get("signature_accessory")),
             *_normalize_list(identity_cues),
@@ -297,6 +335,43 @@ def _compact_human_visual_identity(character_spec: dict[str, Any]) -> list[str]:
     return _normalize_list([part for part in parts if part])[:2]
 
 
+def _subject_type(character_spec: dict[str, Any]) -> str:
+    subject_type = _normalize_text(character_spec.get("subject_type")).lower()
+    return subject_type if subject_type in VALID_SUBJECT_TYPES else "unknown"
+
+
+def _animal_descriptor(character_spec: dict[str, Any]) -> str:
+    species = _normalize_text(character_spec.get("species")) or _normalize_text(character_spec.get("character_id")).lower() or "animal"
+    noun = " ".join(
+        part
+        for part in [
+            _normalize_text(character_spec.get("body_size")),
+            _normalize_text(character_spec.get("fur_color")),
+            species,
+        ]
+        if part
+    ).strip()
+    return _join_parts([noun or species, _normalize_text(character_spec.get("fur_pattern")), _normalize_text(character_spec.get("markings"))])
+
+
+def _robot_descriptor(character_spec: dict[str, Any]) -> str:
+    noun = " ".join(
+        part
+        for part in [
+            _normalize_text(character_spec.get("color_scheme")),
+            _normalize_text(character_spec.get("material")),
+            "robot" if _subject_type(character_spec) == "robot" else _subject_type(character_spec),
+        ]
+        if part
+    ).strip()
+    parts = [
+        noun,
+        _normalize_text(character_spec.get("shape_features")),
+        _normalize_text(character_spec.get("signature_parts")),
+    ]
+    return _join_parts([part for part in parts if part]) or "metal robot"
+
+
 def build_lightweight_character_prompt(
     character_id: str,
     character_specs_by_id: dict[str, dict[str, Any]],
@@ -309,6 +384,11 @@ def build_lightweight_character_prompt(
     if not character_id:
         return ""
     character_spec = character_specs_by_id.get(character_id, {"character_id": character_id})
+    subject_type = _subject_type(character_spec)
+    if subject_type == "animal":
+        return _join_parts([character_id, _animal_descriptor(character_spec)])
+    if subject_type in {"robot", "object", "vehicle"}:
+        return _join_parts([character_id, _robot_descriptor(character_spec)])
     if allow_animal_identity and _contains_visual_animal_identity(character_spec, identity_cues):
         animal_cues = [
             _normalize_text(cue)
@@ -346,6 +426,13 @@ def _build_dual_primary_character_snippet(character_spec: dict[str, Any]) -> str
         return ""
     if _is_anonymous_character_spec(character_spec):
         return ""
+    subject_type = _subject_type(character_spec)
+    if subject_type == "animal":
+        descriptor = _animal_descriptor(character_spec)
+        return f"{name} is {_indefinite_article(descriptor)} {descriptor}".strip()
+    if subject_type in {"robot", "object", "vehicle"}:
+        descriptor = _robot_descriptor(character_spec)
+        return f"{name} is {_indefinite_article(descriptor)} {descriptor}".strip()
 
     descriptor_parts = " ".join(
         _normalize_text(part)
@@ -390,7 +477,8 @@ def _build_dual_primary_character_snippet(character_spec: dict[str, Any]) -> str
     sentence = " ".join(sentence_parts).strip()
     if clothing_phrase:
         sentence = f"{sentence}, wearing {clothing_phrase}"
-    return sentence.rstrip(", ")
+    sentence = sentence.rstrip(", ")
+    return "" if sentence == f"{name} is" else sentence
 
 
 def _is_anonymous_character_spec(character_spec: dict[str, Any]) -> bool:
@@ -442,6 +530,36 @@ def _story_explicitly_marks_animal(story: Story, character_id: str) -> bool:
     return any(re.search(pattern, raw_text) for pattern in patterns)
 
 
+def _infer_subject_type(story: Story, character_spec: dict[str, Any], identity_cues: list[str]) -> str:
+    explicit = _subject_type(character_spec)
+    if explicit != "unknown":
+        return explicit
+    character_id = _normalize_text(character_spec.get("character_id"))
+    lowered_id = character_id.lower()
+    combined = " ".join(
+        [
+            lowered_id,
+            _normalize_text(character_spec.get("species")),
+            _normalize_text(character_spec.get("gender_presentation")),
+            _normalize_text(character_spec.get("body_build")),
+            _normalize_text(character_spec.get("material")),
+            _normalize_text(character_spec.get("shape_features")),
+            *_normalize_list(identity_cues),
+        ]
+    ).lower()
+    if _human_pronoun_label_for_story(story, character_id) and not _story_explicitly_marks_animal(story, character_id):
+        return "human"
+    if lowered_id in ANIMAL_SPECIES_BY_ID or _story_explicitly_marks_animal(story, character_id) or _contains_animal_identity(combined):
+        return "animal"
+    if lowered_id in ROBOT_IDENTITY_TERMS or _contains_robot_identity(combined):
+        return "robot"
+    if lowered_id in HUMAN_ROLE_TERMS or _contains_human_identity(combined) or _human_pronoun_label_for_story(story, character_id):
+        return "human"
+    if character_id:
+        return "human"
+    return "unknown"
+
+
 def _human_pronoun_label_for_story(story: Story, character_id: str) -> str | None:
     if _story_explicitly_marks_animal(story, character_id):
         return None
@@ -463,8 +581,8 @@ def _human_pronoun_label_for_story(story: Story, character_id: str) -> str | Non
 def _explicit_animal_subject_ids(story: Story, character_specs_by_id: dict[str, dict[str, Any]]) -> set[str]:
     return {
         character_id.lower()
-        for character_id in character_specs_by_id
-        if _story_explicitly_marks_animal(story, character_id)
+        for character_id, spec in character_specs_by_id.items()
+        if _subject_type(spec) == "animal" or _story_explicitly_marks_animal(story, character_id)
     }
 
 
@@ -472,6 +590,9 @@ def _sanitize_character_specs_for_story(story: Story, characters: list[dict[str,
     sanitized = []
     for character_spec in characters:
         character_id = _normalize_text(character_spec.get("character_id"))
+        if _infer_subject_type(story, character_spec, []) in {"animal", "robot", "object", "vehicle"}:
+            sanitized.append(character_spec)
+            continue
         human_label = _human_pronoun_label_for_story(story, character_id)
         if not human_label or not _contains_visual_animal_identity(character_spec, []):
             sanitized.append(character_spec)
@@ -494,7 +615,7 @@ def _is_vague_visual_value(value: Any) -> bool:
 
 def _is_likely_human_character(story: Story, character_spec: dict[str, Any], identity_cues: list[str]) -> bool:
     character_id = _normalize_text(character_spec.get("character_id"))
-    if not character_id or _story_explicitly_marks_animal(story, character_id):
+    if not character_id or _infer_subject_type(story, character_spec, identity_cues) in {"animal", "robot", "object", "vehicle"}:
         return False
     combined = " ".join(
         [
@@ -575,6 +696,88 @@ def _default_human_visual_identity(story: Story, character_spec: dict[str, Any],
         "hairstyle": "short hair",
         "signature_outfit": _story_context_outfit(story, outfit),
     }
+
+
+def _default_animal_identity(character_spec: dict[str, Any]) -> dict[str, str]:
+    character_id = _normalize_text(character_spec.get("character_id")).lower()
+    species = _normalize_text(character_spec.get("species")).lower() or ANIMAL_SPECIES_BY_ID.get(character_id, character_id)
+    if species == "cat":
+        return {"species": "cat", "fur_color": "gray", "fur_pattern": "short fur", "body_size": "small", "markings": ""}
+    if species == "dog":
+        return {"species": "dog", "fur_color": "brown", "fur_pattern": "short coat", "body_size": "medium", "markings": "floppy ears"}
+    if species == "bird":
+        return {"species": "bird", "fur_color": "blue", "fur_pattern": "feathers", "body_size": "small", "markings": "wings"}
+    return {"species": species or "animal", "fur_color": "natural", "fur_pattern": "stable fur pattern", "body_size": "medium", "markings": ""}
+
+
+def _default_robot_identity(character_spec: dict[str, Any]) -> dict[str, str]:
+    del character_spec
+    return {
+        "material": "metal",
+        "color_scheme": "silver and blue",
+        "shape_features": "boxy body",
+        "signature_parts": "round sensor eyes",
+        "body_size": "medium",
+    }
+
+
+def _apply_subject_type_defaults(
+    story: Story,
+    characters: list[dict[str, Any]],
+    identity_cues: list[str],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, character_spec in enumerate(characters):
+        subject_type = _infer_subject_type(story, character_spec, identity_cues)
+        updated = dict(character_spec)
+        updated["subject_type"] = subject_type
+        if subject_type == "animal":
+            for field_name in [
+                "age_band",
+                "gender_presentation",
+                "hair_color",
+                "hairstyle",
+                "skin_tone",
+                "signature_outfit",
+                "signature_accessory",
+                "profession_marker",
+                "material",
+                "color_scheme",
+                "shape_features",
+                "signature_parts",
+            ]:
+                updated[field_name] = ""
+            for field_name, default_value in _default_animal_identity(updated).items():
+                if _is_vague_visual_value(updated.get(field_name)):
+                    updated[field_name] = default_value
+        elif subject_type in {"robot", "object", "vehicle"}:
+            for field_name in [
+                "age_band",
+                "gender_presentation",
+                "hair_color",
+                "hairstyle",
+                "skin_tone",
+                "signature_outfit",
+                "signature_accessory",
+                "profession_marker",
+                "species",
+                "fur_color",
+                "fur_pattern",
+                "markings",
+            ]:
+                updated[field_name] = ""
+            for field_name, default_value in _default_robot_identity(updated).items():
+                if _is_vague_visual_value(updated.get(field_name)):
+                    updated[field_name] = default_value
+        elif subject_type == "human" and not _is_anonymous_character_spec(updated):
+            defaults = _default_human_visual_identity(story, updated, index)
+            for field_name, default_value in defaults.items():
+                if field_name == "signature_outfit" and not _is_vague_visual_value(updated.get("signature_accessory")):
+                    continue
+                if _is_vague_visual_value(updated.get(field_name)):
+                    updated[field_name] = default_value
+        normalized.append(updated)
+    return normalized
 
 
 def _fill_under_specified_human_character_specs(
@@ -965,9 +1168,11 @@ class LLMAssistedPromptBuilder:
         self.last_scene_plans: dict[str, dict[str, Any]] = {}
         self.last_route_hints: dict[str, dict[str, Any]] = {}
         self.last_character_specs: dict[str, dict[str, Any]] = {}
+        self.last_llm_response_record: dict[str, Any] | None = None
 
     def build_story_prompts(self, story: Story) -> dict[str, PromptSpec]:
         try:
+            self.last_llm_response_record = None
             structured_output = self._load_or_generate_structured_output(story)
             self.last_character_specs = build_llm_character_specs(structured_output, story)
             self.last_scene_plans = self._build_scene_plans(structured_output)
@@ -986,7 +1191,7 @@ class LLMAssistedPromptBuilder:
             raise LLMPromptError(str(exc)) from exc
 
     def metadata(self) -> dict[str, Any]:
-        return {
+        metadata = {
             "pipeline": "llm_assisted",
             "implemented": True,
             "provider": self.llm_config.get("provider", "openai"),
@@ -999,6 +1204,11 @@ class LLMAssistedPromptBuilder:
             "scene_route_hints": self.last_route_hints,
             "character_specs": self.last_character_specs,
         }
+        if self.last_llm_response_record:
+            metadata["llm_response_cache_key"] = self.last_llm_response_record.get("cache_key")
+            metadata["llm_response_log"] = "logs/llm_prompt_response.json"
+            metadata["_llm_response_record"] = self.last_llm_response_record
+        return metadata
 
     def _load_or_generate_structured_output(self, story: Story) -> dict[str, Any]:
         artifact_path = self.artifact_config.get("path")
@@ -1022,7 +1232,13 @@ class LLMAssistedPromptBuilder:
                 cached = None
             if cached is not None:
                 self._log("llm_prompt_cache_hit", cache_key=cache_key)
-                return self._validate_structured_output(story, cached["validated_output"])
+                structured = self._validate_structured_output(story, cached["validated_output"])
+                self.last_llm_response_record = {
+                    **cached,
+                    "validated_output": structured,
+                    "record_source": "cache",
+                }
+                return structured
             self._log("llm_prompt_cache_miss", cache_key=cache_key)
         else:
             self._log("llm_prompt_cache_disabled", cache_key=cache_key)
@@ -1037,6 +1253,10 @@ class LLMAssistedPromptBuilder:
             parsed_response=response.parsed_json,
             validated_output=structured_output,
         )
+        record["response_metadata"] = dict(response.metadata or {})
+        record["builder_version"] = self.llm_config.get("builder_version", "llm_assisted_v9")
+        record["record_source"] = "api"
+        self.last_llm_response_record = record
         if cache_enabled:
             cache.save(cache_key, record)
         self._export_artifact_if_enabled(story, cache_key, record)
@@ -1073,7 +1293,10 @@ class LLMAssistedPromptBuilder:
             "- Use exact tagged entity names as character_id values when the story provides tags; only create temporary ids when no usable tag exists.\n"
             "- identity_cues must be visual and reusable across panels, not personality traits.\n"
             "- global.characters must contain stable visual identity blocks for recurring visual subjects, including animals and non-human subjects.\n"
-            "- character specs may include age_band, gender_presentation, hair_color, hairstyle, skin_tone, body_build, signature_outfit, signature_accessory, and profession_marker.\n"
+            "- Every character spec must include subject_type: human, animal, robot, object, vehicle, or unknown.\n"
+            "- Human specs may use age_band, gender_presentation, hair_color, hairstyle, skin_tone, body_build, signature_outfit, signature_accessory, and profession_marker.\n"
+            "- Animal specs must use species, fur_color, fur_pattern, markings, and body_size; do not use hairstyle, hair_color, signature_outfit, or signature_accessory for animals.\n"
+            "- Robot, object, and vehicle specs must use material, color_scheme, shape_features, signature_parts, and body_size; do not use human hair or outfit fields for them.\n"
             "- character specs must not include scene-specific action, pose, emotion, temporary props, object state, lighting, or camera framing.\n"
             "- For recurring human characters, choose stable drawable identity details even when the story is under-specified: hair_color, hairstyle, and signature_outfit should normally be non-empty.\n"
             "- If a human detail is not stated, infer a simple neutral visual default and keep it consistent; do not use vague values like unknown, unspecified, person, clothing, or outfit.\n"
@@ -1190,6 +1413,7 @@ class LLMAssistedPromptBuilder:
             "additionalProperties": False,
             "required": [
                 "character_id",
+                "subject_type",
                 "age_band",
                 "gender_presentation",
                 "hair_color",
@@ -1199,9 +1423,19 @@ class LLMAssistedPromptBuilder:
                 "signature_outfit",
                 "signature_accessory",
                 "profession_marker",
+                "species",
+                "fur_color",
+                "fur_pattern",
+                "markings",
+                "body_size",
+                "material",
+                "color_scheme",
+                "shape_features",
+                "signature_parts",
             ],
             "properties": {
                 "character_id": {"type": "string"},
+                "subject_type": {"type": "string", "enum": ["human", "animal", "robot", "object", "vehicle", "unknown"]},
                 "age_band": nullable_short_string,
                 "gender_presentation": nullable_short_string,
                 "hair_color": nullable_short_string,
@@ -1211,6 +1445,15 @@ class LLMAssistedPromptBuilder:
                 "signature_outfit": nullable_short_string,
                 "signature_accessory": nullable_short_string,
                 "profession_marker": nullable_short_string,
+                "species": nullable_short_string,
+                "fur_color": nullable_short_string,
+                "fur_pattern": nullable_short_string,
+                "markings": nullable_short_string,
+                "body_size": nullable_short_string,
+                "material": nullable_short_string,
+                "color_scheme": nullable_short_string,
+                "shape_features": nullable_short_string,
+                "signature_parts": nullable_short_string,
             },
         }
         return {
@@ -1258,7 +1501,7 @@ class LLMAssistedPromptBuilder:
         scene_text_by_id = {scene.scene_id: _normalize_text(scene.clean_text) for scene in story.scenes}
         normalized_characters = self._normalize_character_specs(global_payload.get("characters"))
         normalized_characters = _sanitize_character_specs_for_story(story, normalized_characters)
-        normalized_characters = _fill_under_specified_human_character_specs(
+        normalized_characters = _apply_subject_type_defaults(
             story,
             normalized_characters,
             _normalize_list(global_payload.get("identity_cues")),
@@ -1369,13 +1612,21 @@ class LLMAssistedPromptBuilder:
             used_default_framing = False
             used_default_setting_focus = False
             if scene_focus_mode == "dual_primary":
+                visible_subject_types = [
+                    _subject_type(character_specs_by_id[character_id])
+                    for character_id in primary_visible_character_ids
+                    if character_id in character_specs_by_id
+                ]
+                all_visible_animals = bool(visible_subject_types) and all(
+                    subject_type == "animal" for subject_type in visible_subject_types
+                )
                 interaction_summary = interaction_summary or _fallback_dual_interaction_summary(
                     scene_text,
                     _normalize_text(scene_payload.get("primary_action")),
                     generation_prompt,
                 )
                 if not interaction_summary:
-                    interaction_summary = "both characters are present in the same scene"
+                    interaction_summary = "both animals are present in the same scene" if all_visible_animals else "both characters are present in the same scene"
                     used_default_interaction_summary = True
 
                 spatial_relation = spatial_relation or _fallback_dual_spatial_relation(scene_text, generation_prompt)
@@ -1389,8 +1640,11 @@ class LLMAssistedPromptBuilder:
 
                 framing = framing or _fallback_dual_framing(scene_text, generation_prompt)
                 if not framing:
-                    framing = "medium two-shot, both characters visible"
+                    framing = "two-animal composition, both animals visible" if all_visible_animals else "medium two-shot, both characters visible"
                     used_default_framing = True
+                elif all_visible_animals:
+                    framing = re.sub(r"\btwo-person\b", "two-animal", framing, flags=re.IGNORECASE)
+                    framing = re.sub(r"\bcharacters\b", "animals", framing, flags=re.IGNORECASE)
 
                 setting_focus = setting_focus or _fallback_setting_focus(
                     scene_text,
@@ -1501,6 +1755,7 @@ class LLMAssistedPromptBuilder:
             normalized_characters.append(
                 {
                     "character_id": character_id,
+                    "subject_type": _normalize_text(character_payload.get("subject_type")).lower(),
                     "age_band": _normalize_text(character_payload.get("age_band")),
                     "gender_presentation": _normalize_text(character_payload.get("gender_presentation")),
                     "hair_color": _normalize_text(character_payload.get("hair_color")),
@@ -1510,6 +1765,15 @@ class LLMAssistedPromptBuilder:
                     "signature_outfit": _normalize_text(character_payload.get("signature_outfit")),
                     "signature_accessory": _normalize_text(character_payload.get("signature_accessory")),
                     "profession_marker": _normalize_text(character_payload.get("profession_marker")),
+                    "species": _normalize_text(character_payload.get("species")),
+                    "fur_color": _normalize_text(character_payload.get("fur_color")),
+                    "fur_pattern": _normalize_text(character_payload.get("fur_pattern")),
+                    "markings": _normalize_text(character_payload.get("markings")),
+                    "body_size": _normalize_text(character_payload.get("body_size")),
+                    "material": _normalize_text(character_payload.get("material")),
+                    "color_scheme": _normalize_text(character_payload.get("color_scheme")),
+                    "shape_features": _normalize_text(character_payload.get("shape_features")),
+                    "signature_parts": _normalize_text(character_payload.get("signature_parts")),
                 }
             )
         return normalized_characters

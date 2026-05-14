@@ -463,6 +463,7 @@ def _build_clean_storydiffusion_prompt_payload(
             "save_image_start_index": rendered.save_image_start_index,
             "character_specs": rendered.character_specs,
             "source_fields": rendered.source_fields,
+            "llm_response_record": bundle_metadata.get("_llm_response_record"),
         },
     }
     debug = {

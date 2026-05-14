@@ -108,7 +108,7 @@ def test_build_generation_backend_rejects_invalid_combinations(model_config: dic
         build_generation_backend(model_config, {"device": "cpu"})
 
 
-def test_build_backend_metadata_marks_placeholders_unimplemented() -> None:
+def test_build_backend_metadata_marks_storydiffusion_direct_implemented() -> None:
     metadata = build_backend_metadata(
         {"backend": "storydiffusion_direct", "granularity": "story", "model_id": "fake"},
         {"device": "cuda", "torch_dtype": "float16"},
@@ -116,7 +116,7 @@ def test_build_backend_metadata_marks_placeholders_unimplemented() -> None:
 
     assert metadata["backend"] == "storydiffusion_direct"
     assert metadata["granularity"] == "story"
-    assert metadata["implemented"] is False
+    assert metadata["implemented"] is True
 
 
 def test_diffusers_generator_text2img_path_records_route_metadata() -> None:

@@ -127,6 +127,55 @@ def _looks_generic(value: str) -> bool:
     }
 
 
+ANIMAL_SPECIES_BY_ID = {
+    "bird": "bird",
+    "cat": "cat",
+    "dog": "dog",
+    "puppy": "dog",
+    "kitten": "cat",
+}
+ROBOT_IDS = {"robot", "android"}
+HUMAN_ROLE_IDS = {
+    "artist",
+    "baby",
+    "boy",
+    "chef",
+    "child",
+    "driver",
+    "girl",
+    "kid",
+    "lady",
+    "man",
+    "runner",
+    "student",
+    "traveler",
+    "woman",
+}
+
+
+def _subject_type(character_id: str, spec: Any) -> str:
+    explicit = _spec_value(spec, "subject_type").lower()
+    if explicit in {"human", "animal", "robot", "object", "vehicle"}:
+        return explicit
+    lowered_id = character_id.lower()
+    combined = " ".join(
+        [
+            lowered_id,
+            _spec_value(spec, "species").lower(),
+            _spec_value(spec, "material").lower(),
+            _spec_value(spec, "shape_features").lower(),
+            _spec_value(spec, "gender_presentation").lower(),
+        ]
+    )
+    if lowered_id in ANIMAL_SPECIES_BY_ID or any(term in combined for term in ("cat", "dog", "bird", "puppy", "animal", "fur", "feather")):
+        return "animal"
+    if lowered_id in ROBOT_IDS or any(term in combined for term in ("robot", "android", "mechanical", "metal")):
+        return "robot"
+    if lowered_id in HUMAN_ROLE_IDS or any(term in combined for term in ("human", "woman", "girl", "man", "boy", "female", "male")):
+        return "human"
+    return "human"
+
+
 def _base_human_descriptor(character_id: str, spec: Any) -> str:
     gender = _spec_value(spec, "gender_presentation").lower()
     age = _spec_value(spec, "age_band").lower()
@@ -144,7 +193,7 @@ def _base_human_descriptor(character_id: str, spec: Any) -> str:
     return "human person"
 
 
-def _character_descriptor(character_id: str, spec: Any) -> str:
+def _human_descriptor(character_id: str, spec: Any) -> str:
     parts: list[str] = [_base_human_descriptor(character_id, spec)]
     hair_color = _spec_value(spec, "hair_color")
     hairstyle = _spec_value(spec, "hairstyle")
@@ -159,6 +208,33 @@ def _character_descriptor(character_id: str, spec: Any) -> str:
         if value and not _looks_generic(value) and value.lower() not in " ".join(parts).lower():
             parts.append(value)
     return ", ".join(_unique(parts))
+
+
+def _animal_descriptor(character_id: str, spec: Any) -> str:
+    species = _spec_value(spec, "species").lower() or ANIMAL_SPECIES_BY_ID.get(character_id.lower(), character_id.lower()) or "animal"
+    noun = " ".join(part for part in [_spec_value(spec, "body_size"), _spec_value(spec, "fur_color"), species] if part).strip()
+    return ", ".join(_unique([part for part in [noun or species, _spec_value(spec, "fur_pattern"), _spec_value(spec, "markings")] if part])) or species
+
+
+def _robot_descriptor(character_id: str, spec: Any) -> str:
+    subject_type = _subject_type(character_id, spec)
+    kind = "robot" if subject_type == "robot" else subject_type
+    noun = " ".join(part for part in [_spec_value(spec, "color_scheme"), _spec_value(spec, "material"), kind] if part).strip()
+    parts = [
+        noun,
+        _spec_value(spec, "shape_features"),
+        _spec_value(spec, "signature_parts"),
+    ]
+    return ", ".join(_unique([part for part in parts if part])) or f"metal {kind}"
+
+
+def _character_descriptor(character_id: str, spec: Any) -> str:
+    subject_type = _subject_type(character_id, spec)
+    if subject_type == "animal":
+        return _animal_descriptor(character_id, spec)
+    if subject_type in {"robot", "object", "vehicle"}:
+        return _robot_descriptor(character_id, spec)
+    return _human_descriptor(character_id, spec)
 
 
 def _clean_scene_text(text: str) -> str:
@@ -225,6 +301,7 @@ def _clean_generation_prompt(value: str) -> str:
     text = _normalize_whitespace(value)
     if not text:
         return ""
+    text = re.sub(r"\b[A-Z][A-Za-z0-9_-]*\s+is\.\s*", "", text)
     banned_fragments = [
         "same person across all scenes",
         "consistent face",
@@ -242,6 +319,24 @@ def _clean_generation_prompt(value: str) -> str:
     return ", ".join(_unique([clause for clause in clauses if clause]))
 
 
+def _identity_prompt(entity: str, descriptor: str, subject_type: str) -> str:
+    if subject_type == "animal":
+        return (
+            f"[{entity}] full body animal character reference of {entity}, {descriptor}, "
+            "single animal only, centered, neutral pose, simple background"
+        )
+    if subject_type in {"robot", "object", "vehicle"}:
+        label = "robot" if subject_type == "robot" else subject_type
+        return (
+            f"[{entity}] full body {label} character reference of {entity}, {descriptor}, "
+            f"single {label} only, centered, neutral pose, simple background"
+        )
+    return (
+        f"[{entity}] full body character reference of {entity}, {descriptor}, "
+        "clear face, complete outfit visible, single character only, centered, neutral pose, simple background"
+    )
+
+
 def render_clean_native_storydiffusion_prompts(
     story: Story,
     prompt_specs: dict[str, PromptSpec],
@@ -256,12 +351,13 @@ def render_clean_native_storydiffusion_prompts(
         entity: _character_descriptor(entity, character_specs.get(entity, {}))
         for entity in story_entities
     }
+    subject_types = {
+        entity: _subject_type(entity, character_specs.get(entity, {}))
+        for entity in story_entities
+    }
     general_prompt = "\n".join(f"[{entity}] {descriptors[entity]}" for entity in story_entities)
     identity_prompts = [
-        (
-            f"[{entity}] full body character reference of {entity}, {descriptors[entity]}, "
-            "clear face, complete outfit visible, centered, neutral pose, simple background"
-        )
+        _identity_prompt(entity, descriptors[entity], subject_types[entity])
         for entity in story_entities
     ]
 
@@ -282,7 +378,13 @@ def render_clean_native_storydiffusion_prompts(
                 clauses.append(consistency)
         prompt_base = ", ".join(clauses).lower()
         if len(resolved_entities) >= 2:
-            clauses.extend(["both characters visible", "medium two-shot"])
+            resolved_subject_types = [subject_types.get(entity, "human") for entity in resolved_entities]
+            if resolved_subject_types and all(subject_type == "animal" for subject_type in resolved_subject_types):
+                clauses.extend(["both animals visible", "two-animal composition"])
+            elif any(subject_type in {"robot", "object", "vehicle"} for subject_type in resolved_subject_types):
+                clauses.extend(["all subjects visible", "clear multi-subject composition"])
+            else:
+                clauses.extend(["both characters visible", "medium two-shot"])
         else:
             if not any(term in prompt_base for term in ("wide shot", "medium shot", "full-body", "full body")):
                 clauses.append("medium full-body shot")
