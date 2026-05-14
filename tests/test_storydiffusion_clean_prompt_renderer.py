@@ -352,7 +352,10 @@ def test_natural_student_prompt_uses_case_insensitive_character_spec(tmp_path: P
     assert "casual shirt" in general_prompt
     assert "glasses" in general_prompt
     assert "student" in general_prompt
-    assert "[Student] full body character reference" in identity_prompt
+    assert "[Student] one full-body portrait" in identity_prompt
+    assert "one person only" in identity_prompt
+    assert "single-view image" in identity_prompt
+    assert "character reference" not in identity_prompt
     assert "human person" not in general_prompt
     assert "human person" not in identity_prompt
     assert debug["story_scene_prompts"][0] == "[Student] reading in the library, medium shot"
@@ -468,6 +471,10 @@ def test_clean_v2_renderer_uses_lightweight_animal_scene_prompts() -> None:
     joined_identity_prompts = "\n".join(rendered.identity_reference_prompts).lower()
     assert "[dog] medium brown dog, visible spotted coat pattern, floppy ears" in rendered.general_prompt.lower()
     assert "visible spotted coat pattern" in joined_identity_prompts
+    assert "one full-body animal portrait" in joined_identity_prompts
+    assert "single-view image" in joined_identity_prompts
+    assert "side view animal reference" not in joined_identity_prompts
+    assert "three-quarter animal reference" not in joined_identity_prompts
     assert "cat is a small gray cat" not in joined_scene_prompts
     assert "dog is a medium brown dog" not in joined_scene_prompts
     assert "complete outfit visible" not in joined_identity_prompts
@@ -598,6 +605,8 @@ def test_natural_renderer_uses_short_animal_storyboard_prompts() -> None:
     assert "right" not in joined_scene_prompts
     assert rendered.source_fields[0]["validation_warnings"] == []
     assert rendered.source_fields[0]["natural_scene_prompt"] == rendered.scene_prompts[0]
+    assert "one full-body animal portrait" in "\n".join(rendered.identity_reference_prompts).lower()
+    assert "side view animal reference" not in "\n".join(rendered.identity_reference_prompts).lower()
     assert rendered.identity_prompts_per_character == 2
     assert len(rendered.identity_reference_prompts) == 4
     assert rendered.save_image_start_index == 4

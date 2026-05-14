@@ -752,19 +752,23 @@ def _identity_prompt(entity: str, descriptor: str, subject_type: str) -> str:
 
 
 def _identity_reference_prompt_v2(entity: str, descriptor: str, subject_type: str, variant_index: int) -> str:
-    animal_views = ["full body animal reference", "side view animal reference", "three-quarter animal reference"]
-    human_views = ["full body character reference", "side view character reference", "three-quarter character reference"]
-    robot_views = ["full body robot reference", "side view robot reference", "three-quarter robot reference"]
+    pose_variants = ["front-facing standing pose", "three-quarter standing pose", "relaxed standing pose"]
+    pose = pose_variants[variant_index % len(pose_variants)]
     if subject_type == "animal":
-        view = animal_views[variant_index % len(animal_views)]
-        return f"[{entity}] {view}, {descriptor}, single animal only, centered, neutral pose, simple background"
+        return (
+            f"[{entity}] one full-body animal portrait of {descriptor}, {pose}, "
+            "single-view image, one animal only, centered, simple background"
+        )
     if subject_type in {"robot", "object", "vehicle"}:
         label = "robot" if subject_type == "robot" else subject_type
-        views = robot_views if subject_type == "robot" else [f"full body {label} reference", f"side view {label} reference", f"three-quarter {label} reference"]
-        view = views[variant_index % len(views)]
-        return f"[{entity}] {view}, {descriptor}, single {label} only, centered, neutral pose, simple background"
-    view = human_views[variant_index % len(human_views)]
-    return f"[{entity}] {view}, {descriptor}, single character only, centered, neutral pose, simple background"
+        return (
+            f"[{entity}] one full-body {label} portrait of {descriptor}, {pose}, "
+            f"single-view image, one {label} only, centered, simple background"
+        )
+    return (
+        f"[{entity}] one full-body portrait of {descriptor}, {pose}, "
+        "single-view image, one person only, centered, simple background"
+    )
 
 
 def _identity_reference_prompts_v2(

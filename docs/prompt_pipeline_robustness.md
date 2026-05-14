@@ -51,6 +51,14 @@ For native quality experiments, prefer:
 
 The saved identity refs are the fastest way to diagnose whether failures come from the identity bank or from later story-frame generation.
 
+The first saved identity refs showed that wording such as `full body character reference` and `side view character reference` can encourage StoryDiffusion to generate character-sheet or turnaround-style identity images. The native `clean_v2` / `natural` identity prompts now use single-subject portrait wording instead:
+
+- human: `one full-body portrait of ..., single-view image, one person only`
+- animal: `one full-body animal portrait of ..., single-view image, one animal only`
+- robot/object: `one full-body robot/object portrait of ..., single-view image`
+
+This is intentionally limited to the native StoryDiffusion identity bank path; story scene prompts and the default storygen/IP-Adapter pipeline are unchanged.
+
 ## LLM Audit Logging
 
 Real LLM calls expose a response record containing request metadata, response metadata, raw response, parsed response, validated output, cache key, and builder version. In `storygen.cli` runs this is written separately:
