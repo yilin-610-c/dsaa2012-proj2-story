@@ -163,6 +163,8 @@ def build_probe_autogen_and_run_argv(
         argv.extend(["--seed", str(args.native_seed)])
     if args.native_guidance_scale is not None:
         argv.extend(["--guidance-scale", str(args.native_guidance_scale)])
+    if args.native_id_length is not None:
+        argv.extend(["--id-length", str(args.native_id_length)])
     return argv
 
 
@@ -231,6 +233,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--native-num-steps", type=int, default=None, help="Forwarded to native StoryDiffusion probe as --num-steps.")
     parser.add_argument("--native-seed", type=int, default=None, help="Forwarded to native StoryDiffusion probe as --seed.")
     parser.add_argument(
+        "--native-id-length",
+        type=int,
+        default=None,
+        help=(
+            "Forwarded to native StoryDiffusion probe as --id-length. In clean_v2 this means "
+            "identity reference prompts per character; the generated YAML records the total front-loaded identity prompt count."
+        ),
+    )
+    parser.add_argument(
         "--native-guidance-scale",
         type=float,
         default=None,
@@ -238,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--storydiffusion-prompt-mode",
-        choices=("current", "clean"),
+        choices=("current", "clean", "clean_v2"),
         default="current",
         help="Forwarded to native StoryDiffusion probe. Default preserves current prompt rendering.",
     )

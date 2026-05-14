@@ -413,12 +413,17 @@ def _build_clean_storydiffusion_prompt_payload(
     prompt_builder_kind: str = "legacy",
     prompt_modular_backend: str = "sdxl",
     prompt_template_pack: str | None = None,
+    storydiffusion_prompt_mode: str = "clean",
+    identity_prompts_per_character: int = 1,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     _ensure_storygen_imports()
     from storygen.config import resolve_config
     from storygen.parser import parse_story_file
     from storygen.prompt_pipelines import build_prompt_pipeline
-    from storygen.prompt_stack.renderers.storydiffusion import render_clean_native_storydiffusion_prompts
+    from storygen.prompt_stack.renderers.storydiffusion import (
+        render_clean_native_storydiffusion_prompts,
+        render_clean_v2_native_storydiffusion_prompts,
+    )
 
     probe_overrides = _prompt_probe_overrides(
         generation_max_words=generation_max_words,
@@ -447,18 +452,50 @@ def _build_clean_storydiffusion_prompt_payload(
             "clean native StoryDiffusion prompt mode requires llm_assisted character_specs; "
             f"non_llm_specs={non_llm_specs or 'missing'}"
         )
-    rendered = render_clean_native_storydiffusion_prompts(story, prompt_bundle.scene_prompts, character_specs)
+    mode = str(storydiffusion_prompt_mode or "clean").strip().lower()
+    if mode == "clean_v2":
+        rendered = render_clean_v2_native_storydiffusion_prompts(
+            story,
+            prompt_bundle.scene_prompts,
+            character_specs,
+            scene_plans=bundle_metadata.get("scene_plans", {}),
+            identity_prompts_per_character=identity_prompts_per_character,
+        )
+    else:
+        rendered = render_clean_native_storydiffusion_prompts(story, prompt_bundle.scene_prompts, character_specs)
+    identity_prompt_count = len(rendered.identity_reference_prompts or rendered.identity_prompts)
+    saved_image_prompt_map = rendered.saved_image_prompt_map or {
+        f"image_{index:03d}.png": {
+            "prompt_array_index": rendered.save_image_start_index + index,
+            "story_scene_prompt_index": index,
+            "scene_id": (rendered.source_fields[index] or {}).get("scene_id") if index < len(rendered.source_fields) else None,
+            "prompt": prompt,
+        }
+        for index, prompt in enumerate(rendered.scene_prompts)
+    }
     payload = {
         "general_prompt": rendered.general_prompt,
         "identity_prompts": rendered.identity_prompts,
         "scene_prompts": rendered.scene_prompts,
+        "identity_reference_prompts": rendered.identity_reference_prompts or rendered.identity_prompts,
+        "story_scene_prompts": rendered.story_scene_prompts or rendered.scene_prompts,
+        "identity_prompts_per_character": rendered.identity_prompts_per_character,
+        "identity_prompt_count": identity_prompt_count,
+        "story_frame_start_index": rendered.save_image_start_index,
+        "saved_image_prompt_map": saved_image_prompt_map,
         "prompt_array": rendered.final_prompt_array,
         "save_image_start_index": rendered.save_image_start_index,
         "debug": {
-            "mode": "clean",
+            "mode": mode,
             "general_prompt": rendered.general_prompt,
             "identity_prompts": rendered.identity_prompts,
             "scene_prompts": rendered.scene_prompts,
+            "identity_prompts_per_character": rendered.identity_prompts_per_character,
+            "identity_prompt_count": identity_prompt_count,
+            "story_frame_start_index": rendered.save_image_start_index,
+            "identity_reference_prompts": rendered.identity_reference_prompts or rendered.identity_prompts,
+            "story_scene_prompts": rendered.story_scene_prompts or rendered.scene_prompts,
+            "saved_image_prompt_map": saved_image_prompt_map,
             "final_prompt_array": rendered.final_prompt_array,
             "save_image_start_index": rendered.save_image_start_index,
             "character_specs": rendered.character_specs,
@@ -470,7 +507,7 @@ def _build_clean_storydiffusion_prompt_payload(
         "prompt_pipeline": "prompt_bundle:storydiffusion_clean_renderer",
         "prompt_builder": str(prompt_builder_kind),
         "prompt_modular_backend": str(prompt_modular_backend),
-        "storydiffusion_prompt_mode": "clean",
+        "storydiffusion_prompt_mode": mode,
         "profile": profile,
         "base_config": str(DEFAULT_BASE_CONFIG),
         "probe_overrides": {
@@ -526,10 +563,12 @@ def build_probe_config(
             resolved_use_reference_images = True
 
     prompt_mode = str(storydiffusion_prompt_mode or "current").strip().lower()
-    if prompt_mode not in {"current", "clean"}:
+    if prompt_mode not in {"current", "clean", "clean_v2"}:
         raise ValueError(f"Unsupported StoryDiffusion prompt mode: {storydiffusion_prompt_mode}")
     storydiffusion_prompt_debug: dict[str, Any] | None = None
-    if prompt_mode == "clean":
+    clean_internal_id_length: int | None = None
+    generation_id_length_override: int | None = None
+    if prompt_mode in {"clean", "clean_v2"}:
         clean_payload, pipeline_debug, prompt_config = _build_clean_storydiffusion_prompt_payload(
             input_path,
             profile=prompt_profile,
@@ -538,11 +577,16 @@ def build_probe_config(
             prompt_builder_kind=prompt_builder_kind,
             prompt_modular_backend=prompt_modular_backend,
             prompt_template_pack=prompt_template_pack,
+            storydiffusion_prompt_mode=prompt_mode,
+            identity_prompts_per_character=id_length,
         )
         prompt_array = list(clean_payload["prompt_array"])
         character_prompt = str(clean_payload["general_prompt"])
         save_image_start_index = int(clean_payload["save_image_start_index"])
         storydiffusion_prompt_debug = dict(clean_payload["debug"])
+        if prompt_mode == "clean_v2":
+            clean_internal_id_length = int(clean_payload["identity_prompts_per_character"])
+            generation_id_length_override = int(clean_payload["identity_prompt_count"])
     else:
         story_prompts, pipeline_debug, prompt_config = _build_scene_prompt_array_with_pipeline(
             input_path,
@@ -561,7 +605,11 @@ def build_probe_config(
         save_image_start_index = len(entities)
 
     single_entity_prompt_count = sum(1 for prompt in prompt_array if prompt.count("[") == 1 and not prompt.startswith("[NC]"))
-    effective_id_length = max(1, min(id_length, single_entity_prompt_count or len(prompt_array)))
+    effective_id_length = (
+        generation_id_length_override
+        if generation_id_length_override is not None
+        else max(1, min(id_length, single_entity_prompt_count or len(prompt_array)))
+    )
     if unwrap_output_dir:
         probe_output_dir = output_root
     else:
@@ -589,6 +637,7 @@ def build_probe_config(
             "sa32": sa32,
             "sa64": sa64,
             "id_length": effective_id_length,
+            **({"storydiffusion_internal_id_length": clean_internal_id_length} if clean_internal_id_length else {}),
             "height": height,
             "width": width,
             "style_strength_ratio": 20,
@@ -730,7 +779,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--storydiffusion-prompt-mode",
-        choices=("current", "clean"),
+        choices=("current", "clean", "clean_v2"),
         default="current",
         help="Native StoryDiffusion prompt rendering mode. Default preserves the existing generation_prompt prefix behavior.",
     )

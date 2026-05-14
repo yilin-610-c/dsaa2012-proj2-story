@@ -30,6 +30,8 @@ The native clean renderer now builds type-aware prompts:
 
 Dual animal scenes use `both animals visible` and `two-animal composition`. Broken empty identity fragments such as `Cat is. Dog is.` are stripped.
 
+`clean_v2` is an opt-in native StoryDiffusion ablation mode that keeps the default storygen/IP-Adapter path unchanged. It moves stable identity into `general_prompt` and front-loaded identity reference prompts, while story scene prompts stay lightweight and only describe action, setting, spatial relation, and framing. In `clean_v2`, `--native-id-length` means identity reference prompts per character; the generated YAML records `generation.id_length` as the total front-loaded identity prompt count and `generation.storydiffusion_internal_id_length` as the per-character value used by the official StoryDiffusion runner.
+
 ## LLM Audit Logging
 
 Real LLM calls expose a response record containing request metadata, response metadata, raw response, parsed response, validated output, cache key, and builder version. In `storygen.cli` runs this is written separately:
@@ -58,7 +60,8 @@ conda run -n storygen env PYTHONPATH=src python storydiffusion_gradio_probe/run_
   --limit 1 \
   --prompt-builder modular \
   --prompt-modular-backend storydiffusion \
-  --storydiffusion-prompt-mode clean
+  --storydiffusion-prompt-mode clean_v2 \
+  --id-length 2
 ```
 
 Expected checks for `outputs_prompt_verify/a03_clean/03.storydiffusion_prompt_debug.json`:

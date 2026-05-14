@@ -129,7 +129,7 @@ def load_probe_config(path: Path, overrides: argparse.Namespace) -> ProbeConfig:
         guidance_scale=float(generation.get("guidance_scale", 5.0)),
         sa32=float(generation.get("sa32", 0.5)),
         sa64=float(generation.get("sa64", 0.5)),
-        id_length=int(generation.get("id_length", 3)),
+        id_length=int(generation.get("storydiffusion_internal_id_length", generation.get("id_length", 3))),
         height=int(generation.get("height", 768)),
         width=int(generation.get("width", 768)),
         style_strength_ratio=float(generation.get("style_strength_ratio", 20)),

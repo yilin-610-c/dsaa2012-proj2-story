@@ -21,6 +21,10 @@ class NativeStoryDiffusionPromptRender:
     save_image_start_index: int
     character_specs: dict[str, Any] = field(default_factory=dict)
     source_fields: list[dict[str, Any]] = field(default_factory=list)
+    identity_prompts_per_character: int = 1
+    identity_reference_prompts: list[str] = field(default_factory=list)
+    story_scene_prompts: list[str] = field(default_factory=list)
+    saved_image_prompt_map: dict[str, Any] = field(default_factory=dict)
 
 
 def _split_comma_clauses(text: str) -> list[str]:
@@ -98,9 +102,12 @@ def _normalize_whitespace(value: str) -> str:
 
 def _unique(values: list[str]) -> list[str]:
     out: list[str] = []
+    seen = set()
     for value in values:
         value = str(value or "").strip()
-        if value and value not in out:
+        key = re.sub(r"\s+", " ", value).strip().lower()
+        if value and key not in seen:
+            seen.add(key)
             out.append(value)
     return out
 
@@ -216,6 +223,52 @@ def _animal_descriptor(character_id: str, spec: Any) -> str:
     return ", ".join(_unique([part for part in [noun or species, _spec_value(spec, "fur_pattern"), _spec_value(spec, "markings")] if part])) or species
 
 
+def _visual_animal_pattern(value: str) -> str:
+    text = _normalize_whitespace(value)
+    if not text:
+        return ""
+    lowered = text.lower()
+    if lowered == "spotted" or "spotted" in lowered:
+        return "visible spotted coat pattern"
+    if lowered == "striped" or "stripe" in lowered:
+        return "visible striped fur pattern"
+    return text
+
+
+def _character_descriptor_v2(character_id: str, spec: Any) -> str:
+    subject_type = _subject_type(character_id, spec)
+    if subject_type == "animal":
+        species = _spec_value(spec, "species").lower() or ANIMAL_SPECIES_BY_ID.get(character_id.lower(), character_id.lower()) or "animal"
+        noun = " ".join(
+            part for part in [_spec_value(spec, "body_size"), _spec_value(spec, "fur_color"), species] if part
+        ).strip()
+        return ", ".join(
+            _unique(
+                [
+                    noun or species,
+                    _visual_animal_pattern(_spec_value(spec, "fur_pattern")),
+                    _spec_value(spec, "markings"),
+                ]
+            )
+        )
+    if subject_type in {"robot", "object", "vehicle"}:
+        return _robot_descriptor(character_id, spec)
+    parts: list[str] = [_base_human_descriptor(character_id, spec)]
+    hair_color = _spec_value(spec, "hair_color")
+    hairstyle = _spec_value(spec, "hairstyle")
+    if hair_color and hairstyle:
+        parts.append(f"{hairstyle} {hair_color} hair" if "hair" not in hairstyle.lower() else f"{hair_color} {hairstyle}")
+    elif hair_color:
+        parts.append(f"{hair_color} hair")
+    elif hairstyle:
+        parts.append(hairstyle if "hair" in hairstyle.lower() else f"{hairstyle} hair")
+    for field_name in ("signature_outfit", "signature_accessory", "body_build"):
+        value = _spec_value(spec, field_name)
+        if value and not _looks_generic(value) and value.lower() not in " ".join(parts).lower():
+            parts.append(value)
+    return ", ".join(_unique(parts))
+
+
 def _robot_descriptor(character_id: str, spec: Any) -> str:
     subject_type = _subject_type(character_id, spec)
     kind = "robot" if subject_type == "robot" else subject_type
@@ -319,6 +372,123 @@ def _clean_generation_prompt(value: str) -> str:
     return ", ".join(_unique([clause for clause in clauses if clause]))
 
 
+def _strip_empty_identity_sentences(text: str) -> str:
+    return re.sub(r"\b[A-Z][A-Za-z0-9_-]*\s+is\.\s*", "", _normalize_whitespace(text))
+
+
+def _remove_full_identity_sentences(text: str, entity_names: list[str]) -> str:
+    cleaned = _strip_empty_identity_sentences(text)
+    for entity in entity_names:
+        name = re.escape(entity)
+        cleaned = re.sub(
+            rf"\b{name}\s+is\s+(?:an?|the)?\s*[^.]*\b(?:human|person|man|woman|boy|girl|cat|dog|bird|animal|robot)\b[^.]*\.\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+    return _normalize_whitespace(cleaned).strip(" ,.;")
+
+
+def _strip_leading_entity_names(text: str, entity_names: list[str]) -> str:
+    cleaned = _normalize_whitespace(text).strip(" ,.;")
+    if not cleaned or not entity_names:
+        return cleaned
+    if len(entity_names) >= 2:
+        pair = rf"{re.escape(entity_names[0])}\s+and\s+{re.escape(entity_names[1])}"
+        cleaned = re.sub(rf"^{pair}\s+(?:are|is)\s+", "", cleaned, flags=re.IGNORECASE)
+    for entity in entity_names:
+        cleaned = re.sub(rf"^{re.escape(entity)}\s+(?:is|are)\s+", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" ,.;")
+
+
+def _format_setting_clause(value: str) -> str:
+    normalized = _normalize_whitespace(value).strip(" ,.;")
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    if lowered.startswith(("in ", "at ", "on ", "inside ", "near ", "under ", "over ")):
+        return normalized
+    if any(term in lowered for term in ("table", "wall", "door", "window", "bench")):
+        return f"at a {normalized}" if not lowered.startswith(("a ", "an ", "the ")) else f"at {normalized}"
+    return f"in a {normalized}" if not lowered.startswith(("a ", "an ", "the ")) else f"in {normalized}"
+
+
+def _clean_framing_clause(value: str, subject_types: list[str]) -> str:
+    framing = _normalize_whitespace(value).strip(" ,.;")
+    if not framing:
+        return ""
+    if subject_types and all(subject_type == "animal" for subject_type in subject_types):
+        framing = re.sub(r"\bmedium two-shot\b", "", framing, flags=re.IGNORECASE)
+        framing = re.sub(r"\btwo-person\b", "two-animal", framing, flags=re.IGNORECASE)
+        framing = re.sub(r"\bcharacters\b", "animals", framing, flags=re.IGNORECASE)
+    return _normalize_whitespace(framing).strip(" ,.;")
+
+
+def _story_scene_prompt_v2(
+    *,
+    tags: str,
+    scene_text: str,
+    spec: PromptSpec | None,
+    scene_plan: dict[str, Any] | None,
+    resolved_entities: list[str],
+    subject_types: dict[str, str],
+) -> str:
+    scene_plan = scene_plan or {}
+    resolved_subject_types = [subject_types.get(entity, "human") for entity in resolved_entities]
+    all_animals = bool(resolved_subject_types) and all(subject_type == "animal" for subject_type in resolved_subject_types)
+    has_nonhuman = any(subject_type in {"animal", "robot", "object", "vehicle"} for subject_type in resolved_subject_types)
+
+    action_source = (
+        _normalize_whitespace(scene_plan.get("interaction_summary"))
+        or _normalize_whitespace(getattr(spec, "action_prompt", ""))
+        or _remove_full_identity_sentences(getattr(spec, "generation_prompt", "") if spec else "", resolved_entities)
+        or scene_text
+    )
+    action = _strip_leading_entity_names(_remove_full_identity_sentences(action_source, resolved_entities), resolved_entities)
+    if not action:
+        action = _strip_leading_entity_names(scene_text, resolved_entities)
+
+    spatial_relation = _normalize_whitespace(scene_plan.get("spatial_relation"))
+    framing = _clean_framing_clause(_normalize_whitespace(scene_plan.get("framing")), resolved_subject_types)
+    setting_focus = _format_setting_clause(_normalize_whitespace(scene_plan.get("setting_focus")))
+
+    clauses = [action, spatial_relation, framing, setting_focus]
+    if len(resolved_entities) >= 2:
+        if all_animals:
+            clauses.extend(["both animals visible", "two-animal composition"])
+        elif has_nonhuman:
+            clauses.extend(["all subjects visible", "clear multi-subject composition"])
+        else:
+            clauses.extend(["both characters visible", "medium two-shot"])
+    else:
+        if framing and "shot" in framing.lower():
+            clauses.append("")
+        else:
+            clauses.append("medium shot")
+        clauses.append("action readable")
+    cleaned_clauses = _unique([clause for clause in clauses if clause])
+    prompt = f"{tags} {', '.join(cleaned_clauses)}"
+    prompt = re.sub(r"\s+,", ",", prompt)
+    return _normalize_whitespace(prompt)
+
+
+def _saved_image_prompt_map(
+    scene_prompts: list[str],
+    source_fields: list[dict[str, Any]],
+    story_frame_start_index: int,
+) -> dict[str, Any]:
+    mapping: dict[str, Any] = {}
+    for index, prompt in enumerate(scene_prompts):
+        source = source_fields[index] if index < len(source_fields) else {}
+        mapping[f"image_{index:03d}.png"] = {
+            "prompt_array_index": story_frame_start_index + index,
+            "story_scene_prompt_index": index,
+            "scene_id": source.get("scene_id"),
+            "prompt": prompt,
+        }
+    return mapping
+
+
 def _identity_prompt(entity: str, descriptor: str, subject_type: str) -> str:
     if subject_type == "animal":
         return (
@@ -335,6 +505,36 @@ def _identity_prompt(entity: str, descriptor: str, subject_type: str) -> str:
         f"[{entity}] full body character reference of {entity}, {descriptor}, "
         "clear face, complete outfit visible, single character only, centered, neutral pose, simple background"
     )
+
+
+def _identity_reference_prompt_v2(entity: str, descriptor: str, subject_type: str, variant_index: int) -> str:
+    animal_views = ["full body animal reference", "side view animal reference", "three-quarter animal reference"]
+    human_views = ["full body character reference", "side view character reference", "three-quarter character reference"]
+    robot_views = ["full body robot reference", "side view robot reference", "three-quarter robot reference"]
+    if subject_type == "animal":
+        view = animal_views[variant_index % len(animal_views)]
+        return f"[{entity}] {view}, {descriptor}, single animal only, centered, neutral pose, simple background"
+    if subject_type in {"robot", "object", "vehicle"}:
+        label = "robot" if subject_type == "robot" else subject_type
+        views = robot_views if subject_type == "robot" else [f"full body {label} reference", f"side view {label} reference", f"three-quarter {label} reference"]
+        view = views[variant_index % len(views)]
+        return f"[{entity}] {view}, {descriptor}, single {label} only, centered, neutral pose, simple background"
+    view = human_views[variant_index % len(human_views)]
+    return f"[{entity}] {view}, {descriptor}, single character only, centered, neutral pose, simple background"
+
+
+def _identity_reference_prompts_v2(
+    story_entities: list[str],
+    descriptors: dict[str, str],
+    subject_types: dict[str, str],
+    identity_prompts_per_character: int,
+) -> list[str]:
+    prompts: list[str] = []
+    per_character = max(1, int(identity_prompts_per_character))
+    for entity in story_entities:
+        for variant_index in range(per_character):
+            prompts.append(_identity_reference_prompt_v2(entity, descriptors[entity], subject_types[entity], variant_index))
+    return prompts
 
 
 def render_clean_native_storydiffusion_prompts(
@@ -415,4 +615,80 @@ def render_clean_native_storydiffusion_prompts(
         save_image_start_index=len(identity_prompts),
         character_specs=character_specs,
         source_fields=source_fields,
+    )
+
+
+def render_clean_v2_native_storydiffusion_prompts(
+    story: Story,
+    prompt_specs: dict[str, PromptSpec],
+    character_specs: dict[str, Any] | None = None,
+    *,
+    scene_plans: dict[str, dict[str, Any]] | None = None,
+    identity_prompts_per_character: int = 1,
+) -> NativeStoryDiffusionPromptRender:
+    character_specs = character_specs or {}
+    scene_plans = scene_plans or {}
+    story_entities = list(story.all_entities or [])
+    if not story_entities:
+        story_entities = ["Subject"]
+
+    descriptors = {
+        entity: _character_descriptor_v2(entity, character_specs.get(entity, {}))
+        for entity in story_entities
+    }
+    subject_types = {
+        entity: _subject_type(entity, character_specs.get(entity, {}))
+        for entity in story_entities
+    }
+    general_prompt = "\n".join(f"[{entity}] {descriptors[entity]}" for entity in story_entities)
+    per_character = max(1, int(identity_prompts_per_character))
+    identity_prompts = _identity_reference_prompts_v2(story_entities, descriptors, subject_types, per_character)
+
+    scene_prompts: list[str] = []
+    source_fields: list[dict[str, Any]] = []
+    previous_entities: list[str] = []
+    for scene in story.scenes:
+        spec = prompt_specs.get(scene.scene_id)
+        resolved_entities = _resolve_scene_entities(scene.entities, scene.clean_text, previous_entities, story_entities)
+        clean_text = _replace_leading_pronoun(_clean_scene_text(scene.clean_text), resolved_entities)
+        tags = " ".join(f"[{entity}]" for entity in resolved_entities) if resolved_entities else "[NC]"
+        prompt = _story_scene_prompt_v2(
+            tags=tags,
+            scene_text=clean_text,
+            spec=spec,
+            scene_plan=scene_plans.get(scene.scene_id),
+            resolved_entities=resolved_entities,
+            subject_types=subject_types,
+        )
+        scene_prompts.append(prompt)
+        source_fields.append(
+            {
+                "scene_id": scene.scene_id,
+                "raw_text": scene.raw_text,
+                "clean_text": scene.clean_text,
+                "scene_entities": list(scene.entities),
+                "resolved_entities": resolved_entities,
+                "action_prompt": spec.action_prompt if spec else "",
+                "scene_consistency_prompt": spec.scene_consistency_prompt if spec else "",
+                "generation_prompt": spec.generation_prompt if spec else "",
+                "scene_plan": dict(scene_plans.get(scene.scene_id, {})),
+            }
+        )
+        if resolved_entities:
+            previous_entities = resolved_entities
+
+    final_prompt_array = identity_prompts + scene_prompts
+    story_frame_start_index = len(identity_prompts)
+    return NativeStoryDiffusionPromptRender(
+        general_prompt=general_prompt,
+        identity_prompts=identity_prompts,
+        scene_prompts=scene_prompts,
+        final_prompt_array=final_prompt_array,
+        save_image_start_index=story_frame_start_index,
+        character_specs=character_specs,
+        source_fields=source_fields,
+        identity_prompts_per_character=per_character,
+        identity_reference_prompts=identity_prompts,
+        story_scene_prompts=scene_prompts,
+        saved_image_prompt_map=_saved_image_prompt_map(scene_prompts, source_fields, story_frame_start_index),
     )
