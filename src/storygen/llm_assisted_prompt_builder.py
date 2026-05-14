@@ -219,6 +219,15 @@ def _prepare_scene_generation_phrase(
     return cleaned
 
 
+def _generation_identity_prompt(character_prompt: str, max_words: int | None) -> str:
+    identity_prompt = _ensure_human_identity(character_prompt)
+    if max_words and max_words <= 12:
+        parts = [part.strip() for part in identity_prompt.split(",") if part.strip()]
+        if len(parts) > 2:
+            return _join_parts(parts[:2])
+    return identity_prompt
+
+
 def _merge_identity_into_generation_prompt(
     character_prompt: str,
     generation_prompt: str,
@@ -227,7 +236,7 @@ def _merge_identity_into_generation_prompt(
     *,
     allow_animal_identity: bool = True,
 ) -> str:
-    identity_prompt = _ensure_human_identity(character_prompt)
+    identity_prompt = _generation_identity_prompt(character_prompt, max_words)
     scene_prompt = _prepare_scene_generation_phrase(
         generation_prompt,
         character_prompt=identity_prompt,
@@ -265,6 +274,29 @@ def _lightweight_human_label(character_spec: dict[str, Any], identity_cues: list
     return "human person"
 
 
+def _hair_identity_phrase(character_spec: dict[str, Any]) -> str:
+    hair_color = _normalize_text(character_spec.get("hair_color"))
+    hairstyle = _normalize_text(character_spec.get("hairstyle"))
+    if hair_color and hairstyle:
+        if "hair" in hairstyle.lower():
+            return re.sub(r"\bhair\b", f"{hair_color} hair", hairstyle, count=1, flags=re.IGNORECASE).strip()
+        return f"{hair_color} {hairstyle}".strip()
+    if hair_color:
+        return f"{hair_color} hair"
+    if hairstyle:
+        return hairstyle if "hair" in hairstyle.lower() else f"{hairstyle} hair"
+    return ""
+
+
+def _compact_human_visual_identity(character_spec: dict[str, Any]) -> list[str]:
+    parts = [
+        _hair_identity_phrase(character_spec),
+        _normalize_text(character_spec.get("signature_outfit")),
+        _normalize_text(character_spec.get("signature_accessory")),
+    ]
+    return _normalize_list([part for part in parts if part])[:2]
+
+
 def build_lightweight_character_prompt(
     character_id: str,
     character_specs_by_id: dict[str, dict[str, Any]],
@@ -285,11 +317,9 @@ def build_lightweight_character_prompt(
         ]
         return _join_parts([character_id, animal_cues[0] if animal_cues else ""])
     llm_label = _lightweight_human_label(character_spec, identity_cues)
-    if llm_label != "human person":
-        return _join_parts([character_id, llm_label])
-    if human_label_override:
-        return _join_parts([character_id, human_label_override])
-    return _join_parts([character_id, llm_label])
+    if llm_label == "human person" and human_label_override:
+        llm_label = human_label_override
+    return _join_parts([character_id, llm_label, *_compact_human_visual_identity(character_spec)])
 
 
 def _natural_language_list(parts: list[str]) -> str:
@@ -453,6 +483,119 @@ def _sanitize_character_specs_for_story(story: Story, characters: list[dict[str,
                 updated[field] = ""
         sanitized.append(updated)
     return sanitized
+
+
+VISUAL_PLACEHOLDER_VALUES = {"", "unknown", "unspecified", "none", "person", "clothing", "outfit"}
+
+
+def _is_vague_visual_value(value: Any) -> bool:
+    return _normalize_text(value).lower() in VISUAL_PLACEHOLDER_VALUES
+
+
+def _is_likely_human_character(story: Story, character_spec: dict[str, Any], identity_cues: list[str]) -> bool:
+    character_id = _normalize_text(character_spec.get("character_id"))
+    if not character_id or _story_explicitly_marks_animal(story, character_id):
+        return False
+    combined = " ".join(
+        [
+            character_id,
+            _normalize_text(character_spec.get("age_band")),
+            _normalize_text(character_spec.get("gender_presentation")),
+            *_normalize_list(identity_cues),
+        ]
+    ).lower()
+    if _contains_animal_identity(combined):
+        return False
+    return any(
+        token in combined
+        for token in [
+            "human",
+            "woman",
+            "girl",
+            "female",
+            "man",
+            "boy",
+            "male",
+            "child",
+            "adult",
+        ]
+    ) or bool(_human_pronoun_label_for_story(story, character_id))
+
+
+def _story_context_outfit(story: Story, fallback: str) -> str:
+    raw = _normalize_text(story.raw_text).lower()
+    if any(term in raw for term in ["rain", "rainy", "umbrella"]):
+        return "yellow raincoat"
+    if any(term in raw for term in ["snow", "winter", "cold"]):
+        return "red winter coat"
+    if any(term in raw for term in ["school", "classroom"]):
+        return "blue school uniform"
+    return fallback
+
+
+def _default_human_visual_identity(story: Story, character_spec: dict[str, Any], index: int) -> dict[str, str]:
+    character_id = _normalize_text(character_spec.get("character_id"))
+    human_label = _human_pronoun_label_for_story(story, character_id) or _lightweight_human_label(character_spec, [])
+    age = _normalize_text(character_spec.get("age_band")).lower()
+    gender = _normalize_text(character_spec.get("gender_presentation")).lower()
+    combined = " ".join([human_label, age, gender, character_id.lower()])
+    color_sets = [
+        ("dark brown", "blue jacket"),
+        ("black", "green jacket"),
+        ("brown", "red jacket"),
+        ("dark", "navy jacket"),
+    ]
+    hair_color, outfit = color_sets[index % len(color_sets)]
+    if "girl" in combined or ("female" in combined and "child" in combined):
+        return {
+            "hair_color": "dark brown",
+            "hairstyle": "shoulder-length hair",
+            "signature_outfit": _story_context_outfit(story, "blue hoodie"),
+        }
+    if "boy" in combined or ("male" in combined and "child" in combined):
+        return {
+            "hair_color": "dark brown",
+            "hairstyle": "short hair",
+            "signature_outfit": _story_context_outfit(story, "red hoodie"),
+        }
+    if "woman" in combined or "female" in combined:
+        return {
+            "hair_color": hair_color if hair_color != "dark" else "dark brown",
+            "hairstyle": "shoulder-length hair",
+            "signature_outfit": _story_context_outfit(story, outfit),
+        }
+    if "man" in combined or "male" in combined:
+        return {
+            "hair_color": hair_color,
+            "hairstyle": "short hair",
+            "signature_outfit": _story_context_outfit(story, outfit),
+        }
+    return {
+        "hair_color": hair_color,
+        "hairstyle": "short hair",
+        "signature_outfit": _story_context_outfit(story, outfit),
+    }
+
+
+def _fill_under_specified_human_character_specs(
+    story: Story,
+    characters: list[dict[str, Any]],
+    identity_cues: list[str],
+) -> list[dict[str, Any]]:
+    filled: list[dict[str, Any]] = []
+    for index, character_spec in enumerate(characters):
+        if _is_anonymous_character_spec(character_spec) or not _is_likely_human_character(story, character_spec, identity_cues):
+            filled.append(character_spec)
+            continue
+        defaults = _default_human_visual_identity(story, character_spec, index)
+        updated = dict(character_spec)
+        for field_name, default_value in defaults.items():
+            if field_name == "signature_outfit" and not _is_vague_visual_value(updated.get("signature_accessory")):
+                continue
+            if _is_vague_visual_value(updated.get(field_name)):
+                updated[field_name] = default_value
+        filled.append(updated)
+    return filled
 
 
 def _dual_primary_name_phrase(visible_character_ids: list[str]) -> str:
@@ -932,8 +1075,10 @@ class LLMAssistedPromptBuilder:
             "- global.characters must contain stable visual identity blocks for recurring visual subjects, including animals and non-human subjects.\n"
             "- character specs may include age_band, gender_presentation, hair_color, hairstyle, skin_tone, body_build, signature_outfit, signature_accessory, and profession_marker.\n"
             "- character specs must not include scene-specific action, pose, emotion, temporary props, object state, lighting, or camera framing.\n"
-            "- Leave uncertain character spec fields empty instead of inventing details.\n"
-            "- If the main character is human, state that clearly in identity_cues using terms like human woman, human girl, human man, or human person.\n"
+            "- For recurring human characters, choose stable drawable identity details even when the story is under-specified: hair_color, hairstyle, and signature_outfit should normally be non-empty.\n"
+            "- If a human detail is not stated, infer a simple neutral visual default and keep it consistent; do not use vague values like unknown, unspecified, person, clothing, or outfit.\n"
+            "- Leave fields empty only for details that do not apply, especially non-human animal subjects.\n"
+            "- If the main character is human, state that clearly in identity_cues using terms like human woman, human girl, human man, human boy, or human person.\n"
             "- If the main subject is explicitly an animal species such as bird, dog, cat, puppy, pet, or animal, state the species or animal identity clearly in identity_cues and do not describe it as human.\n"
             "- Do not infer animal identity only from actions such as sitting, lying down, rolling over, resting, laughing, or playing with toys. A tagged name with he/she pronouns should default to human unless the story explicitly says it is an animal species.\n"
             "- Never substitute an animal or pet for a human character.\n"
@@ -1113,6 +1258,11 @@ class LLMAssistedPromptBuilder:
         scene_text_by_id = {scene.scene_id: _normalize_text(scene.clean_text) for scene in story.scenes}
         normalized_characters = self._normalize_character_specs(global_payload.get("characters"))
         normalized_characters = _sanitize_character_specs_for_story(story, normalized_characters)
+        normalized_characters = _fill_under_specified_human_character_specs(
+            story,
+            normalized_characters,
+            _normalize_list(global_payload.get("identity_cues")),
+        )
         valid_character_ids = _character_id_lookup(normalized_characters)
         character_specs_by_id = {
             character["character_id"]: character for character in normalized_characters if character.get("character_id")

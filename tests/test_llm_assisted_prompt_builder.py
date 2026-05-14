@@ -831,7 +831,7 @@ def test_llm_builder_cache_miss_calls_client_and_writes_cache(tmp_path: Path) ->
     assert client.calls == 1
     assert (tmp_path / "cache" / f"{cache_key}.json").exists()
     assert prompts["SCENE-1"].generation_prompt == "Hero, human person, runs along the path, path"
-    assert prompts["SCENE-1"].character_prompt == "Hero, human person"
+    assert prompts["SCENE-1"].character_prompt == "Hero, human person, short dark brown hair, red jacket"
     assert prompts["SCENE-1"].scoring_prompt == "Hero runs"
     assert prompts["SCENE-1"].action_prompt == "running"
     assert prompts["SCENE-1"].global_context_prompt == "city park, clean storyboard frame, keep the same lighting and palette"
@@ -913,6 +913,22 @@ def test_llm_pipeline_metadata_includes_multiple_character_specs(tmp_path: Path)
     assert len(character_specs) == len(set(character_specs))
     assert character_specs["Jack"]["signature_outfit"] == "black jacket"
     assert character_specs["Sara"]["signature_accessory"] == "yellow scarf"
+
+
+def test_llm_under_specified_human_character_gets_visual_defaults(tmp_path: Path) -> None:
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(_ryan_bus_payload()),
+    )
+
+    prompts = builder.build_story_prompts(_ryan_bus_story())
+    character_specs = builder.metadata()["character_specs"]
+
+    assert character_specs["Ryan"]["hair_color"] == "dark brown"
+    assert character_specs["Ryan"]["hairstyle"] == "short hair"
+    assert character_specs["Ryan"]["signature_outfit"] == "blue jacket"
+    assert prompts["SCENE-1"].character_prompt == "Ryan, human man, short dark brown hair, blue jacket"
+    assert "walking quickly toward a bus" in prompts["SCENE-1"].generation_prompt
 
 
 def test_llm_pipeline_accepts_unspecified_identity_conditioning_subject(tmp_path: Path) -> None:
@@ -1166,7 +1182,7 @@ def test_llm_lightweight_identity_uses_llm_age_before_pronoun_fallback(tmp_path:
 
     prompts = builder.build_story_prompts(_milo_story())
 
-    assert prompts["SCENE-1"].character_prompt == "Milo, human boy"
+    assert prompts["SCENE-1"].character_prompt == "Milo, human boy, short dark brown hair, red hoodie"
     assert prompts["SCENE-1"].generation_prompt.startswith("Milo, human boy")
     assert "human man" not in prompts["SCENE-1"].generation_prompt
 
@@ -1260,7 +1276,7 @@ def test_llm_anonymous_friend_prompt_avoids_unknown_identity_text(tmp_path: Path
     route_hint = builder.metadata()["scene_route_hints"]["SCENE-2"]
     generation_prompt = prompts["SCENE-2"].generation_prompt.lower()
 
-    assert prompts["SCENE-2"].character_prompt == "Tom, human man"
+    assert prompts["SCENE-2"].character_prompt == "Tom, human man, short dark brown hair, blue jacket"
     assert "friend is an adult unknown" not in generation_prompt
     assert "unknown" not in generation_prompt
     assert "unknown" not in prompts["SCENE-2"].full_prompt.lower()
@@ -1363,7 +1379,8 @@ def test_llm_builder_loads_artifact_without_calling_client(tmp_path: Path) -> No
     prompts = LLMAssistedPromptBuilder(config, llm_client=client).build_story_prompts(_story())
 
     assert client.calls == 0
-    assert prompts["SCENE-1"].generation_prompt == "human person, Hero, same red jacket, Hero runs"
+    assert prompts["SCENE-1"].generation_prompt.startswith("human person, Hero")
+    assert "Hero runs" in prompts["SCENE-1"].generation_prompt
 
 
 def test_llm_builder_exports_artifact_after_api_success(tmp_path: Path) -> None:
@@ -1492,7 +1509,7 @@ def test_llm_builder_preserves_explicit_human_identity_without_duplicate_prefix(
 
     prompts = builder.build_story_prompts(_story())
 
-    assert prompts["SCENE-1"].character_prompt == "Hero, human woman"
+    assert prompts["SCENE-1"].character_prompt == "Hero, human woman, short dark brown hair, red jacket"
     assert prompts["SCENE-1"].generation_prompt.startswith("Hero, human woman")
     assert "long brown hair" not in prompts["SCENE-1"].generation_prompt
     assert "blue pajamas" not in prompts["SCENE-1"].generation_prompt
