@@ -299,6 +299,7 @@ def test_natural_mode_writes_storyboard_debug(tmp_path: Path, monkeypatch) -> No
     assert config["generation"]["storydiffusion_internal_id_length"] == 2
     assert debug["natural_scene_prompt"] == debug["story_scene_prompts"]
     assert len(debug["structured_source_fields"]) == len(debug["story_scene_prompts"])
+    assert config["prompt_debug"]["probe_overrides"]["prompt.llm.max_output_tokens"] == 2400
     assert debug["validation_warnings"] == [
         {"scene_id": "SCENE-1", "warnings": []},
         {"scene_id": "SCENE-2", "warnings": []},

@@ -27,6 +27,7 @@ DEFAULT_NEGATIVE_PROMPT = (
     "bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, "
     "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs"
 )
+NATIVE_CLEAN_LLM_MAX_OUTPUT_TOKENS = 2400
 
 SCENE_PATTERN = re.compile(r"^\[(SCENE-\d+)\]\s*(.*)$", re.DOTALL)
 ENTITY_PATTERN = re.compile(r"<([^<>]+)>")
@@ -434,6 +435,7 @@ def _build_clean_storydiffusion_prompt_payload(
         prompt_template_pack=prompt_template_pack,
     )
     probe_overrides["prompt.llm.fallback_to_rule_based"] = False
+    probe_overrides["prompt.llm.max_output_tokens"] = NATIVE_CLEAN_LLM_MAX_OUTPUT_TOKENS
     resolved = resolve_config(DEFAULT_BASE_CONFIG, profile, overrides=probe_overrides)
     prompt_config = dict(resolved.get("prompt") or {})
     if prompt_config.get("pipeline") != "llm_assisted":
@@ -537,6 +539,7 @@ def _build_clean_storydiffusion_prompt_payload(
             "prompt.generation_max_words": int(generation_max_words),
             "prompt.generation_max_chars": int(generation_max_chars),
             "prompt.llm.fallback_to_rule_based": False,
+            "prompt.llm.max_output_tokens": NATIVE_CLEAN_LLM_MAX_OUTPUT_TOKENS,
         },
         "story_entities": list(story.all_entities),
         "recurring_entities": list(story.recurring_entities),

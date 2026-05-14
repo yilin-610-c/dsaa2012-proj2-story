@@ -59,6 +59,8 @@ The first saved identity refs showed that wording such as `full body character r
 
 This is intentionally limited to the native StoryDiffusion identity bank path; story scene prompts and the default storygen/IP-Adapter pipeline are unchanged.
 
+Native clean/natural prompt generation also raises the LLM structured-output token budget above the base default. A double-character story can exceed the previous 800-token budget and return truncated JSON such as `Unterminated string`; the native probe now uses a larger `prompt.llm.max_output_tokens` override for config/debug generation.
+
 ## LLM Audit Logging
 
 Real LLM calls expose a response record containing request metadata, response metadata, raw response, parsed response, validated output, cache key, and builder version. In `storygen.cli` runs this is written separately:
