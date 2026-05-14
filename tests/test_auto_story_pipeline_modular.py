@@ -137,6 +137,8 @@ def test_single_native_route_forwards_storydiffusion_root_and_native_controls(tm
             "20",
             "--native-seed",
             "7",
+            "--native-id-length",
+            "2",
             "--native-guidance-scale",
             "4.5",
             "--dry-run",
@@ -150,6 +152,7 @@ def test_single_native_route_forwards_storydiffusion_root_and_native_controls(tm
     assert "--height 512" in output
     assert "--num-steps 20" in output
     assert "--seed 7" in output
+    assert "--id-length 2" in output
     assert "--guidance-scale 4.5" in output
 
 
@@ -228,7 +231,7 @@ def test_real_native_run_fails_early_when_storydiffusion_repo_is_missing(tmp_pat
     assert "gradio_app_sdxl_specific_id_low_vram.py" in err
 
 
-def test_native_route_forwards_clean_storydiffusion_prompt_mode(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_native_route_forwards_clean_v2_storydiffusion_prompt_mode(tmp_path: Path, monkeypatch, capsys) -> None:
     module = _load_module()
     _forbid_subprocess(monkeypatch)
     story = _write_story(tmp_path, "[SCENE-1] <Nina> meets <Leo> in the snow.")
@@ -240,7 +243,7 @@ def test_native_route_forwards_clean_storydiffusion_prompt_mode(tmp_path: Path, 
             "--run-name",
             "dry_double_clean_prompt",
             "--storydiffusion-prompt-mode",
-            "clean",
+            "clean_v2",
             "--dry-run",
         ]
     )
@@ -248,4 +251,4 @@ def test_native_route_forwards_clean_storydiffusion_prompt_mode(tmp_path: Path, 
     assert result == 0
     output = capsys.readouterr().out
     assert "storydiffusion_gradio_probe/run_test_set.py" in output
-    assert "--storydiffusion-prompt-mode clean" in output
+    assert "--storydiffusion-prompt-mode clean_v2" in output
