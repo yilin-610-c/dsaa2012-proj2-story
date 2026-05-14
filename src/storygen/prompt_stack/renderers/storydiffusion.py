@@ -118,6 +118,16 @@ def _spec_value(spec: Any, field_name: str) -> str:
     return _normalize_whitespace(getattr(spec, field_name, ""))
 
 
+def _character_spec_for(character_specs: dict[str, Any], character_id: str) -> Any:
+    if character_id in character_specs:
+        return character_specs[character_id]
+    normalized_id = character_id.strip().lower()
+    for key, value in character_specs.items():
+        if str(key).strip().lower() == normalized_id:
+            return value
+    return {}
+
+
 def _looks_generic(value: str) -> bool:
     return value.strip().lower() in {
         "",
@@ -262,7 +272,7 @@ def _character_descriptor_v2(character_id: str, spec: Any) -> str:
         parts.append(f"{hair_color} hair")
     elif hairstyle:
         parts.append(hairstyle if "hair" in hairstyle.lower() else f"{hairstyle} hair")
-    for field_name in ("signature_outfit", "signature_accessory", "body_build"):
+    for field_name in ("signature_outfit", "signature_accessory", "body_build", "profession_marker"):
         value = _spec_value(spec, field_name)
         if value and not _looks_generic(value) and value.lower() not in " ".join(parts).lower():
             parts.append(value)
@@ -523,6 +533,10 @@ def _gerund_phrase(text: str) -> str:
         "wait": "waiting",
         "repairs": "repairing",
         "repair": "repairing",
+        "reads": "reading",
+        "read": "reading",
+        "takes": "taking",
+        "take": "taking",
     }
     phrase = text.strip(" ,.;")
     if not phrase:
@@ -778,11 +792,11 @@ def render_clean_native_storydiffusion_prompts(
         story_entities = ["Subject"]
 
     descriptors = {
-        entity: _character_descriptor(entity, character_specs.get(entity, {}))
+        entity: _character_descriptor(entity, _character_spec_for(character_specs, entity))
         for entity in story_entities
     }
     subject_types = {
-        entity: _subject_type(entity, character_specs.get(entity, {}))
+        entity: _subject_type(entity, _character_spec_for(character_specs, entity))
         for entity in story_entities
     }
     general_prompt = "\n".join(f"[{entity}] {descriptors[entity]}" for entity in story_entities)
@@ -863,11 +877,11 @@ def render_clean_v2_native_storydiffusion_prompts(
         story_entities = ["Subject"]
 
     descriptors = {
-        entity: _character_descriptor_v2(entity, character_specs.get(entity, {}))
+        entity: _character_descriptor_v2(entity, _character_spec_for(character_specs, entity))
         for entity in story_entities
     }
     subject_types = {
-        entity: _subject_type(entity, character_specs.get(entity, {}))
+        entity: _subject_type(entity, _character_spec_for(character_specs, entity))
         for entity in story_entities
     }
     general_prompt = "\n".join(f"[{entity}] {descriptors[entity]}" for entity in story_entities)
@@ -939,11 +953,11 @@ def render_natural_native_storydiffusion_prompts(
         story_entities = ["Subject"]
 
     descriptors = {
-        entity: _character_descriptor_v2(entity, character_specs.get(entity, {}))
+        entity: _character_descriptor_v2(entity, _character_spec_for(character_specs, entity))
         for entity in story_entities
     }
     subject_types = {
-        entity: _subject_type(entity, character_specs.get(entity, {}))
+        entity: _subject_type(entity, _character_spec_for(character_specs, entity))
         for entity in story_entities
     }
     general_prompt = "\n".join(f"[{entity}] {descriptors[entity]}" for entity in story_entities)

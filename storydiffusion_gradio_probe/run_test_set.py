@@ -544,6 +544,18 @@ def _build_clean_storydiffusion_prompt_payload(
     return payload, debug, prompt_config
 
 
+def _identity_image_prompt_map(output_dir: Path, prompt_array: list[str], identity_prompt_count: int) -> dict[str, dict[str, Any]]:
+    mapping: dict[str, dict[str, Any]] = {}
+    for index, prompt in enumerate(prompt_array[:identity_prompt_count]):
+        image_name = f"identity_{index:03d}.png"
+        mapping[image_name] = {
+            "path": str(output_dir / "identity_refs" / image_name),
+            "prompt_array_index": index,
+            "prompt": prompt,
+        }
+    return mapping
+
+
 def build_probe_config(
     input_path: Path,
     *,
@@ -570,6 +582,7 @@ def build_probe_config(
     prompt_modular_backend: str = "sdxl",
     prompt_template_pack: str | None = None,
     storydiffusion_prompt_mode: str = "current",
+    save_identity_images: bool = False,
 ) -> dict[str, Any]:
     scenes = _parse_story_file(input_path)
     entities = _primary_entities(scenes)
@@ -637,11 +650,20 @@ def build_probe_config(
         probe_output_dir = output_root
     else:
         probe_output_dir = output_root / input_path.stem
+    identity_image_prompt_map = (
+        _identity_image_prompt_map(probe_output_dir, prompt_array, save_image_start_index)
+        if save_identity_images and save_image_start_index > 0
+        else {}
+    )
+    if storydiffusion_prompt_debug is not None:
+        storydiffusion_prompt_debug["save_identity_images"] = bool(save_identity_images)
+        storydiffusion_prompt_debug["identity_image_prompt_map"] = identity_image_prompt_map
     return {
         "storydiffusion_root": str(storydiffusion_root),
         "output_dir": str(probe_output_dir),
         "use_reference_images": resolved_use_reference_images,
         "reference_images": resolved_reference_images,
+        "save_identity_images": bool(save_identity_images),
         "source_story": str(input_path),
         "prompt_debug": pipeline_debug,
         **({"storydiffusion_prompt_debug": storydiffusion_prompt_debug} if storydiffusion_prompt_debug else {}),
@@ -722,6 +744,7 @@ def write_configs(args: argparse.Namespace) -> list[Path]:
             prompt_modular_backend=str(args.prompt_modular_backend),
             prompt_template_pack=(str(args.prompt_template_pack).strip() or None),
             storydiffusion_prompt_mode=str(args.storydiffusion_prompt_mode),
+            save_identity_images=bool(args.save_identity_images),
         )
         prompt_debug = config.get("storydiffusion_prompt_debug")
         config_path = args.config_dir / f"{input_path.stem}.yaml"
@@ -763,6 +786,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=0, help="Only process the first N sorted files.")
     parser.add_argument("--use-reference-images", action="store_true")
     parser.add_argument("--reference-image", action="append", default=[], help="Reference image path. Repeat once per character.")
+    parser.add_argument("--save-identity-images", action="store_true", help="Save skipped native identity reference images.")
     parser.add_argument(
         "--anchor-run-dir",
         type=Path,

@@ -121,6 +121,7 @@ def test_smoke_suite_forwards_natural_prompt_mode_to_native_routes(tmp_path: Pat
             str(tmp_path / "outputs_ablation"),
             "--storydiffusion-prompt-mode",
             "natural",
+            "--save-identity-images",
             "--dry-run",
         ]
     )
@@ -130,6 +131,8 @@ def test_smoke_suite_forwards_natural_prompt_mode_to_native_routes(tmp_path: Pat
     assert "--storydiffusion-prompt-mode natural" not in joined[0]
     assert "--storydiffusion-prompt-mode natural" in joined[1]
     assert "--storydiffusion-prompt-mode natural" in joined[2]
+    assert "--save-identity-images" in joined[1]
+    assert "--save-identity-images" in joined[2]
 
 
 def test_full_suite_builds_expected_command_count_without_heavy_generation(tmp_path: Path, monkeypatch) -> None:

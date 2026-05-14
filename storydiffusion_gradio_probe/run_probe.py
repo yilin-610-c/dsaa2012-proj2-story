@@ -47,6 +47,7 @@ class ProbeConfig:
     font_choice: str
     character_files: str
     save_image_start_index: int
+    save_identity_images: bool
 
 
 def _read_mapping(path: Path) -> dict[str, Any]:
@@ -138,6 +139,7 @@ def load_probe_config(path: Path, overrides: argparse.Namespace) -> ProbeConfig:
         font_choice=str(generation.get("font_choice", "Inkfree.ttf")),
         character_files=str(payload.get("character_files") or ""),
         save_image_start_index=int(payload.get("save_image_start_index", 0)),
+        save_identity_images=bool(overrides.save_identity_images or payload.get("save_identity_images", False)),
     )
 
 
@@ -248,6 +250,22 @@ def run_generation(config: ProbeConfig) -> list[Path]:
     if final_images is None:
         raise RuntimeError("StoryDiffusion returned no images")
 
+    prompt_lines = config.prompt_array.splitlines()
+    identity_paths: list[Path] = []
+    identity_image_prompt_map: dict[str, dict[str, Any]] = {}
+    if config.save_identity_images and config.save_image_start_index > 0:
+        identity_dir = config.output_dir / "identity_refs"
+        identity_dir.mkdir(parents=True, exist_ok=True)
+        for index, image in enumerate(final_images[: config.save_image_start_index]):
+            output_path = identity_dir / f"identity_{index:03d}.png"
+            image.save(output_path)
+            identity_paths.append(output_path)
+            identity_image_prompt_map[output_path.name] = {
+                "path": str(output_path),
+                "prompt_array_index": index,
+                "prompt": prompt_lines[index] if index < len(prompt_lines) else "",
+            }
+
     images_to_save = final_images[config.save_image_start_index :]
     saved_paths = []
     for index, image in enumerate(images_to_save):
@@ -278,8 +296,11 @@ def run_generation(config: ProbeConfig) -> list[Path]:
             "comic_type": config.comic_type,
         },
         "images": [str(path) for path in saved_paths],
+        "identity_images": [str(path) for path in identity_paths],
+        "identity_image_prompt_map": identity_image_prompt_map,
         "raw_image_count": len(final_images),
         "save_image_start_index": config.save_image_start_index,
+        "save_identity_images": config.save_identity_images,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     shutil.copyfile(manifest_path, config.output_dir / "last_manifest.json")
@@ -303,6 +324,7 @@ def parse_args() -> argparse.Namespace:
         "--prompt",
         help="Override prompts.prompt_array. Use shell $'line1\\nline2' quoting for multiple lines.",
     )
+    parser.add_argument("--save-identity-images", action="store_true", help="Save skipped identity reference images.")
     return parser.parse_args()
 
 

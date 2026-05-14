@@ -57,6 +57,8 @@ def _native_args(args: argparse.Namespace) -> list[str]:
         argv.extend(["--native-id-length", str(args.native_id_length)])
     if args.native_guidance_scale is not None:
         argv.extend(["--native-guidance-scale", str(args.native_guidance_scale)])
+    if args.save_identity_images:
+        argv.append("--save-identity-images")
     if args.storydiffusion_prompt_mode != "current":
         argv.extend(["--storydiffusion-prompt-mode", args.storydiffusion_prompt_mode])
     return argv
@@ -129,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--native-seed", type=int, default=None)
     parser.add_argument("--native-id-length", type=int, default=None)
     parser.add_argument("--native-guidance-scale", type=float, default=None)
+    parser.add_argument("--save-identity-images", action="store_true")
     parser.add_argument(
         "--storydiffusion-prompt-mode",
         choices=("current", "clean", "clean_v2", "natural"),

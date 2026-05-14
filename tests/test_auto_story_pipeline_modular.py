@@ -267,6 +267,7 @@ def test_native_route_forwards_natural_storydiffusion_prompt_mode(tmp_path: Path
             "dry_double_natural_prompt",
             "--storydiffusion-prompt-mode",
             "natural",
+            "--save-identity-images",
             "--dry-run",
         ]
     )
@@ -275,3 +276,4 @@ def test_native_route_forwards_natural_storydiffusion_prompt_mode(tmp_path: Path
     output = capsys.readouterr().out
     assert "storydiffusion_gradio_probe/run_test_set.py" in output
     assert "--storydiffusion-prompt-mode natural" in output
+    assert "--save-identity-images" in output

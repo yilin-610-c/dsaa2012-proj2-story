@@ -165,6 +165,8 @@ def build_probe_autogen_and_run_argv(
         argv.extend(["--guidance-scale", str(args.native_guidance_scale)])
     if args.native_id_length is not None:
         argv.extend(["--id-length", str(args.native_id_length)])
+    if args.save_identity_images:
+        argv.append("--save-identity-images")
     return argv
 
 
@@ -246,6 +248,11 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=None,
         help="Forwarded to native StoryDiffusion probe as --guidance-scale.",
+    )
+    parser.add_argument(
+        "--save-identity-images",
+        action="store_true",
+        help="Forwarded to native StoryDiffusion probe to save skipped identity reference images.",
     )
     parser.add_argument(
         "--storydiffusion-prompt-mode",

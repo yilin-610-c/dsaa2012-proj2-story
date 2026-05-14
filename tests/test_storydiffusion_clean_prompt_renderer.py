@@ -93,10 +93,51 @@ class FakePromptPipeline:
         )
 
 
+class FakeStudentPromptPipeline:
+    def build(self, story):
+        specs = {
+            "SCENE-1": _prompt_spec("SCENE-1", "Student reads in the library", "reads in the library", ""),
+            "SCENE-2": _prompt_spec("SCENE-2", "Student takes notes", "takes notes", ""),
+            "SCENE-3": _prompt_spec("SCENE-3", "Student closes the book and leaves", "closes the book and leaves", ""),
+        }
+        return PromptBundle(
+            scene_prompts=specs,
+            metadata={
+                "pipeline": "llm_assisted",
+                "builder_version": "llm_assisted_v9",
+                "scene_plans": {
+                    "SCENE-1": {"interaction_summary": "Student reads in the library", "framing": "medium shot", "setting_focus": "library"},
+                    "SCENE-2": {"interaction_summary": "Student takes notes", "framing": "medium shot", "setting_focus": "library table"},
+                    "SCENE-3": {"interaction_summary": "Student closes the book and leaves", "framing": "wide shot", "setting_focus": "library exit"},
+                },
+                "character_specs": {
+                    "student": {
+                        "character_id": "student",
+                        "subject_type": "human",
+                        "gender_presentation": "male",
+                        "age_band": "young adult",
+                        "hair_color": "brown",
+                        "hairstyle": "short",
+                        "signature_outfit": "casual shirt",
+                        "signature_accessory": "glasses",
+                        "profession_marker": "student",
+                        "metadata": {"source": "llm_assisted"},
+                    },
+                },
+            },
+        )
+
+
 def _patch_prompt_pipeline(monkeypatch) -> None:
     import storygen.prompt_pipelines as prompt_pipelines
 
     monkeypatch.setattr(prompt_pipelines, "build_prompt_pipeline", lambda prompt_config: FakePromptPipeline())
+
+
+def _patch_student_prompt_pipeline(monkeypatch) -> None:
+    import storygen.prompt_pipelines as prompt_pipelines
+
+    monkeypatch.setattr(prompt_pipelines, "build_prompt_pipeline", lambda prompt_config: FakeStudentPromptPipeline())
 
 
 def _args(tmp_path: Path, *, mode: str) -> argparse.Namespace:
@@ -132,6 +173,7 @@ def _args(tmp_path: Path, *, mode: str) -> argparse.Namespace:
         prompt_generation_max_words=60,
         prompt_generation_max_chars=420,
         storydiffusion_prompt_mode=mode,
+        save_identity_images=False,
     )
 
 
@@ -263,6 +305,59 @@ def test_natural_mode_writes_storyboard_debug(tmp_path: Path, monkeypatch) -> No
         {"scene_id": "SCENE-3", "warnings": []},
     ]
     assert debug["final_prompt_array"] == config["prompts"]["prompt_array"]
+
+
+def test_natural_mode_writes_identity_image_debug_map(tmp_path: Path, monkeypatch) -> None:
+    module = _load_run_test_set()
+    _patch_prompt_pipeline(monkeypatch)
+    _write_double_story(tmp_path)
+    args = _args(tmp_path, mode="natural")
+    args.id_length = 2
+    args.save_identity_images = True
+
+    config_paths = module.write_configs(args)
+
+    config = yaml.safe_load(config_paths[0].read_text(encoding="utf-8"))
+    debug = json.loads(config_paths[0].with_name("storydiffusion_prompt_debug.json").read_text(encoding="utf-8"))
+    assert config["save_identity_images"] is True
+    mapping = debug["identity_image_prompt_map"]
+    assert sorted(mapping) == ["identity_000.png", "identity_001.png", "identity_002.png", "identity_003.png"]
+    assert mapping["identity_000.png"]["path"].endswith("identity_refs/identity_000.png")
+    assert mapping["identity_000.png"]["prompt"] == debug["identity_reference_prompts"][0]
+    assert debug["saved_image_prompt_map"]["image_000.png"]["prompt"] == debug["story_scene_prompts"][0]
+
+
+def test_natural_student_prompt_uses_case_insensitive_character_spec(tmp_path: Path, monkeypatch) -> None:
+    module = _load_run_test_set()
+    _patch_student_prompt_pipeline(monkeypatch)
+    story = tmp_path / "19.txt"
+    story.write_text(
+        "[SCENE-1] <Student> reads in the library.\n\n"
+        "[SEP]\n\n"
+        "[SCENE-2] He takes notes.\n\n"
+        "[SEP]\n\n"
+        "[SCENE-3] He closes the book and leaves.",
+        encoding="utf-8",
+    )
+    args = _args(tmp_path, mode="natural")
+    args.glob = "19.txt"
+
+    config_paths = module.write_configs(args)
+
+    debug = json.loads(config_paths[0].with_name("storydiffusion_prompt_debug.json").read_text(encoding="utf-8"))
+    general_prompt = debug["general_prompt"]
+    identity_prompt = debug["identity_reference_prompts"][0]
+    assert "[Student] human man" in general_prompt
+    assert "short brown hair" in general_prompt
+    assert "casual shirt" in general_prompt
+    assert "glasses" in general_prompt
+    assert "student" in general_prompt
+    assert "[Student] full body character reference" in identity_prompt
+    assert "human person" not in general_prompt
+    assert "human person" not in identity_prompt
+    assert debug["story_scene_prompts"][0] == "[Student] reading in the library, medium shot"
+    assert debug["story_scene_prompts"][1] == "[Student] taking notes, at a library table, medium shot"
+    assert debug["saved_image_prompt_map"]["image_000.png"]["prompt"] == debug["story_scene_prompts"][0]
 
 
 def test_clean_renderer_uses_type_aware_animal_and_robot_prompts() -> None:

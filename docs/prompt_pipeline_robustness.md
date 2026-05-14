@@ -32,6 +32,25 @@ Dual animal scenes use `both animals visible` and `two-animal composition`. Brok
 
 `clean_v2` is an opt-in native StoryDiffusion ablation mode that keeps the default storygen/IP-Adapter path unchanged. It moves stable identity into `general_prompt` and front-loaded identity reference prompts, while story scene prompts stay lightweight and only describe action, setting, spatial relation, and framing. In `clean_v2`, `--native-id-length` means identity reference prompts per character; the generated YAML records `generation.id_length` as the total front-loaded identity prompt count and `generation.storydiffusion_internal_id_length` as the per-character value used by the official StoryDiffusion runner.
 
+`natural` is a second opt-in native StoryDiffusion ablation mode. It keeps the same code-generated `general_prompt`, identity reference prompts, `id_length`, and `save_image_start_index` as `clean_v2`, but rewrites only the story scene prompts into shorter storyboard-style text. The goal is to avoid mechanical clauses such as `both animals visible`, `two-animal composition`, and `action readable` unless a future warning mode explicitly needs them.
+
+## Native StoryDiffusion Debug Findings
+
+The first `natural` image experiments surfaced two native-only debugging gaps:
+
+- Character specs can be keyed differently from display tags. For example, the story tag `[Student]` may receive an LLM spec under `character_specs["student"]`. Native renderers now resolve character specs case-insensitively while preserving the original prompt tag casing, so `[Student]` no longer falls back to `[Student] human person`.
+- The official StoryDiffusion flow generates identity reference images before story frames, but the probe used to skip saving them. Native runs can now opt in to `--save-identity-images`, which writes skipped identity frames to `identity_refs/identity_000.png`, `identity_refs/identity_001.png`, and records prompt mappings in the debug JSON and manifest.
+
+For native quality experiments, prefer:
+
+```bash
+--storydiffusion-prompt-mode natural \
+--native-id-length 2 \
+--save-identity-images
+```
+
+The saved identity refs are the fastest way to diagnose whether failures come from the identity bank or from later story-frame generation.
+
 ## LLM Audit Logging
 
 Real LLM calls expose a response record containing request metadata, response metadata, raw response, parsed response, validated output, cache key, and builder version. In `storygen.cli` runs this is written separately:
