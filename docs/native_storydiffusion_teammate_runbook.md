@@ -11,7 +11,34 @@ It does not run the default `cloud_anchor_ipadapter_story` storygen + Anchor Ban
 
 ## Environment
 
-Required:
+There are two separate repositories involved:
+
+1. This project repo: `dsaa2012-proj2-story`
+2. The official external StoryDiffusion repo: `StoryDiffusion`
+
+The official StoryDiffusion repo is **not vendored** into this project and is **not a git submodule**. Native StoryDiffusion runs import the official Gradio app from that external folder, so every real native run must know where that folder is.
+
+If the external repo is not already installed, clone it outside this project repo, for example:
+
+```bash
+mkdir -p /path/to/external/repos
+cd /path/to/external/repos
+git clone https://github.com/HVision-NKU/StoryDiffusion.git
+```
+
+Then use that folder path in every native command:
+
+```bash
+--storydiffusion-root /path/to/external/repos/StoryDiffusion
+```
+
+For example, if the repo was cloned to `/home/teammate/spring25/StoryDiffusion`, every command below should use:
+
+```bash
+--storydiffusion-root /home/teammate/spring25/StoryDiffusion
+```
+
+Required checks:
 
 ```bash
 cd /path/to/dsaa2012-proj2-story
@@ -23,8 +50,10 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 
 conda run -n storydiffusion python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no cuda')"
 
-test -f /path/to/StoryDiffusion/gradio_app_sdxl_specific_id_low_vram.py
+test -f /path/to/external/repos/StoryDiffusion/gradio_app_sdxl_specific_id_low_vram.py
 ```
+
+Replace `/path/to/external/repos/StoryDiffusion` in the commands below with the real external StoryDiffusion folder on the teammate's machine.
 
 For WSL machines that need the CUDA driver library path:
 
