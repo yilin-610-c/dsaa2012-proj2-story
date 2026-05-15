@@ -81,6 +81,8 @@ def _native_args(args: argparse.Namespace, native_id_length: int | None = None) 
         argv.extend(["--native-id-length", str(native_id_length)])
     if args.native_guidance_scale is not None:
         argv.extend(["--native-guidance-scale", str(args.native_guidance_scale)])
+    if args.native_sd_type is not None:
+        argv.extend(["--native-sd-type", args.native_sd_type])
     if args.save_identity_images:
         argv.append("--save-identity-images")
     if args.storydiffusion_prompt_mode != "current":
@@ -305,6 +307,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Override native id lengths for one story key/path. Repeatable.",
     )
     parser.add_argument("--native-guidance-scale", type=float, default=None)
+    parser.add_argument(
+        "--native-sd-type",
+        default=None,
+        help="Forwarded to native StoryDiffusion routes as --sd-type, e.g. Unstable, RealVision, Juggernaut, SDXL.",
+    )
     parser.add_argument("--save-identity-images", action="store_true")
     parser.add_argument(
         "--storydiffusion-prompt-mode",

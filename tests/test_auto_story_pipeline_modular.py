@@ -167,6 +167,8 @@ def test_single_native_route_forwards_storydiffusion_root_and_native_controls(tm
             "2",
             "--native-guidance-scale",
             "4.5",
+            "--native-sd-type",
+            "RealVision",
             "--dry-run",
         ]
     )
@@ -180,6 +182,7 @@ def test_single_native_route_forwards_storydiffusion_root_and_native_controls(tm
     assert "--seed 7" in output
     assert "--id-length 2" in output
     assert "--guidance-scale 4.5" in output
+    assert "--sd-type RealVision" in output
 
 
 def test_double_native_route_forwards_storydiffusion_root(tmp_path: Path, monkeypatch, capsys) -> None:

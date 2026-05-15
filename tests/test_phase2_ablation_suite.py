@@ -73,6 +73,8 @@ def test_smoke_suite_builds_expected_commands_without_heavy_generation(tmp_path:
             "3",
             "--native-id-length",
             "2",
+            "--native-sd-type",
+            "RealVision",
             "--storydiffusion-prompt-mode",
             "clean_v2",
             "--dry-run",
@@ -92,6 +94,7 @@ def test_smoke_suite_builds_expected_commands_without_heavy_generation(tmp_path:
     assert "--native-num-steps 20" in joined[1]
     assert "--native-seed 3" in joined[1]
     assert "--native-id-length 2" in joined[1]
+    assert "--native-sd-type RealVision" in joined[1]
     assert "--storydiffusion-prompt-mode clean_v2" in joined[1]
     assert "--storydiffusion-prompt-mode clean_v2" not in joined[0]
     assert "--run-name double_native_storydiffusion_double" in joined[2]
@@ -229,6 +232,8 @@ def test_custom_suite_expands_mixed_story_methods_and_id_length_overrides(tmp_pa
             "30",
             "--native-id-lengths",
             "1",
+            "--native-sd-type",
+            "Unstable",
             "--native-id-lengths-override",
             f"{student}=1,2",
             "--native-id-lengths-override",
@@ -253,6 +258,7 @@ def test_custom_suite_expands_mixed_story_methods_and_id_length_overrides(tmp_pa
     native_calls = [call for call in joined if "native_natural" in call]
     assert all("--single-route native_storydiffusion" in call for call in native_calls)
     assert all("--storydiffusion-prompt-mode natural" in call for call in native_calls)
+    assert all("--native-sd-type Unstable" in call for call in native_calls)
     assert all("--save-identity-images" in call for call in native_calls)
     assert sum("--native-id-length 2" in call for call in native_calls) == 2
     manifest = output_root / "custom" / "suite_manifest.jsonl"
