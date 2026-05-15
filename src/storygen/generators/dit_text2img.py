@@ -82,7 +82,7 @@ class DitTextToImageGenerator(BaseImageGenerator):
 
         # Inject LoRA trigger word into prompt if configured
         prompt = request.prompt_spec.generation_prompt
-        lora_trigger = self.model_config.get("lora_trigger", "").strip()
+        lora_trigger = str(self.model_config.get("lora_trigger") or "").strip()
         if lora_trigger:
             prompt = f"{lora_trigger} {prompt}"
 
