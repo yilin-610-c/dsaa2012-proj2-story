@@ -41,7 +41,7 @@
 | 6 | **lora_trigger** 注入 prompt | ✅ | `dit_text2img.py`, `dit_story_joint.py` |
 | 7 | **Factory 注册** 两个新 backend | ✅ | `src/storygen/generators/factory.py` |
 | 8 | **10+ 个新 Config Profile** | ✅ | `configs/base.yaml` |
-| 9 | **gen_lora_ref_images.py** — 训练参考图生成 | ✅ | `scripts/gen_lora_ref_images.py` |
+| 9 | **gen_lora_ref_images.py** — 训练参考图（默认 PixArt-α；可选 SDXL） | ✅ | `scripts/gen_lora_ref_images.py` |
 | 10 | **train_pixart_lora_hf.py** — LoRA 训练脚本 | ✅ | `scripts/train_pixart_lora_hf.py` (官方 + 修改) |
 | 11 | **run_full_lora_pipeline.sh** — 一键全流程 | ✅ | `scripts/run_full_lora_pipeline.sh` |
 | 12 | **dit_pipeline_complete_guide.md** — 使用指南 | ✅ | `docs/dit_pipeline_complete_guide.md` |
@@ -58,7 +58,7 @@
 src/storygen/generators/dit_text2img.py          ← Scene-level PixArt + LoRA (~130行)
 src/storygen/generators/dit_story_joint.py        ← Story-level PixArt + CrossSceneAttention + LoRA (~380行)
 scripts/train_pixart_lora_hf.py                   ← PixArt DreamBooth LoRA 训练 (官方 1042行 + 修改)
-scripts/gen_lora_ref_images.py                    ← SDXL anchor_bank + IP-Adapter 训练图生成 (~240行)
+scripts/gen_lora_ref_images.py                    ← 默认 PixArt 参考图；`--ref-backend sdxl` 为 SDXL+IP-Adapter
 scripts/run_full_lora_pipeline.sh                 ← 一键全流程脚本 (~120行)
 docs/dit_pipeline_complete_guide.md               ← 使用指南
 docs/dit_full_implementation_report.md            ← 实现报告
@@ -106,7 +106,7 @@ LoRA 可正常加载和推理。CFG=2.5, 12 steps, rank=32。
 ### 4.3 LoRA 训练参考图生成 (v4)
 
 ```bash
-PYTHONPATH=src python scripts/gen_lora_ref_images.py --input test_set/01.txt --output-dir training_data/xxx
+PYTHONPATH=src python scripts/gen_lora_ref_images.py --input test_set/01.txt --output-dir training_data/xxx [--ref-backend pixart|sdxl]
 ```
 
 Phase 1: anchor_bank + IP-Adapter → canonical character image
@@ -127,7 +127,7 @@ Phase 2: canonical image as IP-Adapter ref → 15 diverse images (不同姿势/�
 bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 ```
 
-三步连贯运行，输出到 `outputs/dit_lora_smoke_full_<time>_<story>/`。一键脚本推理时优先加载 `lora_checkpoints/` 根目录的最终 PEFT adapter（避免仅用 `checkpoint-*` 时与训练步数不同步导致人物不一致）。
+三步连贯运行，输出到 `outputs/dit_lora_smoke_full_<time>_<story>/`。Step 1 默认 **PixArt** 产训练图（`--ref-backend sdxl` 恢复旧 SDXL+IP-Adapter）。一键脚本推理时优先加载 `lora_checkpoints/` 根目录的最终 PEFT adapter（避免仅用 `checkpoint-*` 时与训练步数不同步导致人物不一致）。
 
 ### 4.6 Factory 注册
 
@@ -161,7 +161,7 @@ bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 
 **根因分析**:
 1. T5 text encoder 被冻结 — "sks" trigger token 未绑定到角色
-2. 训练图是 SDXL 生成的，PixArt 是不同模型 — 跨模型迁移天然有 gap
+2. 若仍用 `--ref-backend sdxl`：训练图是 SDXL、推理是 PixArt — 跨模型迁移有 gap；**默认已改为 PixArt 产训练图**以消除该缝（仍受 T5 冻结等其它项限制）
 3. LoRA 只训练 transformer，text encoder 不变
 4. 训练数据多样性还不够（半身照为主）
 5. **推理风格与训练 caption 不一致**：`gen_lora_ref_images.py` 的 metadata 大量带 `photorealistic`，而默认 profile 的 `style_prompt` 偏「cinematic illustration」，会把脸从训练域拉开
@@ -258,7 +258,7 @@ bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 
 ```bash
 # Step 1: 训练图
-PYTHONPATH=src python scripts/gen_lora_ref_images.py --input test_set/01.txt --output-dir training_data/xxx
+PYTHONPATH=src python scripts/gen_lora_ref_images.py --input test_set/01.txt --output-dir training_data/xxx [--ref-backend pixart|sdxl]
 
 # Step 2: 训练 (rank=32, 1200 steps)
 /home/xyz/.conda/envs/ipadapter/bin/python -m accelerate.commands.launch \

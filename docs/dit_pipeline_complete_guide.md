@@ -27,7 +27,7 @@
 bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 ```
 
-一条命令 = 生成参考图 + 训练 LoRA + 推理。输出在 `outputs/dit_lora_smoke_full_<time>_<story>/`。
+一条命令 = 生成参考图 + 训练 LoRA + 推理。输出在 `outputs/dit_lora_smoke_full_<time>_<story>/`。Step 1 默认用 **PixArt-α** 生成训练图（与 Step 2/3 同一 backbone）；旧行为可加 `--ref-backend sdxl`。
 
 推理加载的 LoRA：脚本优先使用 `lora_checkpoints/` 目录根下的最终 `adapter_model.safetensors`（训练脚本结束时写入），仅在没有根 adapter 时才回退到最新的 `checkpoint-*`。这样不会在用「非整除 checkpoint 步数」的训练时误加载少训一段的权重，避免生成人物与训练图脱节。
 
@@ -194,7 +194,7 @@ bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 
 ```
 outputs/dit_lora_smoke_full_<timestamp>_<story>/
-├── training_images/          ← Step 1: IP-Adapter 多样化参考图 (~13 张)
+├── training_images/          ← Step 1: 默认 PixArt-α 参考图 (~16)；可选 --ref-backend sdxl 走旧版 SDXL+IP-Adapter
 ├── lora_checkpoints/         ← Step 2: 根目录 final adapter + checkpoint-*/
 ├── generation/               ← Step 3: 故事生成结果
 │   └── scenes/
@@ -210,7 +210,7 @@ outputs/dit_lora_smoke_full_<timestamp>_<story>/
 bash scripts/run_full_lora_pipeline.sh \
   --input test_set/01.txt \
   --profile dit_lora_smoke \
-  --num-images 15 \
+  --ref-backend pixart \
   --lora-rank 16 \
   --lora-steps 800
 ```
@@ -218,11 +218,11 @@ bash scripts/run_full_lora_pipeline.sh \
 ### 4.2 分步运行（调试用）
 
 ```bash
-# Step 1: 生成训练参考图 (SDXL + IP-Adapter, 13 张多样化图像)
+# Step 1: 生成训练参考图（默认 PixArt-α，与 LoRA 训练/推理同一 backbone；legacy 加 --ref-backend sdxl）
 PYTHONPATH=src python scripts/gen_lora_ref_images.py \
   --input test_set/01.txt \
   --output-dir training_data/my_character \
-  --num-images 15
+  --ref-backend pixart
 
 # Step 2: PixArt LoRA DreamBooth 训练 (~4分钟)
 /home/xyz/.conda/envs/ipadapter/bin/python -m accelerate.commands.launch \
@@ -258,10 +258,9 @@ lora_checkpoints/character/
 
 ```
 training_data/my_character/
-├── anchor_identity.png       ← SDXL 生成的锚定肖像（Phase 1）
-├── ref_000.png ~ ref_011.png ← IP-Adapter + 多样化 prompt（Phase 2）
-│    全身/半身, 室内/室外, 不同光照, 不同姿势
-└── metadata.jsonl            ← HuggingFace ImageFolder 格式
+├── {Name}_canonical.png       ← Phase 1: anchor_bank 选出的 canonical（默认 PixArt；sdxl 后端则为 SDXL）
+├── {Name}_diverse_000.png …   ← Phase 2: 多样化 prompt（默认 PixArt text2img；sdxl 为 IP-Adapter + SDXL）
+└── metadata.jsonl             ← HuggingFace ImageFolder 格式
 ```
 
 ### 4.4 训练参数
@@ -284,7 +283,7 @@ training_data/my_character/
 # prompt 是: "Lily, makes breakfast..."  ← LoRA 不会生效！
 ```
 
-**风格对齐（重要）**：训练图由 SDXL 生成，caption 里大量 `photorealistic`。若推理仍用默认「cinematic illustration」风格，会把人脸拉离 LoRA 学到的分布。`dit_lora_smoke` / `dit_story_joint_lora` 已在 profile 内覆盖为 photorealistic 向的 `style_prompt`；自定义 profile 时请保持与训练 caption 同一美学域。
+**风格对齐（重要）**：默认训练参考图由 **PixArt** 生成，与 LoRA 训练/推理同一 backbone。若使用 `--ref-backend sdxl`，训练图来自 SDXL，caption 仍偏 photorealistic；推理 profile 已用 photorealistic 向 `style_prompt` 对齐。
 
 ---
 
@@ -392,7 +391,7 @@ training_data/my_character/
 | `src/storygen/generators/dit_text2img.py` | Scene-level PixArt-α generator + LoRA |
 | `src/storygen/generators/dit_story_joint.py` | Story-level PixArt-α joint + CrossSceneAttention + LoRA |
 | `scripts/train_pixart_lora_hf.py` | PixArt DreamBooth LoRA 训练 (官方) |
-| `scripts/gen_lora_ref_images.py` | SDXL + IP-Adapter 多样化训练图生成 |
+| `scripts/gen_lora_ref_images.py` | 训练参考图：默认 PixArt-α；`--ref-backend sdxl` 为旧版 SDXL+IP-Adapter |
 | `docs/dit_pipeline_complete_guide.md` | 本文档 |
 | `docs/dit_full_implementation_report.md` | 完整实现报告 |
 
@@ -409,6 +408,9 @@ training_data/my_character/
 ```bash
 pip install peft tiktoken sentencepiece protobuf datasets torchvision
 ```
+
+示例：
+
 ```bash
 bash scripts/run_full_lora_pipeline.sh --input test_set/02.txt
 ```

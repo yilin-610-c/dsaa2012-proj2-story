@@ -3,7 +3,7 @@
 # Full LoRA Pipeline: Reference Gen → Train → Inference
 #
 # Usage:
-#   bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt [--profile dit_lora_smoke]
+#   bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt [--profile dit_lora_smoke] [--ref-backend pixart|sdxl]
 #
 # All outputs go to: outputs/<profile>_<timestamp>_<story>/.
 # =============================================================================
@@ -15,6 +15,8 @@ PROFILE="dit_lora_smoke"
 LORA_RANK=32
 LORA_STEPS=1200
 CHECKPOINT_STEPS=200
+# Training reference images: pixart = PixArt-α only (matches LoRA backbone); sdxl = legacy SDXL+IP-Adapter Phase 2
+REF_BACKEND="pixart"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -22,12 +24,13 @@ while [[ $# -gt 0 ]]; do
         --profile) PROFILE="$2"; shift 2 ;;
         --lora-rank) LORA_RANK="$2"; shift 2 ;;
         --lora-steps) LORA_STEPS="$2"; shift 2 ;;
+        --ref-backend) REF_BACKEND="$2"; shift 2 ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
 
 if [[ -z "$INPUT" ]]; then
-    echo "Usage: bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt [--profile dit_lora_smoke]"
+    echo "Usage: bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt [--profile dit_lora_smoke] [--ref-backend pixart|sdxl]"
     exit 1
 fi
 
@@ -55,19 +58,21 @@ echo "==========================================================================
 echo " Full LoRA Pipeline"
 echo " Story: $STORY_CODE"
 echo " Profile: $PROFILE"
+echo " ref-backend: $REF_BACKEND"
 echo " Output: $RUN_DIR"
 echo "================================================================================"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Step 1: Generate diverse training images (SDXL + IP-Adapter)
+# Step 1: Generate diverse training images (default: PixArt-α only, same backbone as Step 2/3)
 # ═══════════════════════════════════════════════════════════════════════════════
-echo "── Step 1/3: Generate Training Reference Images (anchor_bank + IP-Adapter) ──"
+echo "── Step 1/3: Generate Training Reference Images (ref-backend=$REF_BACKEND) ──"
 echo ""
 
 $PYTHON "$REPO_ROOT/scripts/gen_lora_ref_images.py" \
     --input "$REPO_ROOT/$INPUT" \
-    --output-dir "$TRAIN_IMG_DIR"
+    --output-dir "$TRAIN_IMG_DIR" \
+    --ref-backend "$REF_BACKEND"
 
 echo ""
 echo "Step 1 complete: $(ls "$TRAIN_IMG_DIR"/*.png 2>/dev/null | wc -l) images in $TRAIN_IMG_DIR"
