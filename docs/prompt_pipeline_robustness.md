@@ -61,6 +61,10 @@ The native negative prompt also includes `character sheet`, `turnaround`, `multi
 
 Native clean/natural prompt generation also raises the LLM structured-output token budget above the base default. A double-character story can exceed the previous 800-token budget and return truncated JSON such as `Unterminated string`; the native probe now uses a larger `prompt.llm.max_output_tokens` override for config/debug generation.
 
+## Anchor Bank Human Age Labels
+
+Anchor Bank prompts now treat `young adult` as an adult human label instead of a child label. This prevents under-specified Student-style characters from producing anchor prompts such as `one human boy child` when the validated character spec says `age_band: young adult` and `gender_presentation: male`. Generic `girl` / `boy` ids and explicit `child` / `kid` / `toddler` / `baby` ages still generate child labels.
+
 ## LLM Audit Logging
 
 Real LLM calls expose a response record containing request metadata, response metadata, raw response, parsed response, validated output, cache key, and builder version. In `storygen.cli` runs this is written separately:

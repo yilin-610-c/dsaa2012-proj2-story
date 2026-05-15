@@ -163,6 +163,28 @@ def test_anchor_prompt_normalizes_common_human_age_gender_pairs() -> None:
     assert "one human boy child" in child_boy
 
 
+def test_anchor_prompt_keeps_young_adult_student_as_adult_man() -> None:
+    prompt = build_anchor_prompt(
+        {
+            "character_id": "student",
+            "age_band": "young adult",
+            "gender_presentation": "male",
+            "hair_color": "brown",
+            "hairstyle": "short",
+            "signature_outfit": "casual shirt",
+            "profession_marker": "student",
+        },
+        "half_body",
+        "clean identity reference image",
+    )
+
+    assert "one human man, student" in prompt
+    assert "brown" in prompt
+    assert "short" in prompt
+    assert "casual shirt" in prompt
+    assert "human boy child" not in prompt
+
+
 def test_anchor_generation_uses_anchor_specific_negative_prompt(tmp_path: Path) -> None:
     generator = FakeSceneGenerator()
     run_anchor_bank(
