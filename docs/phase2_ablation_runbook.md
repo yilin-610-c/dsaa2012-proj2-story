@@ -103,6 +103,88 @@ python3 scripts/run_phase2_ablation_suite.py \
 
 This smoke is only for path validation. It is not the final quality run.
 
+## C. Representative Three-Story Ablation
+
+Use this before a broader ablation. It compares the current storygen baseline against native StoryDiffusion natural prompts on three representative cases:
+
+- `test_setA/19.txt`: single human identity, Student
+- `test_setA/03.txt`: dual animal identity, Cat/Dog
+- `test_set/06.txt`: dual human identity, Jack/Sara
+
+Methods:
+
+- `storygen`: `storygen.cli` with `cloud_storydiffusion_debug`, modular SDXL prompts, Anchor Bank, and IP-Adapter
+- `native`: native StoryDiffusion probe with `--storydiffusion-prompt-mode natural` and saved identity reference images
+
+First dry-run the matrix:
+
+```bash
+conda run -n storygen env PYTHONPATH=src python scripts/run_phase2_ablation_suite.py \
+  --suite custom \
+  --stories test_setA/19.txt,test_setA/03.txt,test_set/06.txt \
+  --methods storygen,native \
+  --output-root outputs_ablation/representative_v1 \
+  --single-env storygen \
+  --double-env storydiffusion \
+  --storydiffusion-root /home/lyl610/spring25/StoryDiffusion \
+  --storydiffusion-prompt-mode natural \
+  --native-width 512 \
+  --native-height 512 \
+  --native-num-steps 30 \
+  --native-id-lengths 1 \
+  --native-id-lengths-override test_setA/19.txt=1,2 \
+  --native-id-lengths-override test_set/06.txt=1,2 \
+  --save-identity-images \
+  --dry-run
+```
+
+Then run the same command without `--dry-run`:
+
+```bash
+conda run -n storygen env PYTHONPATH=src python scripts/run_phase2_ablation_suite.py \
+  --suite custom \
+  --stories test_setA/19.txt,test_setA/03.txt,test_set/06.txt \
+  --methods storygen,native \
+  --output-root outputs_ablation/representative_v1 \
+  --single-env storygen \
+  --double-env storydiffusion \
+  --storydiffusion-root /home/lyl610/spring25/StoryDiffusion \
+  --storydiffusion-prompt-mode natural \
+  --native-width 512 \
+  --native-height 512 \
+  --native-num-steps 30 \
+  --native-id-lengths 1 \
+  --native-id-lengths-override test_setA/19.txt=1,2 \
+  --native-id-lengths-override test_set/06.txt=1,2 \
+  --save-identity-images \
+  --continue-on-error
+```
+
+This produces eight runs:
+
+```text
+storygen_default_test_setA_19/
+native_natural_id1_test_setA_19/
+native_natural_id2_test_setA_19/
+storygen_default_test_setA_03/
+native_natural_id1_test_setA_03/
+storygen_default_test_set_06/
+native_natural_id1_test_set_06/
+native_natural_id2_test_set_06/
+```
+
+`--native-id-lengths` is the default list of native identity prompt counts per character. `--native-id-lengths-override STORY=1,2` replaces that list for one story. In this matrix, Cat/Dog only runs `id_length=1`, while Student and Jack/Sara run both `id_length=1` and `id_length=2` so their `identity_refs/` can be compared before choosing the cleaner setting.
+
+Inspect these files before judging image quality:
+
+- `outputs_ablation/representative_v1/custom/suite_manifest.jsonl`
+- native `storydiffusion_prompt_debug.json`
+- native `identity_refs/identity_*.png`
+- native generated story images
+- storygen `logs/prompt_bundle.json`
+- storygen `logs/story_scene_plans.json`
+- storygen generated scene images
+
 ## Files To Send Back
 
 For each completed experiment, send:

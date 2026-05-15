@@ -193,3 +193,72 @@ def test_suite_resume_skips_completed_output(tmp_path: Path, monkeypatch) -> Non
     entries = _manifest_entries(manifest)
     assert entries[0]["status"] == "skipped"
     assert entries[1]["status"] == "passed"
+
+
+def test_custom_suite_expands_mixed_story_methods_and_id_length_overrides(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    calls = _capture_subprocess(monkeypatch)
+    test_set_a = tmp_path / "test_setA"
+    test_set = tmp_path / "test_set"
+    test_set_a.mkdir()
+    test_set.mkdir()
+    student = _write_story(test_set_a, "19.txt", "[SCENE-1] <Student> studies in class.")
+    cat_dog = _write_story(test_set_a, "03.txt", "[SCENE-1] <Cat> sees <Dog>.")
+    jack_sara = _write_story(test_set, "06.txt", "[SCENE-1] <Jack> meets <Sara> at a cafe.")
+    output_root = tmp_path / "outputs_ablation"
+
+    result = module.main(
+        [
+            "--suite",
+            "custom",
+            "--stories",
+            f"{student},{cat_dog},{jack_sara}",
+            "--methods",
+            "storygen,native",
+            "--output-root",
+            str(output_root),
+            "--storydiffusion-root",
+            "/opt/StoryDiffusion",
+            "--storydiffusion-prompt-mode",
+            "natural",
+            "--native-width",
+            "512",
+            "--native-height",
+            "512",
+            "--native-num-steps",
+            "30",
+            "--native-id-lengths",
+            "1",
+            "--native-id-lengths-override",
+            f"{student}=1,2",
+            "--native-id-lengths-override",
+            f"{jack_sara}=1,2",
+            "--save-identity-images",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    assert len(calls) == 8
+    joined = [" ".join(call) for call in calls]
+    assert any("--run-name storygen_default_test_setA_19" in call for call in joined)
+    assert any("--run-name storygen_default_test_setA_03" in call for call in joined)
+    assert any("--run-name storygen_default_test_set_06" in call for call in joined)
+    assert any("--run-name native_natural_id1_test_setA_19" in call for call in joined)
+    assert any("--run-name native_natural_id2_test_setA_19" in call for call in joined)
+    assert any("--run-name native_natural_id1_test_setA_03" in call for call in joined)
+    assert any("--run-name native_natural_id1_test_set_06" in call for call in joined)
+    assert any("--run-name native_natural_id2_test_set_06" in call for call in joined)
+    assert sum("--double-route storygen" in call for call in joined) == 3
+    native_calls = [call for call in joined if "native_natural" in call]
+    assert all("--single-route native_storydiffusion" in call for call in native_calls)
+    assert all("--storydiffusion-prompt-mode natural" in call for call in native_calls)
+    assert all("--save-identity-images" in call for call in native_calls)
+    assert sum("--native-id-length 2" in call for call in native_calls) == 2
+    manifest = output_root / "custom" / "suite_manifest.jsonl"
+    entries = _manifest_entries(manifest)
+    assert len(entries) == 8
+    id2_entries = [entry for entry in entries if entry["native_id_length"] == 2]
+    assert {entry["story_slug"] for entry in id2_entries} == {"test_setA_19", "test_set_06"}
+    assert all("method" in entry for entry in entries)
+    assert all("save_identity_images" in entry for entry in entries)

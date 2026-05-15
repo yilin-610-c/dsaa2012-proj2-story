@@ -225,6 +225,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--double-env", default="storydiffusion", help="Conda env for StoryDiffusion probe path")
     parser.add_argument(
+        "--double-route",
+        choices=("native_storydiffusion", "storygen"),
+        default="native_storydiffusion",
+        help="Double-character execution route. Defaults to the existing native StoryDiffusion probe path.",
+    )
+    parser.add_argument(
         "--storydiffusion-root",
         type=Path,
         default=None,
@@ -277,9 +283,12 @@ def main(argv: list[str] | None = None) -> int:
 
     route, n_entities = classify_story(story_path)
 
-    use_native_probe = route == "double" or (route == "single" and args.single_route == "native_storydiffusion")
+    use_native_probe = (
+        (route == "double" and args.double_route == "native_storydiffusion")
+        or (route == "single" and args.single_route == "native_storydiffusion")
+    )
 
-    if route == "single" and not use_native_probe:
+    if not use_native_probe:
         chosen = build_storygen_argv(args)
         env = {"PYTHONPATH": "src"}
     else:

@@ -90,6 +90,32 @@ def test_double_story_still_builds_storydiffusion_probe_command(tmp_path: Path, 
     assert "storygen.cli" not in output
 
 
+def test_double_story_can_be_explicitly_routed_to_storygen(tmp_path: Path, monkeypatch, capsys) -> None:
+    module = _load_module()
+    _forbid_subprocess(monkeypatch)
+    story = _write_story(tmp_path, "[SCENE-1] <Nina> meets <Leo> in the snow.")
+
+    result = module.main(
+        [
+            "--input",
+            str(story),
+            "--run-name",
+            "dry_double_storygen",
+            "--double-route",
+            "storygen",
+            "--dry-run",
+        ]
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "route=double entities=2" in output
+    assert "storygen.cli" in output
+    assert "prompt.builder=modular" in output
+    assert "prompt.modular.backend=sdxl" in output
+    assert "storydiffusion_gradio_probe/run_test_set.py" not in output
+
+
 def test_single_route_storygen_matches_default_route(tmp_path: Path, monkeypatch, capsys) -> None:
     module = _load_module()
     _forbid_subprocess(monkeypatch)
