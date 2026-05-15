@@ -10,7 +10,7 @@ This phase is intentionally narrow: it only adds a switch for single-character a
 
 | Experiment name | Meaning | Main components | Output path |
 | --- | --- | --- | --- |
-| `single_storygen_default_<id>` | Existing single-character baseline | `storygen.cli`, `cloud_storydiffusion_debug`, modular SDXL prompts, Anchor Bank, IP-Adapter | `outputs/single_storygen_default_<id>/` |
+| `single_storygen_default_<id>` | Existing single-character baseline | `storygen.cli`, `cloud_anchor_ipadapter_story`, modular SDXL prompts, Anchor Bank, IP-Adapter | `outputs/single_storygen_default_<id>/` |
 | `single_native_storydiffusion_<id>` | Opt-in single-character native StoryDiffusion ablation | `storydiffusion_gradio_probe/run_test_set.py`, modular StoryDiffusion prompts, native Gradio probe | `outputs/single_native_storydiffusion_<id>/` |
 | `double_native_storydiffusion_<id>` | Existing two-character default | `storydiffusion_gradio_probe/run_test_set.py`, modular StoryDiffusion prompts, native Gradio probe | `outputs/double_native_storydiffusion_<id>/` |
 
@@ -47,7 +47,7 @@ Use `--dry-run` first to confirm the selected command without running model gene
 
 The default single-character route keeps the current storygen behavior:
 
-- `cloud_storydiffusion_debug`
+- `cloud_anchor_ipadapter_story`
 - `prompt.builder=modular`
 - `prompt.modular.backend=sdxl`
 - Anchor Bank enabled

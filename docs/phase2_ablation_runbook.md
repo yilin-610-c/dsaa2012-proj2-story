@@ -113,7 +113,7 @@ Use this before a broader ablation. It compares the current storygen baseline ag
 
 Methods:
 
-- `storygen`: `storygen.cli` with `cloud_storydiffusion_debug`, modular SDXL prompts, Anchor Bank, and IP-Adapter
+- `storygen`: `storygen.cli` with `cloud_anchor_ipadapter_story`, modular SDXL prompts, Anchor Bank, and IP-Adapter
 - `native`: native StoryDiffusion probe with `--storydiffusion-prompt-mode natural` and saved identity reference images
 
 First dry-run the matrix:

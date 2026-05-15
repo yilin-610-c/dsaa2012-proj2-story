@@ -264,6 +264,38 @@ runtime_profiles:
         enabled: true
         scale: 0.3
         fail_on_missing_anchor: false
+  cloud_anchor_ipadapter_story:
+    runtime:
+      run_name_prefix: cloud_anchor_ipadapter_story
+    prompt:
+      pipeline: llm_assisted
+    model:
+      backend: storydiffusion_direct
+      granularity: story
+      model_id: storydiffusion_direct_placeholder
+      scene_model_id: stabilityai/sdxl-turbo
+      width: 768
+      height: 768
+      num_inference_steps: 4
+      guidance_scale: 0.0
+      num_identity_panels: 3
+      consistent_attention:
+        enabled: false
+        id_length: 4
+        write_mode: false
+        total_count: 0
+    generation:
+      candidate_count: 1
+      base_seed: 2026
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: true
+        fail_on_missing_anchor: false
+  # Backward-compatible alias for older commands. Despite the historical name,
+  # this route is a story-level wrapper over diffusers text2img with Anchor Bank
+  # and IP-Adapter identity conditioning; it is not native StoryDiffusion.
   cloud_storydiffusion_debug:
     runtime:
       run_name_prefix: cloud_storydiffusion_debug

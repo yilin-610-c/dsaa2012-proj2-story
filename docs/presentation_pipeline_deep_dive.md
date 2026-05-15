@@ -27,7 +27,7 @@ The codebase has two runnable generation shapes.
 
 The scene-level pipeline uses `model.backend=diffusers_text2img` and `model.granularity=scene`. It iterates over scenes, generates multiple candidates per scene, scores them with CLIP-based text/action/previous-image consistency, and saves the selected frame. This is the older main experimental route used by profiles such as `llm_prompt_text2img`, `llm_prompt_img2img_guided`, `llm_prompt_ip_adapter_text2img`, and `llm_prompt_hybrid_identity`.
 
-The story-level pipeline uses `model.backend=storydiffusion_direct` and `model.granularity=story`. It builds a full list of `StoryScenePlan` objects first, writes `story_scene_plans.json` and `story_backend_request.json`, then delegates each panel to the scene-level diffusers generator. This is the current `cloud_storydiffusion_debug` route. It is "StoryDiffusion-style" at the orchestration/interface level, but it is not yet a full paper-faithful StoryDiffusion implementation because consistent attention is disabled by default and the backend still delegates to ordinary scene generation.
+The story-level pipeline uses `model.backend=storydiffusion_direct` and `model.granularity=story`. It builds a full list of `StoryScenePlan` objects first, writes `story_scene_plans.json` and `story_backend_request.json`, then delegates each panel to the scene-level diffusers generator. This is the current `cloud_anchor_ipadapter_story` route. It is "StoryDiffusion-style" at the orchestration/interface level, but it is not yet a full paper-faithful StoryDiffusion implementation because consistent attention is disabled by default and the backend still delegates to ordinary scene generation.
 
 Key source files:
 - `src/storygen/pipeline.py`: end-to-end orchestration.
@@ -96,14 +96,14 @@ Scoring and selection in scene-level runs:
 - Scores text alignment, action alignment, and previous-image consistency.
 - Route-aware scoring can reduce previous-image consistency for medium/large changes and penalize over-similarity.
 
-Story-level `cloud_storydiffusion_debug`:
+Story-level `cloud_anchor_ipadapter_story`:
 - Builds `story_scene_plans.json` first.
 - Generates Anchor Bank.
 - Builds `StoryGenerationRequest`.
 - Calls `storydiffusion_direct`.
 - Current backend generates one panel per scene, so it does not use the old multi-candidate CLIP reranking loop.
 
-## Old Pipeline vs Current `cloud_storydiffusion_debug`
+## Old Pipeline vs Current `cloud_anchor_ipadapter_story`
 
 Older identity-focused command:
 
@@ -139,7 +139,7 @@ Current StoryDiffusion-style command:
 
 ```bash
 PYTHONPATH=src python -m storygen.cli \
-  --profile cloud_storydiffusion_debug \
+  --profile cloud_anchor_ipadapter_story \
   --input test_set/14.txt \
   --run-name compare_14_with_scene_consistency_v4 \
   --set generation.identity_conditioning.scale=0.3 \
@@ -270,7 +270,7 @@ Slide 4, 70 seconds: identity consistency design
 - Mention scale tradeoff: high scale locks identity but can narrow composition; lower scale preserves scene freedom.
 
 Slide 5, 50 seconds: StoryDiffusion-style integration
-- Explain `cloud_storydiffusion_debug`: story-level plans, anchor metadata, one backend entrypoint.
+- Explain `cloud_anchor_ipadapter_story`: story-level plans, anchor metadata, one backend entrypoint.
 - Be precise: current verified run has consistent attention off; this is an integration point, not a full StoryDiffusion claim.
 
 Slide 6, 40 seconds: rigor, limitations, future work
@@ -306,4 +306,3 @@ Presentation Clarity:
 ## Best Final Narrative
 
 "We started from a deterministic multi-panel text-to-image baseline. The main failure was that each panel could be locally plausible but globally inconsistent. We first improved text understanding with an LLM, but constrained it to structured JSON so the system stayed reproducible. Then we added route planning because previous-frame img2img helps small continuity changes but hurts large composition changes. Finally, we added Anchor Bank and IP-Adapter so composition-changing text2img scenes could still preserve a single character's identity. The current StoryDiffusion-style backend integrates these plans at the whole-story level and creates a clean interface for future consistent attention. The current limitation is multi-character identity: we intentionally skip single-anchor IP-Adapter when two characters are equally important, because guessing would be technically unsound."
-

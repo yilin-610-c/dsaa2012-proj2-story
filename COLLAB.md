@@ -701,7 +701,7 @@ Prompt updates:
 Experiment/audit commands:
 - prompt audit export: `PYTHONPATH=src python3 scripts/export_prompts.py --inputs 'test_set/*.txt' --pipelines both --output-dir outputs/prompt_audit`
 - remote matrix dry run: `PYTHONPATH=src python3 scripts/run_experiment_matrix.py --experiment-id prompt_audit_check --profiles llm_prompt_text2img --stories 'test_set/*.txt' --dry-run`
-- storydiffusion smoke profile: `PYTHONPATH=src python3 -m storygen.cli --profile cloud_storydiffusion_debug --input test_set/01.txt --run-name smoke_storydiffusion_prompt_audit`
+- storygen Anchor/IP-Adapter smoke profile: `PYTHONPATH=src python3 -m storygen.cli --profile cloud_anchor_ipadapter_story --input test_set/01.txt --run-name smoke_anchor_ipadapter_prompt_audit`
 
 When modifying shared code:
 - prefer additive and modular changes

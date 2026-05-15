@@ -6,7 +6,7 @@ This branch keeps the original default routing and adds opt-in native StoryDiffu
 
 | Story type | Default route | Command switch | Generation path | Prompt path |
 | --- | --- | --- | --- | --- |
-| Single-character | `storygen` | default `--single-route storygen` | `python -m storygen.cli --profile cloud_storydiffusion_debug` | `llm_assisted_v9` PromptSpec through storygen, Anchor Bank/IP-Adapter path available |
+| Single-character | `storygen` | default `--single-route storygen` | `python -m storygen.cli --profile cloud_anchor_ipadapter_story` | `llm_assisted_v9` PromptSpec through storygen, Anchor Bank/IP-Adapter path available |
 | Single-character native ablation | native StoryDiffusion probe | `--single-route native_storydiffusion` | `storydiffusion_gradio_probe/run_test_set.py` -> external `StoryDiffusion/gradio_app_sdxl_specific_id_low_vram.py` | `--prompt-builder modular --prompt-modular-backend storydiffusion`; optional `--storydiffusion-prompt-mode clean` |
 | Two-character | native StoryDiffusion probe | default for two-character stories | `storydiffusion_gradio_probe/run_test_set.py` -> external StoryDiffusion Gradio app | modular StoryDiffusion prompt backend |
 

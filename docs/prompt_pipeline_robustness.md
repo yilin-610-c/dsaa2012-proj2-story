@@ -65,6 +65,10 @@ Native clean/natural prompt generation also raises the LLM structured-output tok
 
 Anchor Bank prompts now treat `young adult` as an adult human label instead of a child label. This prevents under-specified Student-style characters from producing anchor prompts such as `one human boy child` when the validated character spec says `age_band: young adult` and `gender_presentation: male`. Generic `girl` / `boy` ids and explicit `child` / `kid` / `toddler` / `baby` ages still generate child labels.
 
+## Storygen Anchor/IP-Adapter Profile Name
+
+The storygen route formerly documented as `cloud_storydiffusion_debug` is now named `cloud_anchor_ipadapter_story`. This name is more precise: the route builds story-level `StoryScenePlan` records, generates Anchor Bank references, and uses IP-Adapter over scene-level diffusers generation. It is not the native StoryDiffusion Gradio path. The old `cloud_storydiffusion_debug` profile remains as a backward-compatible alias for existing commands.
+
 ## LLM Audit Logging
 
 Real LLM calls expose a response record containing request metadata, response metadata, raw response, parsed response, validated output, cache key, and builder version. In `storygen.cli` runs this is written separately:

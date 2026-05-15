@@ -206,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--single-env", default="ipadapter", help="Conda env name for the IP-Adapter storygen path")
     parser.add_argument(
         "--single-profile",
-        default="cloud_storydiffusion_debug",
+        default="cloud_anchor_ipadapter_story",
         help="storygen runtime profile for the single-character path",
     )
     parser.add_argument(

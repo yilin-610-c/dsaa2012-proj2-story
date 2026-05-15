@@ -19,7 +19,7 @@ DEFAULT_CONFIG_DIR = REPO_ROOT / "outputs" / "storydiffusion_gradio_probe" / "co
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "outputs" / "storydiffusion_gradio_probe" / "test_set"
 DEFAULT_STORYDIFFUSION_ROOT = REPO_ROOT.parent
 DEFAULT_BASE_CONFIG = REPO_ROOT / "configs" / "base.yaml"
-DEFAULT_PROFILE = "cloud_storydiffusion_debug"
+DEFAULT_PROFILE = "cloud_anchor_ipadapter_story"
 DEFAULT_ANCHOR_RUN_DIR = REPO_ROOT / "outputs" / "compare_aesthetic_16_low_ip"
 
 DEFAULT_NEGATIVE_PROMPT = (
