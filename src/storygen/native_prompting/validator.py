@@ -629,7 +629,7 @@ def _validate_anchor_reference_prompt(
             path,
             f"{path} must request a single subject",
             prompt,
-            "Rewrite as a clean single-character identity reference prompt.",
+            'Rewrite as a clean single-character identity reference prompt and include wording such as "single subject" or "one person only".',
         )
     if not any(term in lowered for term in REFERENCE_FRAMING_TERMS):
         _add_issue(

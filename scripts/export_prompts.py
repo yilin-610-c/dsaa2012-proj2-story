@@ -205,6 +205,8 @@ def _build_pipeline_audit(
             "resolved_prompt_pipeline": config["prompt"].get("pipeline"),
             "error_type": type(exc).__name__,
             "error": str(exc),
+            "validation_status": metadata.get("validation_status") if isinstance(metadata, dict) else None,
+            "generation_allowed": metadata.get("generation_allowed") if isinstance(metadata, dict) else None,
             "metadata": metadata,
             "events": events,
             "last_llm_direct_payload": _last_llm_direct_payload_from_metadata(metadata)

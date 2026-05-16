@@ -53,10 +53,10 @@ prompt:
     builder_version: llm_direct_v1
     targets:
       - anchor
-    repair_attempts: 2
-    validation_policy: strict
+    repair_attempts: 1
+    validation_policy: best_effort
     on_hard_error: fail
-    allow_generation_with_boundary_errors: false
+    allow_generation_with_boundary_errors: true
     max_scene_prompt_words: 40
     max_scene_prompt_chars: 320
     max_identity_prompt_words: 60

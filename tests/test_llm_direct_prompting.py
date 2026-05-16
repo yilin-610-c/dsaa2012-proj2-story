@@ -6,6 +6,7 @@ import pytest
 
 from storygen.llm_client import BaseLLMClient, LLMResponse
 from storygen.anchor_bank import build_anchor_prompt
+from storygen.config import resolve_config
 from storygen.native_prompting import LLMDirectPromptBuilder, build_anchor_prompt_bundle, build_storydiffusion_prompt_payload
 from storygen.native_prompting.types import NativePromptPayload
 from storygen.native_prompting.validator import NativePromptValidationError, validate_native_prompt_payload
@@ -21,6 +22,16 @@ class FakeLLMClient(BaseLLMClient):
         response = self.responses[self.calls]
         self.calls += 1
         return LLMResponse(raw_text=json.dumps(response), parsed_json=response, metadata={"fake_call": self.calls})
+
+
+class FailingLLMClient(BaseLLMClient):
+    def generate_structured(self, *, messages, json_schema):
+        raise RuntimeError("quota exceeded")
+
+
+class NonDictLLMClient(BaseLLMClient):
+    def generate_structured(self, *, messages, json_schema):
+        return LLMResponse(raw_text="[]", parsed_json=[], metadata={"fake_call": 1})
 
 
 def _story_single() -> Story:
@@ -93,6 +104,14 @@ def _payload(targets=("anchor", "storydiffusion")) -> dict:
         },
         "notes": {"identity_reasoning": "Ben is recurring.", "continuity_reasoning": "Ben remains visible.", "self_check": "ok"},
     }
+
+
+def test_base_config_defaults_to_best_effort_one_repair() -> None:
+    config = resolve_config("configs/base.yaml", overrides={"prompt.pipeline": "llm_direct"})
+    llm_direct = config["prompt"]["llm_direct"]
+    assert llm_direct["repair_attempts"] == 1
+    assert llm_direct["validation_policy"] == "best_effort"
+    assert llm_direct["allow_generation_with_boundary_errors"] is True
 
 
 def test_anchor_adapter_copies_llm_prompt_fields_exactly() -> None:
@@ -410,7 +429,7 @@ def test_repair_runs_until_valid_and_records_field_diff() -> None:
     assert any(diff["path"].endswith(".storydiffusion_prompt") for diff in builder.last_repair_diff)
 
 
-def test_repair_failure_raises_validation_error() -> None:
+def test_unresolved_validator_errors_continue_when_payload_is_usable() -> None:
     invalid = _payload(("storydiffusion",))
     invalid["scenes"][0]["storydiffusion_prompt"] = "[Alex] driving a car"
     client = FakeLLMClient([invalid, invalid])
@@ -421,9 +440,12 @@ def test_repair_failure_raises_validation_error() -> None:
         },
         llm_client=client,
     )
-    with pytest.raises(NativePromptValidationError):
-        builder.build(_story_single())
+    payload = builder.build(_story_single())
+    assert payload.scenes[0].storydiffusion_prompt == "[Alex] driving a car"
     assert client.calls == 2
+    assert builder.last_validation_status == "best_effort_with_unresolved_issues"
+    assert builder.last_generation_allowed is True
+    assert builder.last_unresolved_errors
 
 
 def test_best_effort_can_allow_unresolved_boundary_errors() -> None:
@@ -446,5 +468,52 @@ def test_best_effort_can_allow_unresolved_boundary_errors() -> None:
     )
     payload = builder.build(_story_single())
     assert payload.characters[0].anchor_reference_prompt == invalid["characters"][0]["anchor_reference_prompt"]
-    assert builder.last_validation_status == "best_effort_with_unresolved_boundary_errors"
+    assert builder.last_validation_status == "best_effort_with_unresolved_issues"
     assert builder.last_generation_allowed is True
+
+
+def test_api_failure_before_payload_records_failed_no_payload() -> None:
+    builder = LLMDirectPromptBuilder(
+        {
+            "llm": {"provider": "openai", "model": "fake"},
+            "llm_direct": {"targets": ["anchor"]},
+        },
+        llm_client=FailingLLMClient(),
+    )
+    with pytest.raises(RuntimeError):
+        builder.build(_story_single())
+    assert builder.last_validation_status == "failed_no_payload"
+    assert builder.last_generation_allowed is False
+    assert builder.last_payload is None
+
+
+def test_unparseable_payload_records_failed_unparseable_payload() -> None:
+    builder = LLMDirectPromptBuilder(
+        {
+            "llm": {"provider": "openai", "model": "fake"},
+            "llm_direct": {"targets": ["anchor"]},
+        },
+        llm_client=NonDictLLMClient(),
+    )
+    with pytest.raises(NativePromptValidationError):
+        builder.build(_story_single())
+    assert builder.last_validation_status == "failed_unparseable_payload"
+    assert builder.last_generation_allowed is False
+
+
+def test_missing_backend_minimum_fields_remains_fatal() -> None:
+    invalid = _payload(("storydiffusion",))
+    for scene in invalid["scenes"]:
+        scene["storydiffusion_prompt"] = ""
+    client = FakeLLMClient([invalid, invalid])
+    builder = LLMDirectPromptBuilder(
+        {
+            "llm": {"provider": "openai", "model": "fake"},
+            "llm_direct": {"targets": ["storydiffusion"], "repair_attempts": 1},
+        },
+        llm_client=client,
+    )
+    with pytest.raises(NativePromptValidationError):
+        builder.build(_story_single())
+    assert builder.last_validation_status == "failed_unparseable_payload"
+    assert builder.last_generation_allowed is False

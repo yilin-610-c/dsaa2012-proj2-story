@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any, Callable
 
 from storygen.llm_client import BaseLLMClient, LLMResponse, build_llm_client
@@ -49,9 +50,14 @@ class LLMDirectPromptBuilder:
         self.last_payload: NativePromptPayload | None = None
 
     def build(self, story: Story) -> NativePromptPayload:
+        self._reset_failure_metadata()
         self._validate_targets()
-        initial_response = self._generate(story)
-        initial_payload = NativePromptPayload.from_dict(initial_response.parsed_json)
+        try:
+            initial_response = self._generate(story)
+        except Exception:
+            self._mark_failed_no_payload()
+            raise
+        initial_payload = self._payload_from_response(initial_response, failure_status="failed_unparseable_payload")
         initial_issues = validate_native_prompt_payload(
             initial_payload,
             story,
@@ -89,8 +95,38 @@ class LLMDirectPromptBuilder:
         for attempt_index in range(max(0, repair_attempts)):
             if not blocking_issues(current_issues):
                 break
-            repair_response = self._repair(story, current_json, current_issues)
-            repaired_payload = NativePromptPayload.from_dict(repair_response.parsed_json)
+            try:
+                repair_response = self._repair(story, current_json, current_issues)
+            except Exception as exc:
+                current_issues = [
+                    *current_issues,
+                    ValidationIssue(
+                        severity="warning",
+                        code="llm_repair_api_failed",
+                        path="$",
+                        message="LLM repair API call failed; continuing with previous usable payload if possible",
+                        suspicious_text="",
+                        instruction="Retry prompt repair later if stricter validation is required.",
+                    ),
+                ]
+                repair_records.append(
+                    {
+                        "attempt": attempt_index + 1,
+                        "request_issues": issues_to_dicts(blocking_issues(current_issues)),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "validation_issues": issues_to_dicts(current_issues),
+                        "validation_errors": issue_messages(blocking_issues(current_issues)),
+                        "warnings": issues_to_dicts(warning_issues(current_issues)),
+                        "repair_diff": [],
+                    }
+                )
+                break
+            try:
+                repaired_payload = self._payload_from_response(repair_response, failure_status="failed_unparseable_payload")
+            except Exception:
+                self._mark_failed_unparseable(current_issues=current_issues, repair_records=repair_records, validation_rounds=validation_rounds)
+                raise
             repaired_issues = validate_native_prompt_payload(
                 repaired_payload,
                 story,
@@ -124,8 +160,13 @@ class LLMDirectPromptBuilder:
             current_json = repair_response.parsed_json
             current_issues = repaired_issues
 
-        decision = self._validation_decision(current_issues, repair_attempts_used=len(repair_records))
-        final_blocking = blocking_issues(current_issues)
+        decision = self._validation_decision(
+            current_payload,
+            current_issues,
+            story=story,
+            repair_attempts_used=len(repair_records),
+        )
+        final_blocking = list(decision["unresolved_issue_objects"])
         final_warnings = warning_issues(current_issues)
         self.last_validation_errors = issue_messages(blocking_issues(initial_issues))
         self.last_repair_errors = issue_messages(final_blocking) if repair_records else []
@@ -141,7 +182,7 @@ class LLMDirectPromptBuilder:
                 "repair_attempted": bool(repair_records),
                 "repair_attempts_used": len(repair_records),
                 "repair_attempts": repair_records,
-                "repair_response": repair_records[-1]["response"] if repair_records else None,
+                "repair_response": repair_records[-1].get("response") if repair_records else None,
                 "repair_validation_issues": issues_to_dicts(current_issues) if repair_records else [],
                 "repair_validation_errors": issue_messages(final_blocking) if repair_records else [],
                 "repair_diff": repair_diffs,
@@ -151,9 +192,11 @@ class LLMDirectPromptBuilder:
                 "unresolved_errors": issues_to_dicts(final_blocking),
                 "warnings": issues_to_dicts(final_warnings),
                 "generation_allowed": decision["generation_allowed"],
-                "validation_policy": decision,
+                "validation_policy": self._decision_metadata(decision),
             }
         )
+        if decision["generation_allowed"] and final_blocking:
+            self._warn_unresolved_issues(final_blocking, repair_attempts_used=len(repair_records))
         if not decision["generation_allowed"]:
             raise NativePromptValidationError(final_blocking)
         self.last_payload = current_payload
@@ -210,22 +253,32 @@ class LLMDirectPromptBuilder:
             min_storydiffusion_scene_words=int(self.direct_config.get("min_storydiffusion_scene_words", 6)),
         )
 
-    def _validation_decision(self, issues: list[ValidationIssue], *, repair_attempts_used: int) -> dict[str, Any]:
-        policy = str(self.direct_config.get("validation_policy", "strict")).strip().lower()
-        allow_boundary = bool(self.direct_config.get("allow_generation_with_boundary_errors", False))
+    def _validation_decision(
+        self,
+        payload: NativePromptPayload,
+        issues: list[ValidationIssue],
+        *,
+        story: Story,
+        repair_attempts_used: int,
+    ) -> dict[str, Any]:
+        policy = str(self.direct_config.get("validation_policy", "best_effort")).strip().lower()
+        allow_boundary = bool(self.direct_config.get("allow_generation_with_boundary_errors", True))
         on_hard_error = str(self.direct_config.get("on_hard_error", "fail")).strip().lower()
+        usability_issues = self._backend_usability_issues(payload, story)
         hard = hard_issues(issues)
         repair = repair_issues(issues)
         warnings = warning_issues(issues)
         hard_error_action = "fail"
-        if hard:
-            status = "failed_hard_error"
+        if usability_issues:
+            status = "failed_unparseable_payload"
             allowed = False
-            if policy == "best_effort" and on_hard_error == "skip_story":
-                hard_error_action = "skip_story"
-        elif repair:
+            hard_error_action = "skip_story" if policy == "best_effort" and on_hard_error == "skip_story" else "fail"
+            hard = [*hard, *usability_issues]
+        elif hard or repair:
             allowed = policy == "best_effort" and allow_boundary
-            status = "best_effort_with_unresolved_boundary_errors" if allowed else "failed_hard_error"
+            status = "best_effort_with_unresolved_issues" if allowed else "failed_unparseable_payload"
+            if not allowed and policy == "best_effort" and on_hard_error == "skip_story":
+                hard_error_action = "skip_story"
         elif warnings:
             status = "passed_with_warnings"
             allowed = True
@@ -242,7 +295,181 @@ class LLMDirectPromptBuilder:
             "on_hard_error": on_hard_error,
             "hard_error_action": hard_error_action,
             "allow_generation_with_boundary_errors": allow_boundary,
+            "unresolved_issue_objects": [*hard, *repair],
         }
+
+    def _decision_metadata(self, decision: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in decision.items() if key != "unresolved_issue_objects"}
+
+    def _payload_from_response(self, response: LLMResponse, *, failure_status: str) -> NativePromptPayload:
+        if not isinstance(response.parsed_json, dict):
+            self._mark_failed_status(failure_status)
+            raise NativePromptValidationError(
+                [
+                    ValidationIssue(
+                        severity="hard_error",
+                        code=failure_status,
+                        path="$",
+                        message="LLM response did not contain a parseable JSON object payload",
+                        suspicious_text=type(response.parsed_json).__name__,
+                        instruction="Return a complete JSON object matching the llm_direct schema.",
+                    )
+                ]
+            )
+        return NativePromptPayload.from_dict(response.parsed_json)
+
+    def _backend_usability_issues(self, payload: NativePromptPayload, story: Story) -> list[ValidationIssue]:
+        issues: list[ValidationIssue] = []
+        scene_by_id = {scene.scene_id: scene for scene in payload.scenes}
+        if "anchor" in self.targets:
+            if not payload.characters:
+                issues.append(self._fatal_issue("anchor_no_characters", "$.characters", "Anchor target has no usable characters."))
+            for index, character in enumerate(payload.characters):
+                if not character.character_id:
+                    issues.append(self._fatal_issue("anchor_character_missing_id", f"$.characters[{index}].character_id", "Anchor character is missing character_id."))
+                if not character.anchor_reference_prompt:
+                    issues.append(
+                        self._fatal_issue(
+                            "anchor_character_missing_reference_prompt",
+                            f"$.characters[{index}].anchor_reference_prompt",
+                            "Anchor character is missing anchor_reference_prompt.",
+                        )
+                    )
+            for index, parsed_scene in enumerate(story.scenes):
+                scene = scene_by_id.get(parsed_scene.scene_id)
+                if scene is None:
+                    issues.append(self._fatal_issue("anchor_missing_scene", f"$.scenes[{index}]", f"Anchor target is missing scene {parsed_scene.scene_id}."))
+                    continue
+                if not scene.anchor_generation_prompt:
+                    issues.append(
+                        self._fatal_issue(
+                            "anchor_scene_missing_generation_prompt",
+                            f"$.scenes[{index}].anchor_generation_prompt",
+                            f"Anchor scene {parsed_scene.scene_id} is missing anchor_generation_prompt.",
+                        )
+                    )
+                if not scene.scoring_prompt:
+                    issues.append(
+                        self._fatal_issue(
+                            "anchor_scene_missing_scoring_prompt",
+                            f"$.scenes[{index}].scoring_prompt",
+                            f"Anchor scene {parsed_scene.scene_id} is missing scoring_prompt.",
+                        )
+                    )
+        if "storydiffusion" in self.targets:
+            identity_prompts = [prompt for prompt in payload.storydiffusion.identity_reference_prompts if prompt]
+            scene_prompts = [scene.storydiffusion_prompt for scene in payload.scenes if scene.storydiffusion_prompt]
+            if not identity_prompts:
+                issues.append(
+                    self._fatal_issue(
+                        "storydiffusion_no_identity_prompts",
+                        "$.storydiffusion.identity_reference_prompts",
+                        "StoryDiffusion target has no usable identity reference prompts.",
+                    )
+                )
+            if not scene_prompts:
+                issues.append(self._fatal_issue("storydiffusion_no_scene_prompts", "$.scenes", "StoryDiffusion target has no usable scene prompts."))
+            for index, parsed_scene in enumerate(story.scenes):
+                scene = scene_by_id.get(parsed_scene.scene_id)
+                if scene is None:
+                    issues.append(self._fatal_issue("storydiffusion_missing_scene", f"$.scenes[{index}]", f"StoryDiffusion target is missing scene {parsed_scene.scene_id}."))
+                    continue
+                if not scene.storydiffusion_prompt:
+                    issues.append(
+                        self._fatal_issue(
+                            "storydiffusion_scene_missing_prompt",
+                            f"$.scenes[{index}].storydiffusion_prompt",
+                            f"StoryDiffusion scene {parsed_scene.scene_id} is missing storydiffusion_prompt.",
+                        )
+                    )
+        return issues
+
+    def _fatal_issue(self, code: str, path: str, message: str) -> ValidationIssue:
+        return ValidationIssue(
+            severity="hard_error",
+            code=code,
+            path=path,
+            message=message,
+            suspicious_text="",
+            instruction="Return the minimum backend fields needed to construct generation prompts.",
+        )
+
+    def _reset_failure_metadata(self) -> None:
+        self.last_response_record = None
+        self.last_validation_errors = []
+        self.last_repair_errors = []
+        self.last_repair_diff = []
+        self.last_validation_issues = []
+        self.last_warnings = []
+        self.last_unresolved_errors = []
+        self.last_validation_status = "failed_no_payload"
+        self.last_generation_allowed = False
+        self.last_repair_attempts_used = 0
+        self.last_payload = None
+
+    def _mark_failed_no_payload(self) -> None:
+        self._mark_failed_status("failed_no_payload")
+
+    def _mark_failed_unparseable(
+        self,
+        *,
+        current_issues: list[ValidationIssue],
+        repair_records: list[dict[str, Any]],
+        validation_rounds: list[dict[str, Any]],
+    ) -> None:
+        self._mark_failed_status("failed_unparseable_payload")
+        self.last_validation_issues = issues_to_dicts(current_issues)
+        self.last_unresolved_errors = issues_to_dicts(blocking_issues(current_issues))
+        self.last_warnings = issues_to_dicts(warning_issues(current_issues))
+        self.last_repair_attempts_used = len(repair_records)
+        if self.last_response_record is not None:
+            self.last_response_record.update(
+                {
+                    "repair_attempted": bool(repair_records),
+                    "repair_attempts_used": len(repair_records),
+                    "repair_attempts": repair_records,
+                    "validation_rounds": validation_rounds,
+                    "final_validation_issues": issues_to_dicts(current_issues),
+                    "validation_status": "failed_unparseable_payload",
+                    "unresolved_errors": issues_to_dicts(blocking_issues(current_issues)),
+                    "warnings": issues_to_dicts(warning_issues(current_issues)),
+                    "generation_allowed": False,
+                }
+            )
+
+    def _mark_failed_status(self, status: str) -> None:
+        self.last_validation_status = status
+        self.last_generation_allowed = False
+        if self.last_response_record is None:
+            self.last_response_record = {
+                "initial_response": None,
+                "validation_issues": [],
+                "validation_errors": [],
+                "warnings": [],
+                "repair_attempted": False,
+                "repair_attempts_used": 0,
+                "validation_rounds": [],
+                "repair_diff": [],
+                "validation_status": status,
+                "unresolved_errors": [],
+                "generation_allowed": False,
+            }
+        else:
+            self.last_response_record.update({"validation_status": status, "generation_allowed": False})
+
+    def _warn_unresolved_issues(self, issues: list[ValidationIssue], *, repair_attempts_used: int) -> None:
+        summary = (
+            f"[llm_direct][WARN] Continuing with unresolved validation issues after "
+            f"{repair_attempts_used} repair attempt(s)."
+        )
+        print(summary, file=sys.stderr)
+        for issue in issues[:12]:
+            print(f"  - {issue.path}: {issue.code}", file=sys.stderr)
+        self._log(
+            "llm_direct_best_effort_unresolved_issues",
+            repair_attempts_used=repair_attempts_used,
+            issues=issues_to_dicts(issues),
+        )
 
     def _build_messages(self, story: Story) -> list[dict[str, str]]:
         scene_lines = "\n".join(

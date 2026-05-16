@@ -91,7 +91,7 @@ For native clean StoryDiffusion prompt-only config generation, the debug JSON al
 
 Validation now records structured issues with severity `hard_error`, `repair_error`, or `warning`. Hard errors cover malformed interfaces such as bad tags, scene count mismatch, missing target-required fields, and invalid subject types. Repair errors cover prompt boundary violations such as scene leakage in identity/reference fields. Warnings cover non-blocking risks such as token overlap, mood-heavy scene prompts, or unsafe negative prompt wording.
 
-The builder runs LLM repair up to `prompt.llm_direct.repair_attempts` times for hard or repair errors. Each repair prompt includes the original story, target backends, previous payload, and structured validation issues. Local code never rewrites semantic prompt content. `validation_policy`, `on_hard_error`, and `allow_generation_with_boundary_errors` control whether unresolved boundary errors may proceed in best-effort mode.
+The builder defaults to one repair attempt and best-effort continuation: hard or repair errors trigger repair once, warning-only payloads continue without repair, and unresolved non-fatal validator issues are logged without blocking generation when the payload still contains the minimum fields needed by the selected backend. Local code never rewrites semantic prompt content. API/no-payload failures and payloads that cannot construct backend prompts remain fatal and are recorded as `failed_no_payload` or `failed_unparseable_payload`.
 
 ## Prompt-Only Audit
 

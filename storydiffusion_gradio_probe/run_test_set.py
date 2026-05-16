@@ -591,6 +591,7 @@ def _build_llm_direct_storydiffusion_prompt_payload(
     payload["debug"]["validation_errors"] = list(builder.last_validation_errors)
     payload["debug"]["validation_issues"] = list(builder.last_validation_issues)
     payload["debug"]["warnings"] = list(builder.last_warnings)
+    payload["debug"]["unresolved_errors"] = list(builder.last_unresolved_errors)
     payload["debug"]["validation_status"] = builder.last_validation_status
     payload["debug"]["repair_attempts_used"] = builder.last_repair_attempts_used
     payload["debug"]["generation_allowed"] = builder.last_generation_allowed
