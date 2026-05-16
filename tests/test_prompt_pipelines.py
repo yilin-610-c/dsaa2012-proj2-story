@@ -1,6 +1,14 @@
+import json
+
 import pytest
 
-from storygen.prompt_pipelines import ApiPromptPipeline, LLMAssistedPromptPipeline, RuleBasedPromptPipeline, build_prompt_pipeline
+from storygen.prompt_pipelines import (
+    ApiPromptPipeline,
+    LLMAssistedPromptPipeline,
+    ManualPayloadPromptPipeline,
+    RuleBasedPromptPipeline,
+    build_prompt_pipeline,
+)
 from storygen.parser import parse_story_file
 from storygen.types import Scene, Story
 
@@ -77,6 +85,7 @@ def _prompt_config(pipeline: str = "rule_based") -> dict:
         "negative_prompt": "blurry",
         "cache": {"enabled": False, "cache_dir": ".cache/prompt_builder"},
         "artifact": {"path": None, "export_enabled": False, "export_dir": "prompt_artifacts/llm_assisted_v9"},
+        "manual_payload": {"path": None},
         "llm": {
             "provider": "openai",
             "model": "gpt-4o-2024-08-06",
@@ -88,6 +97,36 @@ def _prompt_config(pipeline: str = "rule_based") -> dict:
             "builder_version": "llm_assisted_v9",
             "fallback_to_rule_based": True,
         },
+    }
+
+
+def _manual_payload() -> dict:
+    return {
+        "target_backends": ["anchor"],
+        "characters": [
+            {
+                "character_id": "Hero",
+                "subject_type": "human",
+                "stable_identity": "a runner in a red jacket",
+                "anchor_reference_prompt": "a single runner in a red jacket, standing alone, centered, simple background",
+            }
+        ],
+        "scenes": [
+            {
+                "scene_id": "SCENE-1",
+                "visible_character_ids": ["Hero"],
+                "identity_conditioning_subject_id": "Hero",
+                "anchor_generation_prompt": "a runner in a red jacket running on a path, full body visible",
+                "scoring_prompt": "runner running on a path",
+            },
+            {
+                "scene_id": "SCENE-2",
+                "visible_character_ids": ["Hero"],
+                "identity_conditioning_subject_id": "Hero",
+                "anchor_generation_prompt": "a runner in a red jacket stopping on a path, full body visible",
+                "scoring_prompt": "runner stopping on a path",
+            },
+        ],
     }
 
 
@@ -141,6 +180,54 @@ def test_api_prompt_pipeline_is_alias_for_llm_assisted() -> None:
 
     assert isinstance(pipeline, ApiPromptPipeline)
     assert isinstance(pipeline, LLMAssistedPromptPipeline)
+
+
+def test_manual_payload_pipeline_copies_prompts_exactly(tmp_path) -> None:
+    payload_path = tmp_path / "manual_payload.json"
+    payload_path.write_text(json.dumps(_manual_payload()), encoding="utf-8")
+    config = _prompt_config("manual_payload")
+    config["manual_payload"]["path"] = str(payload_path)
+
+    pipeline = build_prompt_pipeline(config)
+    bundle = pipeline.build(_story())
+
+    assert isinstance(pipeline, ManualPayloadPromptPipeline)
+    assert bundle.metadata["pipeline"] == "manual_payload"
+    assert bundle.metadata["payload_path"] == str(payload_path)
+    assert bundle.metadata["character_specs"]["Hero"]["metadata"]["source"] == "manual_payload"
+    assert bundle.scene_prompts["SCENE-1"].generation_prompt == _manual_payload()["scenes"][0]["anchor_generation_prompt"]
+    assert bundle.scene_prompts["SCENE-1"].scoring_prompt == _manual_payload()["scenes"][0]["scoring_prompt"]
+
+
+def test_manual_payload_requires_path() -> None:
+    pipeline = build_prompt_pipeline(_prompt_config("manual_payload"))
+
+    with pytest.raises(ValueError, match="prompt.manual_payload.path"):
+        pipeline.build(_story())
+
+
+def test_manual_payload_rejects_scene_id_mismatch(tmp_path) -> None:
+    payload = _manual_payload()
+    payload["scenes"][1]["scene_id"] = "SCENE-3"
+    payload_path = tmp_path / "manual_payload.json"
+    payload_path.write_text(json.dumps(payload), encoding="utf-8")
+    config = _prompt_config("manual_payload")
+    config["manual_payload"]["path"] = str(payload_path)
+
+    with pytest.raises(ValueError, match="scene ids must match"):
+        build_prompt_pipeline(config).build(_story())
+
+
+def test_manual_payload_rejects_missing_required_anchor_field(tmp_path) -> None:
+    payload = _manual_payload()
+    del payload["scenes"][0]["scoring_prompt"]
+    payload_path = tmp_path / "manual_payload.json"
+    payload_path.write_text(json.dumps(payload), encoding="utf-8")
+    config = _prompt_config("manual_payload")
+    config["manual_payload"]["path"] = str(payload_path)
+
+    with pytest.raises(ValueError, match=r"scenes\[0\]\.scoring_prompt"):
+        build_prompt_pipeline(config).build(_story())
 
 
 def test_unknown_prompt_pipeline_raises_clear_error() -> None:

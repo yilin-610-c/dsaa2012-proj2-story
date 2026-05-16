@@ -1,0 +1,45 @@
+{
+  "target_backends": [
+    "anchor"
+  ],
+  "characters": [
+    {
+      "character_id": "Bird",
+      "subject_type": "animal",
+      "stable_identity": "a small colorful bird with blue, orange, yellow, and green feathers",
+      "anchor_reference_prompt": "a single small colorful bird with blue, orange, yellow, and green feathers, full-body identity reference, standing alone, centered, simple plain background, one bird only"
+    }
+  ],
+  "scenes": [
+    {
+      "scene_id": "SCENE-1",
+      "visible_character_ids": [
+        "Bird"
+      ],
+      "identity_conditioning_subject_id": "Bird",
+      "anchor_generation_prompt": "a small colorful bird with blue, orange, yellow, and green feathers perched on a tree branch in a natural setting, full bird visible",
+      "scoring_prompt": "colorful bird perched on a branch"
+    },
+    {
+      "scene_id": "SCENE-2",
+      "visible_character_ids": [
+        "Bird"
+      ],
+      "identity_conditioning_subject_id": "Bird",
+      "anchor_generation_prompt": "a small colorful bird with blue, orange, yellow, and green feathers perched on a tree branch, head turned as it looks around, full bird visible",
+      "scoring_prompt": "colorful bird looking around on a branch"
+    },
+    {
+      "scene_id": "SCENE-3",
+      "visible_character_ids": [
+        "Bird"
+      ],
+      "identity_conditioning_subject_id": "Bird",
+      "anchor_generation_prompt": "a small colorful bird with blue, orange, yellow, and green feathers fully airborne above a tree branch, wings fully spread upward and outward, both feet lifted clear of the branch, open sky behind it, dynamic flight pose",
+      "scoring_prompt": "colorful bird flying above a branch"
+    }
+  ],
+  "notes": {
+    "purpose": "manual prompt search for stronger flight pose"
+  }
+}

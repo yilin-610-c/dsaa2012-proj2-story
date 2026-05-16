@@ -6,7 +6,13 @@ from storygen.native_prompting.types import NativePromptPayload
 from storygen.types import PromptBundle, PromptSpec, Story
 
 
-def build_anchor_prompt_bundle(payload: NativePromptPayload, story: Story, prompt_config: dict[str, Any]) -> PromptBundle:
+def build_anchor_prompt_bundle(
+    payload: NativePromptPayload,
+    story: Story,
+    prompt_config: dict[str, Any],
+    *,
+    metadata_source: str = "llm_direct",
+) -> PromptBundle:
     scene_by_id = {scene.scene_id: scene for scene in payload.scenes}
     scene_prompts: dict[str, PromptSpec] = {}
     for scene in story.scenes:
@@ -30,7 +36,7 @@ def build_anchor_prompt_bundle(payload: NativePromptPayload, story: Story, promp
             "subject_type": character.subject_type,
             "stable_identity": character.stable_identity,
             "anchor_reference_prompt": character.anchor_reference_prompt,
-            "metadata": {"source": "llm_direct"},
+            "metadata": {"source": metadata_source},
         }
         for character in payload.characters
     }

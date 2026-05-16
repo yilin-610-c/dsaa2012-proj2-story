@@ -308,7 +308,33 @@ If any run fails, send:
 
 - Native StoryDiffusion uses `--storydiffusion-prompt-mode llm_direct`, so prompt generation uses the new best-effort `llm_direct` pipeline.
 - Anchor + IP-Adapter commands use `prompt.pipeline=llm_direct` with `prompt.llm_direct.targets=["anchor"]`; this generates only anchor-compatible prompts.
+- For manual prompt search, use `prompt.pipeline=manual_payload` with `prompt.manual_payload.path=<json>`. This bypasses the LLM and copies final executable prompts from the JSON payload into the same Anchor Bank + IP-Adapter scene pipeline.
 - Batch B and Batch C use the scene-level `cloud_anchor_ipadapter_scene` profile. Do not use the older `cloud_anchor_ipadapter_story` profile for final Anchor + IP-Adapter runs; that legacy story wrapper bypasses scene multi-candidate CLIP selection.
 - Batch B and Batch C intentionally use separate output roots so distilled and non-distilled outputs never collide.
 - `generation.candidate_count=3` is intentional and should not be lowered unless the run fails from memory.
 - For non-distilled SDXL, use `35` steps and `guidance_scale=5.0`; for SDXL-Turbo, use `4` steps and `guidance_scale=0.0`.
+
+Manual bird-flight prompt search example:
+
+```bash
+python scripts/run_auto_story_pipeline_modular.py \
+  --input test_set/extra_06.txt \
+  --run-name anchor_ipadapter_turbo_manual_extra06_flight_v1 \
+  --output-root outputs_anchor_fix/anchor_ipadapter_manual_selected \
+  --single-env ipadapter \
+  --single-profile cloud_anchor_ipadapter_scene \
+  --double-env storydiffusion \
+  --single-route storygen \
+  --double-route storygen \
+  --set prompt.pipeline=manual_payload \
+  --set prompt.manual_payload.path=manual_payloads/extra06_bird_flight_anchor.json \
+  --set model.model_id=stabilityai/sdxl-turbo \
+  --set model.anchor_bank_model_id=stabilityai/sdxl-turbo \
+  --set model.width=768 \
+  --set model.height=768 \
+  --set model.num_inference_steps=4 \
+  --set model.guidance_scale=0.0 \
+  --set generation.candidate_count=6 \
+  --set generation.anchor_bank.half_body_candidate_count=3 \
+  --set generation.identity_conditioning.scale=0.15
+```

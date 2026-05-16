@@ -62,6 +62,8 @@ prompt:
     max_identity_prompt_words: 60
     max_identity_prompt_chars: 420
     min_unknown_identity_words: 4
+  manual_payload:
+    path: null
   style_prompt: cinematic story illustration, coherent visual style
   subject_prefix: "main subject:"
   global_context_prefix: "shared story context:"
