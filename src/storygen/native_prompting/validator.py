@@ -593,9 +593,25 @@ def _validate_text_field(
         )
         return
     if len(text) > max_chars:
-        _add_issue(issues, "hard_error", "field_too_long_chars", field_name, f"{field_name} exceeds {max_chars} chars", text)
+        _add_issue(
+            issues,
+            "hard_error",
+            "field_too_long_chars",
+            field_name,
+            f"{field_name} exceeds {max_chars} chars",
+            text,
+            _length_limit_instruction(field_name),
+        )
     if len(_words(text)) > max_words:
-        _add_issue(issues, "hard_error", "field_too_long_words", field_name, f"{field_name} exceeds {max_words} words", text)
+        _add_issue(
+            issues,
+            "hard_error",
+            "field_too_long_words",
+            field_name,
+            f"{field_name} exceeds {max_words} words",
+            text,
+            _length_limit_instruction(field_name),
+        )
     lowered = text.lower()
     for placeholder in BAD_PLACEHOLDERS:
         if placeholder in lowered:
@@ -852,7 +868,7 @@ def _validate_stateful_scene_planning(
                     value,
                     "Use one of: wide shot, medium-wide shot, medium shot, medium close-up shot, close-up shot.",
                 )
-            elif final_prompts and not _phrase_reflected(value, final_prompts):
+            elif field_name != "visual_action" and final_prompts and not _phrase_reflected(value, final_prompts):
                 _add_issue(
                     issues,
                     "warning",
@@ -1220,6 +1236,17 @@ def _normalize_content_word(word: str) -> str:
     elif len(normalized) > 3 and normalized.endswith("s"):
         normalized = normalized[:-1]
     return normalized
+
+
+def _length_limit_instruction(field_name: str) -> str:
+    if field_name.endswith(".anchor_generation_prompt") or field_name.endswith(".storydiffusion_prompt"):
+        return (
+            "Shorten this prompt to fit the length budget, but preserve the key action evidence, "
+            "continuity cue, important subject-object relation, and camera framing."
+        )
+    if field_name.endswith(".scoring_prompt") or field_name.endswith(".action_prompt"):
+        return "Shorten this prompt to fit the length budget without dropping the decisive action evidence."
+    return "Shorten this field to fit the length budget while preserving the most important required information."
 
 
 def _final_scene_prompts(scene: Any, *, requested_targets: list[str]) -> list[str]:

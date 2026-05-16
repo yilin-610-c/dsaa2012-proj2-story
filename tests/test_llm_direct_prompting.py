@@ -570,6 +570,31 @@ def test_llm_direct_instruction_mentions_anchor_detail_policy() -> None:
     assert "Do not mark every scene as action_critical" in user_prompt
 
 
+def test_visual_action_not_reflected_no_longer_emits_warning() -> None:
+    payload = _payload(("anchor",))
+    payload["scenes"][0]["scene_visual_plan"]["visual_action"] = "Lily is cooking at the stove"
+    payload["scenes"][0]["anchor_generation_prompt"] = (
+        "a young man with short brown hair and a blue jacket flips pancakes at the stove in a cozy kitchen, medium shot"
+    )
+    issues = validate_native_prompt_payload(NativePromptPayload.from_dict(payload), _story_single(), targets=["anchor"])
+    assert not any(issue.code == "scene_visual_plan_visual_action_not_reflected" for issue in issues)
+
+
+def test_length_limit_instruction_preserves_key_scene_information() -> None:
+    payload = _payload(("anchor",))
+    payload["scenes"][0]["anchor_generation_prompt"] = (
+        "a young man with short brown hair and a blue jacket flips pancakes at the stove in a cozy kitchen while morning light "
+        "fills the same room through the window, holding a spatula, pancakes visible in the pan, medium shot with the stove and "
+        "window both clearly visible"
+    )
+    issues = validate_native_prompt_payload(NativePromptPayload.from_dict(payload), _story_single(), targets=["anchor"])
+    length_issue = next(issue for issue in issues if issue.code == "field_too_long_words")
+    assert length_issue.path.endswith(".anchor_generation_prompt")
+    assert "preserve the key action evidence" in length_issue.instruction
+    assert "continuity cue" in length_issue.instruction
+    assert "camera framing" in length_issue.instruction
+
+
 def test_repair_runs_until_valid_and_records_field_diff() -> None:
     invalid = _payload(("storydiffusion",))
     invalid["scenes"][0]["storydiffusion_prompt"] = "[Alex] driving a car"

@@ -541,7 +541,7 @@ class LLMDirectPromptBuilder:
             "- Do not include banned layout terms such as character sheet, turnaround, multiple views, or duplicate subject in identity prompts.\n"
             "- Resolve pronouns from story context using exact character ids.\n"
             "- If a scene combines a pronoun with an explicit tagged character and describes an interaction, resolve the pronoun and include both participants in visible ids and scene prompts.\n"
-            "- Do not invent unrelated story events.\n"
+            "- Do not invent unrelated story events. However, adding visual realization details such as pose, contact/separation, spatial relation, lighting state, motion direction, or visible object interaction is allowed when it makes the given story action drawable.\n"
             "- Scene prompts should prioritize concrete visible content: subject, action, object, setting, spatial relation, and camera framing. Avoid inner thoughts, personality, or vague mood adjectives unless directly visible in the story.\n"
             "- negative prompt fields must not forbid content required by any story scene, such as multiple characters, crowds, traffic, complex backgrounds, vehicles, or props.\n"
             "- Keep reference-image constraints inside identity/reference prompts only; story scene prompts should describe the actual story environment.\n"
