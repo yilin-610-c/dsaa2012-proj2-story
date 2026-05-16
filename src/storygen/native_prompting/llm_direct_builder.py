@@ -518,7 +518,7 @@ class LLMDirectPromptBuilder:
             "Stateful Visual Prompt Planning:\n"
             "- Before writing final prompts, infer visual_continuity_anchors, one scene_visual_plan per scene, scene_change_level, and action_critical.\n"
             "- Since every panel is generated independently with text2img, final prompts must be self-contained; encode both continuity and visual progression directly in each final prompt.\n"
-            "- visual_continuity_anchors capture persistent settings/objects/tasks or evolving visual states. Use prompt_phrase for persistent anchors and state_by_scene for evolving states. Every applicable anchor must appear in final scene prompts, and do not output anchors that are unused.\n"
+            "- visual_continuity_anchors capture persistent settings/objects/tasks or evolving visual states. Use prompt_phrase for persistent anchors and state_by_scene entries for evolving states. Every applicable anchor must appear in final scene prompts, and do not output anchors that are unused.\n"
             "- Do not carry location-specific objects across a clear location change. Character identity/clothing can persist across locations.\n"
             "- scene_visual_plan.visual_action must turn abstract verbs into visible actions. action_visibility_cue must say what visible evidence proves the action. camera_framing must be one of wide shot, medium-wide shot, medium shot, medium close-up shot, close-up shot.\n"
             "- Final anchor_generation_prompt and storydiffusion_prompt must already include applicable continuity anchors, visual_action, action_visibility_cue, and camera_framing. Local code will not combine these fields for you.\n"
@@ -649,8 +649,16 @@ class LLMDirectPromptBuilder:
                         "applies_to_scene_ids": {"type": "array", "items": {"type": "string"}},
                         "prompt_phrase": {"type": "string"},
                         "state_by_scene": {
-                            "type": "object",
-                            "additionalProperties": {"type": "string"},
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["scene_id", "prompt_phrase"],
+                                "properties": {
+                                    "scene_id": {"type": "string"},
+                                    "prompt_phrase": {"type": "string"},
+                                },
+                            },
                         },
                     },
                 },

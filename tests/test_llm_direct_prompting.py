@@ -185,6 +185,38 @@ def test_json_schema_is_target_conditional() -> None:
     assert "scene_visual_plan" in storydiffusion_scene_props
     assert "anchor_reference_prompt" not in character_props
     assert "storydiffusion" in storydiffusion_schema["properties"]
+    anchor_items = storydiffusion_schema["properties"]["visual_continuity_anchors"]["items"]
+    state_by_scene_schema = anchor_items["properties"]["state_by_scene"]
+    assert state_by_scene_schema["type"] == "array"
+    assert "additionalProperties" not in state_by_scene_schema
+
+
+def test_visual_anchor_state_by_scene_accepts_schema_array_entries() -> None:
+    raw = _payload(("anchor",))
+    raw["visual_continuity_anchors"] = [
+        {
+            "anchor_id": "lighting",
+            "type": "evolving_visual_state",
+            "applies_to_scene_ids": ["SCENE-1", "SCENE-2"],
+            "prompt_phrase": "",
+            "state_by_scene": [
+                {"scene_id": "SCENE-1", "prompt_phrase": "quiet road while driving"},
+                {"scene_id": "SCENE-2", "prompt_phrase": "same quiet road after the car stops"},
+            ],
+        }
+    ]
+    raw["scenes"][0]["anchor_generation_prompt"] = (
+        "a young man driving a car along a quiet road while driving, hands near the steering wheel, medium shot"
+    )
+    raw["scenes"][1]["anchor_generation_prompt"] = (
+        "a young man stopping the car on the same quiet road after the car stops, car stopped beside the road, medium shot"
+    )
+    payload = NativePromptPayload.from_dict(raw)
+    assert payload.visual_continuity_anchors[0].state_by_scene == {
+        "SCENE-1": "quiet road while driving",
+        "SCENE-2": "same quiet road after the car stops",
+    }
+    assert validate_native_prompt_payload(payload, _story_single(), targets=["anchor"]) == []
 
 
 def test_anchor_bank_uses_llm_direct_anchor_reference_prompt_without_suffix() -> None:

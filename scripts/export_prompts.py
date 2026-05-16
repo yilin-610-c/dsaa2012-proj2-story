@@ -182,8 +182,8 @@ def _build_pipeline_audit(
     overrides: dict[str, Any],
 ) -> dict[str, Any]:
     pipeline_overrides = {
-        **overrides,
         **_pipeline_config_overrides(pipeline_name),
+        **overrides,
     }
     config = resolve_config(config_path, profile, overrides=pipeline_overrides)
     events: list[dict[str, Any]] = []

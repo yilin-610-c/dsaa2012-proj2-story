@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from storygen.types import PromptBundle, PromptSpec
+
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "export_prompts.py"
 SPEC = importlib.util.spec_from_file_location("export_prompts", SCRIPT_PATH)
@@ -112,3 +114,47 @@ def test_pipeline_failure_is_recorded_and_other_pipelines_continue(monkeypatch: 
     assert pipelines["llm_assisted"]["status"] == "failed"
     assert pipelines["llm_assisted"]["error_type"] == "RuntimeError"
     assert "missing test api key" in pipelines["llm_assisted"]["error"]
+
+
+def test_cli_overrides_take_precedence_for_llm_direct_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_targets: list[str] = []
+
+    class FakePipeline:
+        def build(self, story):
+            return PromptBundle(
+                scene_prompts={
+                    scene.scene_id: PromptSpec(
+                        scene_id=scene.scene_id,
+                        style_prompt="",
+                        character_prompt="",
+                        global_context_prompt="",
+                        generation_prompt=f"prompt for {scene.scene_id}",
+                        scoring_prompt=f"score for {scene.scene_id}",
+                    )
+                    for scene in story.scenes
+                },
+                metadata={},
+            )
+
+        def metadata(self):
+            return {"target_backends": list(captured_targets), "validation_status": "passed"}
+
+    def fake_build_prompt_pipeline(prompt_config, *, event_logger=None):
+        del event_logger
+        captured_targets[:] = list(prompt_config["llm_direct"]["targets"])
+        return FakePipeline()
+
+    monkeypatch.setattr(export_prompts, "build_prompt_pipeline", fake_build_prompt_pipeline)
+
+    payload = export_prompts.build_audit_payload(
+        input_paths=[Path("test_set/02.txt")],
+        pipeline_names=["llm_direct"],
+        config_path="configs/base.yaml",
+        rule_profile="smoke_test",
+        llm_profile="llm_prompt_anchor_bank",
+        overrides={"prompt.llm_direct.targets": ["anchor"]},
+    )
+
+    pipeline = payload["stories"][0]["pipelines"]["llm_direct"]
+    assert pipeline["status"] == "ok"
+    assert captured_targets == ["anchor"]

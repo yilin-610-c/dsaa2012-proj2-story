@@ -116,13 +116,7 @@ class NativePromptPayload:
                 if isinstance(item.get("applies_to_scene_ids", []), list)
                 else [],
                 prompt_phrase=str(item.get("prompt_phrase", "")).strip(),
-                state_by_scene={
-                    str(key).strip(): str(value).strip()
-                    for key, value in (item.get("state_by_scene") or {}).items()
-                    if str(key).strip() and str(value).strip()
-                }
-                if isinstance(item.get("state_by_scene"), dict)
-                else {},
+                state_by_scene=_state_by_scene_from_value(item.get("state_by_scene")),
             )
             for item in payload.get("visual_continuity_anchors", [])
             if isinstance(item, dict)
@@ -217,3 +211,23 @@ def _scene_visual_plan_from_dict(value: Any) -> dict[str, str]:
         "action_visibility_cue": str(value.get("action_visibility_cue", "")).strip(),
         "camera_framing": str(value.get("camera_framing", "")).strip(),
     }
+
+
+def _state_by_scene_from_value(value: Any) -> dict[str, str]:
+    if isinstance(value, dict):
+        return {
+            str(key).strip(): str(item).strip()
+            for key, item in value.items()
+            if str(key).strip() and str(item).strip()
+        }
+    if isinstance(value, list):
+        result: dict[str, str] = {}
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            scene_id = str(item.get("scene_id", "")).strip()
+            phrase = str(item.get("prompt_phrase", item.get("state", ""))).strip()
+            if scene_id and phrase:
+                result[scene_id] = phrase
+        return result
+    return {}
