@@ -15,7 +15,7 @@ from storygen.prompt_pipelines import build_prompt_pipeline
 from storygen.types import PromptBundle, PromptSpec, Story
 
 
-PIPELINE_CHOICES = ("both", "rule_based", "llm_assisted")
+PIPELINE_CHOICES = ("both", "all", "rule_based", "llm_assisted", "llm_direct")
 ROUTE_HINT_KEYS = {
     "identity_conditioning_subject_id",
     "primary_visible_character_ids",
@@ -82,6 +82,8 @@ def parse_overrides(values: list[str]) -> dict[str, Any]:
 def selected_pipelines(value: str) -> list[str]:
     if value == "both":
         return ["rule_based", "llm_assisted"]
+    if value == "all":
+        return ["rule_based", "llm_assisted", "llm_direct"]
     return [value]
 
 
@@ -89,6 +91,8 @@ def _profile_for_pipeline(pipeline_name: str, *, rule_profile: str, llm_profile:
     if pipeline_name == "rule_based":
         return rule_profile
     if pipeline_name == "llm_assisted":
+        return llm_profile
+    if pipeline_name == "llm_direct":
         return llm_profile
     raise ValueError(f"Unsupported prompt pipeline for audit: {pipeline_name}")
 
@@ -101,6 +105,11 @@ def _pipeline_config_overrides(pipeline_name: str) -> dict[str, Any]:
             "prompt.pipeline": "llm_assisted",
             "prompt.llm.fallback_to_rule_based": False,
         }
+    if pipeline_name == "llm_direct":
+        return {
+            "prompt.pipeline": "llm_direct",
+            "prompt.llm_direct.targets": ["anchor", "storydiffusion"],
+        }
     raise ValueError(f"Unsupported prompt pipeline for audit: {pipeline_name}")
 
 
@@ -111,6 +120,23 @@ def _scene_route_hints_from_plans(scene_plans: dict[str, Any]) -> dict[str, dict
             continue
         hints[scene_id] = {key: scene_plan.get(key) for key in ROUTE_HINT_KEYS if key in scene_plan}
     return hints
+
+
+def _last_llm_direct_payload_from_metadata(metadata: dict[str, Any]) -> dict[str, Any] | None:
+    payload = metadata.get("native_prompt_payload")
+    if isinstance(payload, dict):
+        return payload
+    record = metadata.get("_llm_response_record")
+    if not isinstance(record, dict):
+        return None
+    for response_key in ("repair_response", "initial_response"):
+        response = record.get(response_key)
+        if not isinstance(response, dict):
+            continue
+        parsed_json = response.get("parsed_json")
+        if isinstance(parsed_json, dict):
+            return parsed_json
+    return None
 
 
 def _prompt_spec_payload(prompt_spec: PromptSpec) -> dict[str, Any]:
@@ -160,8 +186,36 @@ def _build_pipeline_audit(
         config["prompt"],
         event_logger=lambda event, **metadata: events.append({"event": event, **metadata}),
     )
-    prompt_bundle = prompt_pipeline.build(story)
-    metadata = prompt_pipeline.metadata()
+    try:
+        prompt_bundle = prompt_pipeline.build(story)
+    except Exception as exc:
+        try:
+            metadata = prompt_pipeline.metadata()
+        except Exception:
+            metadata = {}
+        return {
+            "status": "failed",
+            "pipeline": pipeline_name,
+            "profile": profile,
+            "resolved_prompt_pipeline": config["prompt"].get("pipeline"),
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "metadata": metadata,
+            "events": events,
+            "last_llm_direct_payload": _last_llm_direct_payload_from_metadata(metadata)
+            if pipeline_name == "llm_direct"
+            else None,
+            "storydiffusion_payload": None,
+            "scenes": [],
+        }
+    metadata = {**prompt_bundle.metadata, **prompt_pipeline.metadata()}
+    storydiffusion_payload = None
+    if pipeline_name == "llm_direct" and isinstance(metadata.get("native_prompt_payload"), dict):
+        from storygen.native_prompting import build_storydiffusion_prompt_payload
+        from storygen.native_prompting.types import NativePromptPayload
+
+        native_payload = NativePromptPayload.from_dict(metadata["native_prompt_payload"])
+        storydiffusion_payload = build_storydiffusion_prompt_payload(native_payload, story)
     scene_plans = metadata.get("scene_plans", {})
     scene_route_hints = metadata.get("scene_route_hints", {})
     if not isinstance(scene_plans, dict):
@@ -175,6 +229,7 @@ def _build_pipeline_audit(
         "resolved_prompt_pipeline": config["prompt"].get("pipeline"),
         "metadata": metadata,
         "events": events,
+        "storydiffusion_payload": storydiffusion_payload,
         "scenes": [
             _scene_payload(
                 story=story,
@@ -296,7 +351,77 @@ def render_markdown(audit_payload: dict[str, Any]) -> str:
                         "",
                     ]
                 )
+                metadata = pipeline_payload.get("metadata", {})
+                if isinstance(metadata, dict):
+                    validation_errors = metadata.get("validation_errors") or []
+                    repair_errors = metadata.get("repair_errors") or metadata.get("repair_validation_errors") or []
+                    if validation_errors:
+                        lines.append("Initial validation errors:")
+                        for error in validation_errors:
+                            lines.append(f"- `{error}`")
+                        lines.append("")
+                    if repair_errors:
+                        lines.append("Repair validation errors:")
+                        for error in repair_errors:
+                            lines.append(f"- `{error}`")
+                        lines.append("")
+                last_payload = pipeline_payload.get("last_llm_direct_payload")
+                if isinstance(last_payload, dict):
+                    lines.extend(["Last LLM-direct payload attempt:", ""])
+                    for character in last_payload.get("characters", []):
+                        lines.extend(
+                            [
+                                f"- `{character.get('character_id')}` subject_type=`{character.get('subject_type')}`",
+                                f"  - stable_identity: `{character.get('stable_identity', '')}`",
+                                f"  - anchor_reference_prompt: `{character.get('anchor_reference_prompt', '')}`",
+                            ]
+                        )
+                    for scene in last_payload.get("scenes", []):
+                        lines.extend(
+                            [
+                                f"- `{scene.get('scene_id')}`",
+                                f"  - anchor_generation_prompt: `{scene.get('anchor_generation_prompt', '')}`",
+                                f"  - storydiffusion_prompt: `{scene.get('storydiffusion_prompt', '')}`",
+                                f"  - scoring_prompt: `{scene.get('scoring_prompt', '')}`",
+                            ]
+                        )
+                    lines.append("")
                 continue
+            native_payload = _last_llm_direct_payload_from_metadata(pipeline_payload.get("metadata", {}))
+            if isinstance(native_payload, dict):
+                lines.extend(["#### LLM-Direct Characters", ""])
+                for character in native_payload.get("characters", []):
+                    lines.extend(
+                        [
+                            f"- `{character.get('character_id')}` subject_type=`{character.get('subject_type')}`",
+                            f"  - stable_identity: `{character.get('stable_identity', '')}`",
+                            f"  - anchor_reference_prompt: `{character.get('anchor_reference_prompt', '')}`",
+                        ]
+                    )
+                lines.append("")
+            storydiffusion_payload = pipeline_payload.get("storydiffusion_payload")
+            if isinstance(storydiffusion_payload, dict):
+                lines.extend(
+                    [
+                        "#### Native StoryDiffusion Payload",
+                        "",
+                        f"- general_prompt: `{storydiffusion_payload.get('general_prompt', '')}`",
+                        f"- identity_prompt_count: `{storydiffusion_payload.get('identity_prompt_count')}`",
+                        f"- identity_prompts_per_character: `{storydiffusion_payload.get('identity_prompts_per_character')}`",
+                        f"- character_count: `{storydiffusion_payload.get('character_count')}`",
+                        f"- save_image_start_index: `{storydiffusion_payload.get('save_image_start_index')}`",
+                        f"- storydiffusion_id_length: `{storydiffusion_payload.get('storydiffusion_id_length')}`",
+                        "",
+                        "Identity reference prompts:",
+                    ]
+                )
+                for index, prompt in enumerate(storydiffusion_payload.get("identity_reference_prompts", [])):
+                    lines.append(f"- `{index}`: `{prompt}`")
+                lines.extend(["", "Story scene prompts:"])
+                for index, prompt in enumerate(storydiffusion_payload.get("story_scene_prompts", [])):
+                    scene_id = pipeline_payload.get("scenes", [{}])[index].get("scene_id") if index < len(pipeline_payload.get("scenes", [])) else index
+                    lines.append(f"- `{scene_id}`: `{prompt}`")
+                lines.append("")
             for scene_payload in pipeline_payload.get("scenes", []):
                 prompt = scene_payload.get("prompt", {})
                 lines.extend(

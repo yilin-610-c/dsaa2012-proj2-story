@@ -556,6 +556,61 @@ def _build_clean_storydiffusion_prompt_payload(
     return payload, debug, prompt_config
 
 
+def _build_llm_direct_storydiffusion_prompt_payload(
+    input_path: Path,
+    *,
+    profile: str,
+    generation_max_words: int,
+    generation_max_chars: int,
+    prompt_builder_kind: str = "legacy",
+    prompt_modular_backend: str = "sdxl",
+    prompt_template_pack: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    _ensure_storygen_imports()
+    from storygen.config import resolve_config
+    from storygen.native_prompting import LLMDirectPromptBuilder, build_storydiffusion_prompt_payload
+    from storygen.parser import parse_story_file
+
+    probe_overrides = _prompt_probe_overrides(
+        generation_max_words=generation_max_words,
+        generation_max_chars=generation_max_chars,
+        prompt_builder_kind=prompt_builder_kind,
+        prompt_modular_backend=prompt_modular_backend,
+        prompt_template_pack=prompt_template_pack,
+    )
+    probe_overrides["prompt.pipeline"] = "llm_direct"
+    probe_overrides["prompt.llm_direct.targets"] = ["storydiffusion"]
+    probe_overrides["prompt.llm.max_output_tokens"] = NATIVE_CLEAN_LLM_MAX_OUTPUT_TOKENS
+    resolved = resolve_config(DEFAULT_BASE_CONFIG, profile, overrides=probe_overrides)
+    prompt_config = dict(resolved.get("prompt") or {})
+    story = parse_story_file(input_path)
+    builder = LLMDirectPromptBuilder(prompt_config)
+    native_payload = builder.build(story)
+    payload = build_storydiffusion_prompt_payload(native_payload, story)
+    payload["debug"]["llm_response_record"] = builder.last_response_record
+    payload["debug"]["validation_errors"] = list(builder.last_validation_errors)
+    payload["debug"]["repair_errors"] = list(builder.last_repair_errors)
+    payload["debug"]["repair_diff"] = list(builder.last_repair_diff)
+    debug = {
+        "prompt_pipeline": "llm_direct:storydiffusion",
+        "prompt_builder": str(prompt_builder_kind),
+        "prompt_modular_backend": str(prompt_modular_backend),
+        "storydiffusion_prompt_mode": "llm_direct",
+        "profile": profile,
+        "base_config": str(DEFAULT_BASE_CONFIG),
+        "probe_overrides": {
+            "prompt.pipeline": "llm_direct",
+            "prompt.llm_direct.targets": ["storydiffusion"],
+            "prompt.generation_max_words": int(generation_max_words),
+            "prompt.generation_max_chars": int(generation_max_chars),
+            "prompt.llm.max_output_tokens": NATIVE_CLEAN_LLM_MAX_OUTPUT_TOKENS,
+        },
+        "story_entities": list(story.all_entities),
+        "recurring_entities": list(story.recurring_entities),
+    }
+    return payload, debug, prompt_config
+
+
 def _identity_image_prompt_map(output_dir: Path, prompt_array: list[str], identity_prompt_count: int) -> dict[str, dict[str, Any]]:
     mapping: dict[str, dict[str, Any]] = {}
     for index, prompt in enumerate(prompt_array[:identity_prompt_count]):
@@ -622,12 +677,30 @@ def build_probe_config(
             resolved_use_reference_images = True
 
     prompt_mode = str(storydiffusion_prompt_mode or "current").strip().lower()
-    if prompt_mode not in {"current", "clean", "clean_v2", "natural"}:
+    if prompt_mode not in {"current", "clean", "clean_v2", "natural", "llm_direct"}:
         raise ValueError(f"Unsupported StoryDiffusion prompt mode: {storydiffusion_prompt_mode}")
     storydiffusion_prompt_debug: dict[str, Any] | None = None
     clean_internal_id_length: int | None = None
     generation_id_length_override: int | None = None
-    if prompt_mode in {"clean", "clean_v2", "natural"}:
+    native_negative_prompt_extra = ""
+    if prompt_mode == "llm_direct":
+        clean_payload, pipeline_debug, prompt_config = _build_llm_direct_storydiffusion_prompt_payload(
+            input_path,
+            profile=prompt_profile,
+            generation_max_words=prompt_generation_max_words,
+            generation_max_chars=prompt_generation_max_chars,
+            prompt_builder_kind=prompt_builder_kind,
+            prompt_modular_backend=prompt_modular_backend,
+            prompt_template_pack=prompt_template_pack,
+        )
+        prompt_array = list(clean_payload["prompt_array"])
+        character_prompt = str(clean_payload["general_prompt"])
+        save_image_start_index = int(clean_payload["save_image_start_index"])
+        storydiffusion_prompt_debug = dict(clean_payload["debug"])
+        clean_internal_id_length = int(clean_payload["storydiffusion_id_length"])
+        generation_id_length_override = int(clean_payload["storydiffusion_id_length"])
+        native_negative_prompt_extra = str(clean_payload.get("negative_prompt_extra", "")).strip()
+    elif prompt_mode in {"clean", "clean_v2", "natural"}:
         clean_payload, pipeline_debug, prompt_config = _build_clean_storydiffusion_prompt_payload(
             input_path,
             profile=prompt_profile,
@@ -681,6 +754,9 @@ def build_probe_config(
     if storydiffusion_prompt_debug is not None:
         storydiffusion_prompt_debug["save_identity_images"] = bool(save_identity_images)
         storydiffusion_prompt_debug["identity_image_prompt_map"] = identity_image_prompt_map
+    negative_prompt = _native_negative_prompt(prompt_config)
+    if native_negative_prompt_extra:
+        negative_prompt = ", ".join([negative_prompt, native_negative_prompt_extra])
     return {
         "storydiffusion_root": str(storydiffusion_root),
         "output_dir": str(probe_output_dir),
@@ -694,7 +770,7 @@ def build_probe_config(
         "prompts": {
             "general_prompt": character_prompt,
             "prompt_array": prompt_array,
-            "negative_prompt": _native_negative_prompt(prompt_config),
+            "negative_prompt": negative_prompt,
         },
         "generation": {
             "sd_type": sd_type,
@@ -849,11 +925,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--storydiffusion-prompt-mode",
-        choices=("current", "clean", "clean_v2", "natural"),
+        choices=("current", "clean", "clean_v2", "natural", "llm_direct"),
         default="current",
         help=(
             "Native StoryDiffusion prompt rendering mode. Default preserves the existing generation_prompt prefix behavior; "
-            "natural keeps clean_v2 identity prompts but renders shorter storyboard-style scene prompts."
+            "llm_direct consumes final StoryDiffusion prompts from the LLM-direct prompt payload."
         ),
     )
     parser.add_argument("--prompt-generation-max-words", type=int, default=60)

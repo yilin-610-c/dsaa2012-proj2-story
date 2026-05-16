@@ -48,6 +48,17 @@ prompt:
     schema_version: v1
     builder_version: llm_assisted_v9
     fallback_to_rule_based: true
+  llm_direct:
+    schema_version: llm_direct_v1
+    builder_version: llm_direct_v1
+    targets:
+      - anchor
+    repair_attempts: 1
+    max_scene_prompt_words: 40
+    max_scene_prompt_chars: 320
+    max_identity_prompt_words: 60
+    max_identity_prompt_chars: 420
+    min_unknown_identity_words: 4
   style_prompt: cinematic story illustration, coherent visual style
   subject_prefix: "main subject:"
   global_context_prefix: "shared story context:"

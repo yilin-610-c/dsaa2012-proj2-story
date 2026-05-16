@@ -116,6 +116,9 @@ def _identity_parts(character_spec: dict[str, Any]) -> list[str]:
 
 
 def build_anchor_prompt(character_spec: dict[str, Any], anchor_type: str, prompt_suffix: str) -> str:
+    llm_direct_prompt = _normalize_text(character_spec.get("anchor_reference_prompt"))
+    if llm_direct_prompt:
+        return llm_direct_prompt
     template = ANCHOR_TYPE_TEMPLATES.get(anchor_type, "{identity}")
     identity = ", ".join(_identity_parts(character_spec))
     prompt = template.format(identity=identity).strip()
