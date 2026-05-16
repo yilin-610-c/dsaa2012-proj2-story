@@ -235,6 +235,13 @@ def validate_native_prompt_payload(
                 character.anchor_reference_prompt,
                 story_scene_tokens=story_scene_tokens,
             )
+            _validate_anchor_prompt_has_no_tags(
+                issues,
+                f"{character_path}.anchor_reference_prompt",
+                character.anchor_reference_prompt,
+                code="anchor_reference_contains_storydiffusion_tag",
+                instruction="Remove bracket tags from Anchor Bank reference prompts; they are only for native StoryDiffusion prompts.",
+            )
             if character.subject_type == "unknown":
                 _validate_unknown_identity(
                     issues,
@@ -278,6 +285,20 @@ def validate_native_prompt_payload(
                 issues,
                 f"{scene_path}.anchor_generation_prompt",
                 scene.anchor_generation_prompt,
+            )
+            _validate_anchor_prompt_has_no_tags(
+                issues,
+                f"{scene_path}.anchor_generation_prompt",
+                scene.anchor_generation_prompt,
+                code="anchor_generation_contains_storydiffusion_tag",
+                instruction="Remove bracket tags from anchor_generation_prompt; use natural image prompt wording for standard diffusion.",
+            )
+            _validate_anchor_generation_identity_context(
+                issues,
+                f"{scene_path}.anchor_generation_prompt",
+                scene.anchor_generation_prompt,
+                scene.identity_conditioning_subject_id,
+                payload.characters,
             )
             _validate_text_field(
                 issues,
@@ -640,6 +661,59 @@ def _validate_anchor_reference_prompt(
             f"{path} must include simple/centered reference framing",
             prompt,
             "Use plain/simple background and centered neutral identity framing.",
+        )
+
+
+def _validate_anchor_prompt_has_no_tags(
+    issues: list[ValidationIssue],
+    path: str,
+    prompt: str,
+    *,
+    code: str,
+    instruction: str,
+) -> None:
+    tags = TAG_PATTERN.findall(prompt)
+    if tags:
+        _add_issue(
+            issues,
+            "repair_error",
+            code,
+            path,
+            f"{path} contains StoryDiffusion-style bracket tag(s): {', '.join(f'[{tag}]' for tag in tags[:4])}",
+            " ".join(f"[{tag}]" for tag in tags[:4]),
+            instruction,
+        )
+
+
+def _validate_anchor_generation_identity_context(
+    issues: list[ValidationIssue],
+    path: str,
+    prompt: str,
+    identity_conditioning_subject_id: str | None,
+    characters: list[Any],
+) -> None:
+    if not identity_conditioning_subject_id:
+        return
+    character = next(
+        (item for item in characters if item.character_id == identity_conditioning_subject_id),
+        None,
+    )
+    if character is None or not character.stable_identity:
+        return
+    stable_words = set(_content_words(character.stable_identity))
+    prompt_words = set(_content_words(prompt))
+    stable_words.discard(identity_conditioning_subject_id.lower())
+    overlap = sorted(stable_words & prompt_words)
+    required_overlap = 2 if len(stable_words) >= 4 else 1
+    if len(overlap) < required_overlap:
+        _add_issue(
+            issues,
+            "repair_error",
+            "anchor_generation_missing_stable_identity",
+            path,
+            f"{path} does not include enough stable visual identity for {identity_conditioning_subject_id}",
+            prompt,
+            "Rewrite anchor_generation_prompt to include the character's stable visual identity while preserving the scene action, setting, and framing.",
         )
 
 

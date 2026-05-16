@@ -70,7 +70,7 @@ def _payload(targets=("anchor", "storydiffusion")) -> dict:
                 "character_id": "Ben",
                 "subject_type": "human",
                 "stable_identity": "a young man with short brown hair and a blue jacket",
-                "anchor_reference_prompt": "[Ben] a single young man with short brown hair and a blue jacket, standing alone, centered, simple background, one person in the image",
+                "anchor_reference_prompt": "a single young man with short brown hair and a blue jacket, standing alone, centered, simple background, one person in the image",
             }
         ],
         "scenes": [
@@ -107,7 +107,7 @@ def _payload(targets=("anchor", "storydiffusion")) -> dict:
 
 
 def test_base_config_defaults_to_best_effort_one_repair() -> None:
-    config = resolve_config("configs/base.yaml", overrides={"prompt.pipeline": "llm_direct"})
+    config = resolve_config("configs/base.yaml", "cloud_anchor_ipadapter_scene", overrides={"prompt.pipeline": "llm_direct"})
     llm_direct = config["prompt"]["llm_direct"]
     assert llm_direct["repair_attempts"] == 1
     assert llm_direct["validation_policy"] == "best_effort"
@@ -170,7 +170,7 @@ def test_json_schema_is_target_conditional() -> None:
 
 
 def test_anchor_bank_uses_llm_direct_anchor_reference_prompt_without_suffix() -> None:
-    prompt = "[Ben] a single young man with short brown hair, centered, simple background, one person in the image"
+    prompt = "a single young man with short brown hair, centered, simple background, one person in the image"
     assert build_anchor_prompt({"character_id": "Ben", "anchor_reference_prompt": prompt}, "half_body", "ignored suffix") == prompt
 
 
@@ -226,7 +226,7 @@ def test_storydiffusion_id_metadata_for_two_characters() -> None:
     )
     raw["storydiffusion"]["identity_prompts_per_character"] = 2
     raw["storydiffusion"]["identity_reference_prompts"] = [
-        raw["characters"][0]["anchor_reference_prompt"],
+        "[Ben] a single young man with short brown hair and a blue jacket, standing alone, centered, simple background, one person in the image",
         "[Ben] a single young man with short brown hair and a blue jacket, neutral pose, centered, simple background, one person in the image",
         raw["characters"][1]["anchor_reference_prompt"],
         "[Sara] a single young woman with long black hair and a green coat, neutral pose, centered, simple background, one person in the image",
@@ -247,8 +247,10 @@ def test_subject_type_unknown_allowed_with_concrete_identity() -> None:
     raw["characters"][0]["subject_type"] = "unknown"
     raw["characters"][0]["stable_identity"] = "a small red floating lantern with gold trim"
     raw["characters"][0]["anchor_reference_prompt"] = (
-        "[Ben] a single small red floating lantern with gold trim, centered, simple background, one subject in the image"
+        "a single small red floating lantern with gold trim, centered, simple background, one subject in the image"
     )
+    raw["scenes"][0]["anchor_generation_prompt"] = "a small red floating lantern with gold trim floating beside a car on a quiet road, medium shot"
+    raw["scenes"][1]["anchor_generation_prompt"] = "a small red floating lantern with gold trim resting beside the stopped car, medium shot"
     payload = NativePromptPayload.from_dict(raw)
     assert validate_native_prompt_payload(payload, _story_single(), targets=["anchor"]) == []
 
@@ -256,10 +258,28 @@ def test_subject_type_unknown_allowed_with_concrete_identity() -> None:
 def test_anchor_reference_accepts_generic_single_subject_wording() -> None:
     raw = _payload(("anchor",))
     raw["characters"][0]["anchor_reference_prompt"] = (
-        "[Ben] solo young man with short brown hair and a blue jacket, standing alone, centered, simple background"
+        "solo young man with short brown hair and a blue jacket, standing alone, centered, simple background"
     )
     payload = NativePromptPayload.from_dict(raw)
     assert validate_native_prompt_payload(payload, _story_single(), targets=["anchor"]) == []
+
+
+def test_anchor_reference_rejects_storydiffusion_bracket_tags() -> None:
+    raw = _payload(("anchor",))
+    raw["characters"][0]["anchor_reference_prompt"] = (
+        "[Ben] a single young man with short brown hair and a blue jacket, centered, simple background"
+    )
+    payload = NativePromptPayload.from_dict(raw)
+    issues = validate_native_prompt_payload(payload, _story_single(), targets=["anchor"])
+    assert any(issue.severity == "repair_error" and issue.code == "anchor_reference_contains_storydiffusion_tag" for issue in issues)
+
+
+def test_anchor_generation_requires_stable_identity_context() -> None:
+    raw = _payload(("anchor",))
+    raw["scenes"][0]["anchor_generation_prompt"] = "Ben drives a car along a quiet road, medium shot"
+    payload = NativePromptPayload.from_dict(raw)
+    issues = validate_native_prompt_payload(payload, _story_single(), targets=["anchor"])
+    assert any(issue.severity == "repair_error" and issue.code == "anchor_generation_missing_stable_identity" for issue in issues)
 
 
 def test_scene_prompts_reject_reference_only_constraints() -> None:
@@ -312,7 +332,7 @@ def test_validation_rejects_bad_tags_and_banned_identity_terms() -> None:
 def test_identity_leakage_is_repair_error_and_overlap_is_warning() -> None:
     raw = _payload(("anchor",))
     raw["characters"][0]["anchor_reference_prompt"] = (
-        "[Ben] a single young man driving a car along a quiet road, centered, simple background"
+        "a single young man drives a car and stops, centered, simple background"
     )
     payload = NativePromptPayload.from_dict(raw)
     issues = validate_native_prompt_payload(payload, _story_single(), targets=["anchor"])
@@ -344,13 +364,13 @@ def test_pronoun_explicit_interaction_requires_both_participants() -> None:
                 "character_id": "Nina",
                 "subject_type": "human",
                 "stable_identity": "a woman with long dark hair and a warm coat",
-                "anchor_reference_prompt": "[Nina] a single woman with long dark hair and a warm coat, centered, simple background",
+                "anchor_reference_prompt": "a single woman with long dark hair and a warm coat, centered, simple background",
             },
             {
                 "character_id": "Leo",
                 "subject_type": "human",
                 "stable_identity": "a young man with short brown hair and a winter jacket",
-                "anchor_reference_prompt": "[Leo] a single young man with short brown hair and a winter jacket, centered, simple background",
+                "anchor_reference_prompt": "a single young man with short brown hair and a winter jacket, centered, simple background",
             },
         ],
         "scenes": [
@@ -451,7 +471,7 @@ def test_unresolved_validator_errors_continue_when_payload_is_usable() -> None:
 def test_best_effort_can_allow_unresolved_boundary_errors() -> None:
     invalid = _payload(("anchor",))
     invalid["characters"][0]["anchor_reference_prompt"] = (
-        "[Ben] a young man driving a car along a quiet road, centered, simple background"
+        "a young man driving a car along a quiet road, centered, simple background"
     )
     client = FakeLLMClient([invalid])
     builder = LLMDirectPromptBuilder(

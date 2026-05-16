@@ -136,7 +136,7 @@ This uses the distilled SDXL-Turbo scene model.
 Output root:
 
 ```text
-outputs_teammate/anchor_ipadapter_distilled_selected
+outputs_anchor_fix/anchor_ipadapter_distilled_scene_llm_direct_selected
 ```
 
 Dry run:
@@ -147,22 +147,23 @@ for story in 02 04 05 17; do
     python scripts/run_auto_story_pipeline_modular.py \
     --input "test_set/${story}.txt" \
     --run-name "anchor_ipadapter_distilled_test_set_${story}" \
-    --output-root outputs_teammate/anchor_ipadapter_distilled_selected \
-    --single-env storygen \
+    --output-root outputs_anchor_fix/anchor_ipadapter_distilled_scene_llm_direct_selected \
+    --single-env ipadapter \
+    --single-profile cloud_anchor_ipadapter_scene \
     --double-env storygen \
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
     --set 'prompt.llm_direct.targets=["anchor"]' \
     --set prompt.llm.max_output_tokens=6000 \
-    --set model.scene_model_id=stabilityai/sdxl-turbo \
+    --set model.model_id=stabilityai/sdxl-turbo \
     --set model.anchor_bank_model_id=stabilityai/sdxl-turbo \
     --set model.width=768 \
     --set model.height=768 \
     --set model.num_inference_steps=4 \
     --set model.guidance_scale=0.0 \
     --set generation.candidate_count=3 \
-    --set generation.identity_conditioning.scale=0.3 \
+    --set generation.identity_conditioning.scale=0.55 \
     --dry-run
 done
 ```
@@ -175,32 +176,33 @@ for story in 02 04 05 17; do
     python scripts/run_auto_story_pipeline_modular.py \
     --input "test_set/${story}.txt" \
     --run-name "anchor_ipadapter_distilled_test_set_${story}" \
-    --output-root outputs_teammate/anchor_ipadapter_distilled_selected \
-    --single-env storygen \
+    --output-root outputs_anchor_fix/anchor_ipadapter_distilled_scene_llm_direct_selected \
+    --single-env ipadapter \
+    --single-profile cloud_anchor_ipadapter_scene \
     --double-env storygen \
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
     --set 'prompt.llm_direct.targets=["anchor"]' \
     --set prompt.llm.max_output_tokens=6000 \
-    --set model.scene_model_id=stabilityai/sdxl-turbo \
+    --set model.model_id=stabilityai/sdxl-turbo \
     --set model.anchor_bank_model_id=stabilityai/sdxl-turbo \
     --set model.width=768 \
     --set model.height=768 \
     --set model.num_inference_steps=4 \
     --set model.guidance_scale=0.0 \
     --set generation.candidate_count=3 \
-    --set generation.identity_conditioning.scale=0.3
+    --set generation.identity_conditioning.scale=0.55
 done
 ```
 
 Expected run folders:
 
 ```text
-outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_test_set_02
-outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_test_set_04
-outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_test_set_05
-outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_test_set_17
+outputs_anchor_fix/anchor_ipadapter_distilled_scene_llm_direct_selected/anchor_ipadapter_distilled_test_set_02
+outputs_anchor_fix/anchor_ipadapter_distilled_scene_llm_direct_selected/anchor_ipadapter_distilled_test_set_04
+outputs_anchor_fix/anchor_ipadapter_distilled_scene_llm_direct_selected/anchor_ipadapter_distilled_test_set_05
+outputs_anchor_fix/anchor_ipadapter_distilled_scene_llm_direct_selected/anchor_ipadapter_distilled_test_set_17
 ```
 
 ## Batch C: Anchor Bank + IP-Adapter, Non-Distilled SDXL
@@ -210,7 +212,7 @@ This uses the non-distilled SDXL base model with higher step count and normal CF
 Output root:
 
 ```text
-outputs_teammate/anchor_ipadapter_sdxl_base_selected
+outputs_anchor_fix/anchor_ipadapter_sdxl_scene_llm_direct_selected
 ```
 
 Dry run:
@@ -221,22 +223,23 @@ for story in 02 04 05 17; do
     python scripts/run_auto_story_pipeline_modular.py \
     --input "test_set/${story}.txt" \
     --run-name "anchor_ipadapter_sdxl_base_test_set_${story}" \
-    --output-root outputs_teammate/anchor_ipadapter_sdxl_base_selected \
-    --single-env storygen \
+    --output-root outputs_anchor_fix/anchor_ipadapter_sdxl_scene_llm_direct_selected \
+    --single-env ipadapter \
+    --single-profile cloud_anchor_ipadapter_scene \
     --double-env storygen \
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
     --set 'prompt.llm_direct.targets=["anchor"]' \
     --set prompt.llm.max_output_tokens=6000 \
-    --set model.scene_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
+    --set model.model_id=stabilityai/stable-diffusion-xl-base-1.0 \
     --set model.anchor_bank_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
     --set model.width=768 \
     --set model.height=768 \
     --set model.num_inference_steps=35 \
     --set model.guidance_scale=5.0 \
     --set generation.candidate_count=3 \
-    --set generation.identity_conditioning.scale=0.3 \
+    --set generation.identity_conditioning.scale=0.55 \
     --dry-run
 done
 ```
@@ -249,32 +252,33 @@ for story in 02 04 05 17; do
     python scripts/run_auto_story_pipeline_modular.py \
     --input "test_set/${story}.txt" \
     --run-name "anchor_ipadapter_sdxl_base_test_set_${story}" \
-    --output-root outputs_teammate/anchor_ipadapter_sdxl_base_selected \
-    --single-env storygen \
+    --output-root outputs_anchor_fix/anchor_ipadapter_sdxl_scene_llm_direct_selected \
+    --single-env ipadapter \
+    --single-profile cloud_anchor_ipadapter_scene \
     --double-env storygen \
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
     --set 'prompt.llm_direct.targets=["anchor"]' \
     --set prompt.llm.max_output_tokens=6000 \
-    --set model.scene_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
+    --set model.model_id=stabilityai/stable-diffusion-xl-base-1.0 \
     --set model.anchor_bank_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
     --set model.width=768 \
     --set model.height=768 \
     --set model.num_inference_steps=35 \
     --set model.guidance_scale=5.0 \
     --set generation.candidate_count=3 \
-    --set generation.identity_conditioning.scale=0.3
+    --set generation.identity_conditioning.scale=0.55
 done
 ```
 
 Expected run folders:
 
 ```text
-outputs_teammate/anchor_ipadapter_sdxl_base_selected/anchor_ipadapter_sdxl_base_test_set_02
-outputs_teammate/anchor_ipadapter_sdxl_base_selected/anchor_ipadapter_sdxl_base_test_set_04
-outputs_teammate/anchor_ipadapter_sdxl_base_selected/anchor_ipadapter_sdxl_base_test_set_05
-outputs_teammate/anchor_ipadapter_sdxl_base_selected/anchor_ipadapter_sdxl_base_test_set_17
+outputs_anchor_fix/anchor_ipadapter_sdxl_scene_llm_direct_selected/anchor_ipadapter_sdxl_base_test_set_02
+outputs_anchor_fix/anchor_ipadapter_sdxl_scene_llm_direct_selected/anchor_ipadapter_sdxl_base_test_set_04
+outputs_anchor_fix/anchor_ipadapter_sdxl_scene_llm_direct_selected/anchor_ipadapter_sdxl_base_test_set_05
+outputs_anchor_fix/anchor_ipadapter_sdxl_scene_llm_direct_selected/anchor_ipadapter_sdxl_base_test_set_17
 ```
 
 ## What To Send Back
@@ -289,8 +293,8 @@ Native StoryDiffusion:
 
 Anchor + IP-Adapter:
 
-- all four run folders under `outputs_teammate/anchor_ipadapter_distilled_selected/`
-- all four run folders under `outputs_teammate/anchor_ipadapter_sdxl_base_selected/`
+- all four run folders under `outputs_anchor_fix/anchor_ipadapter_distilled_scene_llm_direct_selected/`
+- all four run folders under `outputs_anchor_fix/anchor_ipadapter_sdxl_scene_llm_direct_selected/`
 - for each run: `run_summary.json`, `manifest.json` if present, `logs/prompt_bundle.json`, `logs/story_scene_plans.json`, `anchors/`, and generated scene images
 
 If any run fails, send:
@@ -304,6 +308,7 @@ If any run fails, send:
 
 - Native StoryDiffusion uses `--storydiffusion-prompt-mode llm_direct`, so prompt generation uses the new best-effort `llm_direct` pipeline.
 - Anchor + IP-Adapter commands use `prompt.pipeline=llm_direct` with `prompt.llm_direct.targets=["anchor"]`; this generates only anchor-compatible prompts.
+- Batch B and Batch C use the scene-level `cloud_anchor_ipadapter_scene` profile. Do not use the older `cloud_anchor_ipadapter_story` profile for final Anchor + IP-Adapter runs; that legacy story wrapper bypasses scene multi-candidate CLIP selection.
 - Batch B and Batch C intentionally use separate output roots so distilled and non-distilled outputs never collide.
 - `generation.candidate_count=3` is intentional and should not be lowered unless the run fails from memory.
 - For non-distilled SDXL, use `35` steps and `guidance_scale=5.0`; for SDXL-Turbo, use `4` steps and `guidance_scale=0.0`.
