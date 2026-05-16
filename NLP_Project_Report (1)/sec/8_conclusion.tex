@@ -1,0 +1,11 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented a fully automated multi-panel story image generation system centered on a \textbf{subject-count hybrid router}.
+Single-character narratives use structured LLM planning, run-local anchor banks, IP-Adapter conditioning on SDXL-Turbo, and scene-consistency prompt assembly, with identity strength $\lambda=0.3$ as a practical default for Story-14-style results.
+Multi-character narratives route to native StoryDiffusion to avoid single-anchor face contamination while preserving separate identity banks for each tagged entity.
+
+We also implemented and evaluated an exploratory PixArt-$\alpha$ diffusion-transformer backend with DreamBooth LoRA and cross-scene attention blending, motivated by post-presentation feedback.
+Despite completing the engineering migration, qualitative results did not meet the hybrid baseline on identity or robustness; we document this as a rigorous negative comparison rather than omitting the effort.
+
+The central lesson is architectural: separate \emph{text understanding}, \emph{safe identity mechanisms}, and \emph{backend choice by subject count}, with logged deterministic decisions, yields more reliable story panels than any single generator applied uniformly to all stories.

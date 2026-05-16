@@ -276,8 +276,20 @@ class DitStoryJointGenerator(BaseStoryGenerator):
 
         pipeline = self.pipeline
 
-        # Collect all scene prompts — the pipeline natively supports list-of-strings
-        prompts = [plan.generation_prompt for plan in request.scene_plans]
+        # Build prompts (same modes as dit_text2img).
+        prompt_mode = str(self.model_config.get("prompt_mode", "simple")).strip()
+        prompts: list[str] = []
+        for plan in request.scene_plans:
+            if prompt_mode == "full":
+                p = (plan.generation_prompt or plan.prompt_spec.generation_prompt or "").strip()
+            else:
+                scoring = (plan.scoring_prompt or plan.prompt_spec.scoring_prompt or "").strip()
+                style = (plan.prompt_spec.style_prompt or "").strip()
+                p = scoring
+                if style:
+                    p = f"{p}, {style}" if p else style
+            prompts.append(p)
+
         # Inject LoRA trigger word into every scene prompt if configured
         lora_trigger = str(self.model_config.get("lora_trigger") or "").strip()
         if lora_trigger:
@@ -315,7 +327,7 @@ class DitStoryJointGenerator(BaseStoryGenerator):
                 PanelGenerationOutput(
                     scene_id=plan.scene_id,
                     panel_index=plan.scene_index,
-                    prompt=plan.generation_prompt,
+                    prompt=prompts[i] if i < len(prompts) else plan.generation_prompt,
                     image=image,
                     metadata={
                         "backend": "dit_story_joint",

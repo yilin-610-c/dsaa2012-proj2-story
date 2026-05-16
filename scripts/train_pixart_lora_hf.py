@@ -421,7 +421,19 @@ def parse_args():
         "--train_text_encoder",
         action="store_true",
         default=False,
-        help="Also train T5 text encoder with LoRA (rank=4) so trigger token binds to character.",
+        help="Also train T5 text encoder with LoRA so trigger token binds to character.",
+    )
+    parser.add_argument(
+        "--t5_lora_rank",
+        type=int,
+        default=16,
+        help="LoRA rank for T5 text encoder (only used when --train_text_encoder).",
+    )
+    parser.add_argument(
+        "--t5_lora_alpha",
+        type=int,
+        default=None,
+        help="LoRA alpha for T5 text encoder. Defaults to --t5_lora_rank.",
     )
 
     parser.add_argument("--local-rank", type=int, default=-1)
@@ -510,13 +522,17 @@ def main():
 
     # Optionally train text encoder with LoRA so the trigger token binds to the character
     if args.train_text_encoder:
+        t5_alpha = int(args.t5_lora_alpha) if args.t5_lora_alpha is not None else int(args.t5_lora_rank)
         text_encoder_lora_config = LoraConfig(
-            r=4,  # small rank for text encoder
+            r=int(args.t5_lora_rank),
+            lora_alpha=t5_alpha,
             init_lora_weights="gaussian",
             target_modules=["q", "k", "v", "o"],
         )
         text_encoder = get_peft_model(text_encoder, text_encoder_lora_config)
-        text_encoder = text_encoder.to(device=accelerator.device, dtype=weight_dtype)
+        # Keep T5 LoRA parameters in fp32 so GradScaler can unscale gradients.
+        # Base T5 weights are already frozen fp16 — the memory difference is negligible.
+        text_encoder = text_encoder.to(device=accelerator.device)
 
     vae = AutoencoderKL.from_pretrained(args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision, variant=args.variant, torch_dtype=weight_dtype)
     vae.requires_grad_(False)
@@ -866,6 +882,8 @@ def main():
 
                 # Get the text embedding for conditioning
                 prompt_embeds = text_encoder(batch["input_ids"], attention_mask=batch['prompt_attention_mask'])[0]
+                # T5 LoRA (fp32) output may not respect autocast → explicit cast for transformer (fp16)
+                prompt_embeds = prompt_embeds.to(dtype=weight_dtype)
                 prompt_attention_mask = batch['prompt_attention_mask']
                 # Get the target for loss depending on the prediction type
                 if args.prediction_type is not None:

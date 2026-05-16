@@ -1,0 +1,69 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usetikzlibrary{positioning, arrows.meta}
+\newcommand{\methodblock}[1]{%
+    \vspace{0.6em}
+    \noindent\textbf{#1}\par
+    \vspace{0.2em}
+}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Fully Automated Multi-Panel Story Image Generation with Subject-Count Hybrid Routing}
+
+\author{\IEEEauthorblockN{Danchen Liu}
+\IEEEauthorblockA{\textit{Information Hub} \\
+\textit{HKUST(GZ)}\\
+50012871\\
+dliu883@connect.hkust-gz.edu.cn}
+\and
+\IEEEauthorblockN{Xueyin Luo}
+\IEEEauthorblockA{\textit{Information Hub} \\
+\textit{HKUST(GZ)}\\
+50013588 \\
+xluo799@connect.hkust-gz.edu.cn}
+\and
+\IEEEauthorblockN{Yueran Qiu}
+\IEEEauthorblockA{\textit{Information Hub} \\
+\textit{HKUST(GZ)}\\
+50013344 \\
+yqiu771@connect.hkust-gz.edu.cn}
+}
+
+\maketitle
+
+\begin{IEEEkeywords}
+story image generation, character consistency, IP-Adapter, StoryDiffusion, diffusion transformers, multi-panel generation
+\end{IEEEkeywords}
+
+\begin{abstract}
+\input{sec/0_abstract}
+\end{abstract}
+
+\input{sec/1_introduction}
+\input{sec/2_related_work}
+\input{sec/3_problem_formulation}
+\input{sec/4_method}
+\input{sec/5_experiment}
+\input{sec/6_result_analysis}
+\input{sec/7_discussion}
+\input{sec/8_conclusion}
+
+% --- 参考文献 ---
+\bibliographystyle{IEEEtran}
+\bibliography{main}
+\input{sec/7_appendix}
+\end{document}

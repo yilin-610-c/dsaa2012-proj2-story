@@ -1,6 +1,6 @@
 # DiT Pipeline 开发状态记录
 
-> 最后更新: 2026-05-14 | 分支: `integrate/prompt-audit-into-storydiffusion`
+> 最后更新: 2026-05-15 | 分支: `integrate/prompt-audit-into-storydiffusion`
 
 ---
 
@@ -153,39 +153,37 @@ bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 
 **建议**: 目前不建议使用 story-joint。CrossSceneAttention 需要重新设计。
 
-### 5.2 LoRA 生成结果与训练参考图不够像 ❌
+### 5.2 LoRA 生成结果与训练参考图不够像 ⚠️ (核心问题已定位)
 
-**严重程度**: 高
+**严重程度**: 高（根因已定位，修复已实施，待重训练验证）
 
-**现象**: 用 checkpoint LoRA 推理，生成图片中的角色外貌与训练参考图不完全一致。
+**现象**: 用 checkpoint LoRA 推理，三个 scene 生成的分别是白人男性、黑人男性、白人女性 — 人物身份完全随机。
 
 **根因分析**:
-1. T5 text encoder 被冻结 — "sks" trigger token 未绑定到角色
-2. 若仍用 `--ref-backend sdxl`：训练图是 SDXL、推理是 PixArt — 跨模型迁移有 gap；**默认已改为 PixArt 产训练图**以消除该缝（仍受 T5 冻结等其它项限制）
-3. LoRA 只训练 transformer，text encoder 不变
-4. 训练数据多样性还不够（半身照为主）
-5. **推理风格与训练 caption 不一致**：`gen_lora_ref_images.py` 的 metadata 大量带 `photorealistic`，而默认 profile 的 `style_prompt` 偏「cinematic illustration」，会把脸从训练域拉开
-6. **LoRA alpha 偏弱**：此前训练脚本未设 `lora_alpha`，PEFT 对高 rank 仍用默认 alpha=8，相对 `rank=32` 缩放偏弱
+1. ~~T5 text encoder 被冻结~~ → **已修复**: 加入 `--train_text_encoder`，T5 LoRA rank=4
+2. **训练数据身份不一致（核心根因）**: Phase 2 用 PixArt text2img 独立生成 15 张图，**每张是不同的人**。16 张图标注为 "sks Ryan" 但实际是 16 个随机人物 → LoRA 学到模糊噪声而非具体身份
+3. ~~LoRA 只训练 transformer~~ → **已修复**: 同时训练 transformer LoRA + T5 LoRA
+4. **推理 prompt 格式混乱**: `generation_prompt` 包含大量结构性 token，训练 caption 从未出现 → **已修复**: 推理改用 `scoring_prompt` + `style_prompt`
+5. **LoRA alpha 偏弱** → **已修复**: `--lora_alpha` 默认等于 `--rank`
 
-**已缓解（代码）**:
-- `dit_lora_smoke` / `dit_story_joint_lora` 覆盖 `prompt.style_prompt` 为 photorealistic 向，贴近训练图描述
-- `train_pixart_lora_hf.py`：`--lora_alpha` 默认等于 `--rank`（可用 CLI 显式改）
+**已修复（代码）**:
+- `gen_lora_ref_images.py`: Phase 2 **不再做 text2img 随机生人**，改为对 canonical 做图像增强（翻转、裁剪、亮度）→ 12 张图全是同一个人，纯 PixArt 风格，无跨模型污染
+- `train_pixart_lora_hf.py:519`: T5 LoRA 保持 fp32（GradScaler 兼容）
+- `train_pixart_lora_hf.py:871`: T5 输出显式 cast 到 weight_dtype（避免 fp32→fp16 崩溃）
+- `run_full_lora_pipeline.sh`: 默认 `--train_text_encoder`
+- `dit_text2img.py` + `dit_story_joint.py`: 推理 prompt 改用 `scoring_prompt` + `style_prompt`
 
-**尝试过**: 加 `--train_text_encoder` 但 mixed_precision fp16 与 T5 LoRA 有 dtype 冲突 (#5.3)。
+**待验证**: 重新跑 `run_full_lora_pipeline.sh`，确认训练图人物一致 + 推理一致性显著改善。
 
-**建议**: 重新训练一次 LoRA 以吃满 `lora_alpha` 改动；推理用 `dit_lora_smoke` 新 style。根本上限仍受 #1–#4 约束（见 #8 待办）。
+### 5.3 --train_text_encoder 在 mixed_precision=fp16 下报错 ✅ (已修复)
 
-### 5.3 --train_text_encoder 在 mixed_precision=fp16 下报错 ❌
-
-**严重程度**: 中 (功能已有但不稳定)
+**严重程度**: 已解决
 
 **现象**: `ValueError: Attempting to unscale FP16 gradients.`
 
-**根因**: T5 LoRA 层在 fp16 下产生无法正确 unscale 的梯度。
+**根因**: 此前 `text_encoder.to(dtype=weight_dtype)` 把 T5 LoRA 参数 cast 到 fp16，PyTorch GradScaler 无法 unscale fp16 梯度。
 
-**尝试过**: `.to(dtype=weight_dtype)` 但仍有冲突。
-
-**状态**: 已回退，`run_full_lora_pipeline.sh` 中移除了 `--train_text_encoder` 标志。
+**修复**: 去掉 `dtype=weight_dtype`，T5 LoRA 参数保持默认 fp32。Base T5 weights 仍为 fp16（冻结不做训练），显存影响可忽略。
 
 ### 5.4 训练脚本验证阶段崩溃 ❌ (无害)
 
@@ -241,8 +239,9 @@ bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 | 2 | 空间位置对齐跨场景 blending (v1) | 角色被洗掉 | 脸部 token 混入其他场景背景 token |
 | 3 | 随机 anchor + SDXL-Turbo 直接生成训练图 (v2) | 男女混合、脸部变形 | CFG=0 @ 1024² 质量差 |
 | 4 | anchor_bank only 训练图 (v3) | DreamBooth 几乎学不到差异 | 10 张同姿势同背景 |
-| 5 | --train_text_encoder + mixed_precision=fp16 (v5) | dtype 冲突 | T5 LoRA vs GradScaler |
+| 5 | --train_text_encoder + mixed_precision=fp16 (v5) | **已修复** ✅ | T5 LoRA 保持 fp32 避开 GradScaler 限制 |
 | 6 | Story-Joint v2 (全局上下文) | 比 scene-level 更差 | 噪声均值注入破坏 denoising |
+| 7 | PixArt Phase 2 纯 text2img 生训练图 (v6) | **已修复** ✅ | 改为 canonical 图像增强，不再随机生人 |
 
 ---
 
@@ -257,7 +256,7 @@ bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 ### 分步命令（调试用）
 
 ```bash
-# Step 1: 训练图
+# Step 1: 训练图 (pixart: canonical + 图像增强 → 13 张全同一个人)
 PYTHONPATH=src python scripts/gen_lora_ref_images.py --input test_set/01.txt --output-dir training_data/xxx [--ref-backend pixart|sdxl]
 
 # Step 2: 训练 (rank=32, 1200 steps)
@@ -282,8 +281,8 @@ PYTHONPATH=src python -m storygen.cli --profile dit_lora_smoke --input test_set/
 
 ### 高优先级
 
-- [ ] **修复 --train_text_encoder mixed precision 冲突** — T5 LoRA + fp16 梯度 unscaling
-- [ ] **提高 LoRA 角色相似度** — text_encoder 训练或 text inversion
+- [x] **修复 --train_text_encoder mixed precision 冲突** — T5 LoRA 保持 fp32 避开 GradScaler fp16 限制 ✅
+- [ ] **重新训练 + 验证 LoRA 角色相似度** — 用修复后的 pipeline 重跑，对比改造前后的人物一致性
 - [ ] **重新设计 CrossSceneAttention** — 替代简单全局均值 blending (如 late-step-only, similarity-based)
 
 ### 中优先级

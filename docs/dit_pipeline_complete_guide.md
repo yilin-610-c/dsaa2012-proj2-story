@@ -190,7 +190,7 @@ blend_strength_per_layer:
 bash scripts/run_full_lora_pipeline.sh --input test_set/01.txt
 ```
 
-一条命令跑完 Step 1→2→3。所有输出统一到:
+一条命令跑完 Step 1→2→3。**Step 2 默认同时训练 transformer LoRA (rank=32) + T5 text encoder LoRA (rank=4)**，确保 `"sks"` trigger token 真正绑定到角色身份。
 
 ```
 outputs/dit_lora_smoke_full_<timestamp>_<story>/
@@ -218,7 +218,7 @@ bash scripts/run_full_lora_pipeline.sh \
 ### 4.2 分步运行（调试用）
 
 ```bash
-# Step 1: 生成训练参考图（默认 PixArt-α，与 LoRA 训练/推理同一 backbone；legacy 加 --ref-backend sdxl）
+# Step 1: 生成训练参考图（pixart: canonical + 图像增强 → 全部同一个人）
 PYTHONPATH=src python scripts/gen_lora_ref_images.py \
   --input test_set/01.txt \
   --output-dir training_data/my_character \
@@ -265,12 +265,15 @@ training_data/my_character/
 
 ### 4.4 训练参数
 
-| 参数 | v1 (旧) | v2 (当前) | 说明 |
-|------|---------|-----------|------|
-| 训练图像 | 4 张 (仅锚定) | 13 张 (多样) | 更多样化 |
-| rank | 8 | 16 | 更多参数 |
-| steps | 500 | 800 | 更多迭代 |
-| adapter 大小 | 27MB | 55MB | - |
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| Transformer LoRA rank | 32 | 主去噪网络的 adapter 秩 |
+| T5 Text Encoder LoRA rank | 4 | `--train_text_encoder` 启用，绑定 "sks" → 角色 |
+| lora_alpha | = rank | 缩放 = 1.0 |
+| 训练分辨率 | 512² | - |
+| max_train_steps | 1200 | - |
+| learning_rate | 1e-6 | - |
+| mixed_precision | fp16 | Transformer fp16; T5 LoRA 保持 fp32 |
 
 ### 4.5 推理必须带 `lora_trigger`
 
@@ -368,12 +371,12 @@ training_data/my_character/
 | 2 | LoRA 仅绑一个角色 | 每角色需独立训练 |
 | 3 | PixArt 无 IP-Adapter | 不能直接输入参考图 |
 | 4 | 训练分辨率 512² | 低于原生 1024² |
-| 5 | 全局上下文不传空间信息 | 背景一致性提升有限 |
 
 ### 改进方向
 
 | 优先级 | 方向 | 预期效果 |
 |:---:|------|------|
+| **高** | 验证 T5 text encoder LoRA 训练效果 | "sks" token 语义绑定，角色一致性应显著提升 |
 | **高** | 训练时增加更多全身/动作图 | 角色在动态场景中更一致 |
 | **高** | 调低 story-joint 深层 blend=0 | LoRA + 跨场景互不冲突 |
 | **中** | 语义对齐 blending (similarity-based) | 背景一致性 + 角色保护 |

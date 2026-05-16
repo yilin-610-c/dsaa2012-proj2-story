@@ -1,0 +1,502 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{pifont}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\newcommand{\todo}[1]{\textcolor{red}{\textbf{TODO:} #1}}
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+\newcommand{\pipelineA}{Anchor-Conditioned Diffusion Pipeline}
+\newcommand{\pipelineB}{Native StoryDiffusion Consistency Pipeline}
+\newcommand{\pipelineC}{DiT Exploratory Backend}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible
+}
+
+\title{Technical Report: Fully Automated Multi-Panel Story Image Generation}
+\author{\todo{Team name / author names}}
+\date{\todo{Date}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This project studies fully automated multi-panel story image generation from short scene-level textual stories. The main challenge is not only generating visually appealing images, but also maintaining character identity, resolving pronouns and recurring entities, preserving scene-level actions, and supporting multiple subject types such as humans, animals, and robots. We implemented and compared three automated pipelines: (1) an explicit identity-control pipeline based on LLM-assisted prompt planning, Anchor Bank construction, canonical anchor selection, and IP-Adapter conditioning; (2) a native StoryDiffusion pipeline with a StoryDiffusion-specific natural prompt adapter; and (3) an exploratory DiT-based backend. The final submitted system is selected through controlled comparisons on Test-A, using identity consistency, scene faithfulness, subject count correctness, visual quality, artifact severity, and automation robustness as qualitative criteria. \todo{After final experiments, add one sentence stating which pipeline was selected and why.}
+\end{abstract}
+
+\section{Task and Main Challenges}
+
+The task is to generate a coherent sequence of story panels from a short story written as scene blocks. A typical input contains scene markers such as \texttt{[SCENE-1]} and separators such as \texttt{[SEP]}. Each scene describes one panel, and entity tags such as \texttt{<Jack>}, \texttt{<Sara>}, or \texttt{<Cat>} indicate recurring characters.
+
+This task has several technical challenges:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Identity consistency:} the same character should remain recognizable across panels.
+    \item \textbf{Pronoun and entity resolution:} pronouns such as ``he'', ``she'', ``it'', and ``they'' must be mapped to the correct recurring subjects.
+    \item \textbf{Scene faithfulness:} each panel should depict the intended action and setting, rather than only preserve visual style.
+    \item \textbf{Multi-character separation:} two-character or multi-subject stories must avoid identity swapping, subject merging, and missing characters.
+    \item \textbf{Non-human subject handling:} animals and robots should not be rendered using human-specific identity fields such as hairstyle or outfit unless explicitly stated.
+    \item \textbf{Full automation:} the system must generate outputs using scripts and model calls only, without manual per-case editing.
+\end{itemize}
+
+\section{System Overview}
+
+We implemented three candidate pipelines. All three share the same high-level story understanding and prompt planning goal, but they differ in how they control identity and how they generate final images.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{p{0.20\textwidth} X X X}
+\toprule
+\textbf{Pipeline} & \textbf{Prompt / story understanding} & \textbf{Identity mechanism} & \textbf{Generation backend} \\
+\midrule
+\pipelineA & LLM-assisted structured prompt planner; CharacterSpec; scene plans; PromptSpec & Anchor Bank generates visual identity anchors; canonical half-body anchor is selected; IP-Adapter injects reference image for eligible scenes & Local diffusers / SDXL-style text-to-image generation with IP-Adapter conditioning \\
+\midrule
+\pipelineB & Same story parsing and LLM-assisted structure; converted into StoryDiffusion \texttt{general\_prompt}, identity prompts, and natural scene prompts & Native StoryDiffusion front-loaded identity reference prompts; optional saved \texttt{identity\_refs/} for debugging & External local StoryDiffusion repository called through the Gradio probe adapter, not an image-generation API \\
+\midrule
+\pipelineC & \todo{Describe DiT prompt interface once finalized} & \todo{Describe whether DiT uses text-only, conditioning, or another identity strategy} & Exploratory DiT backend; currently treated as a placeholder unless stable reproducible results are available \\
+\bottomrule
+\end{tabularx}
+\caption{System-level comparison of the three candidate pipelines.}
+\label{tab:pipeline_comparison}
+\end{table}
+
+The first two pipelines share the prompt and story-understanding layer, but their generation mechanisms are different. \pipelineA{} uses explicit visual identity anchors and IP-Adapter conditioning. \pipelineB{} relies on native StoryDiffusion's identity-bank mechanism, where early identity reference prompts are placed before the story scene prompts. \pipelineC{} is included as an exploratory backend and will be evaluated only if final stable results are available.
+
+\section{Shared Prompt Generation Process}
+\label{sec:prompt_generation}
+
+\subsection{Input Parsing}
+
+The system first parses the input story into ordered scene blocks. For each scene, it extracts:
+
+\begin{itemize}[leftmargin=*]
+    \item scene id, e.g., \texttt{SCENE-1};
+    \item raw scene text;
+    \item explicitly tagged entities, e.g., \texttt{<Cat>} and \texttt{<Dog>};
+    \item pronouns and implicit recurring subjects.
+\end{itemize}
+
+The parser provides a deterministic scene structure, while the LLM-assisted planner provides higher-level semantic interpretation.
+
+\subsection{LLM-Assisted Structured Planning}
+
+The LLM is used only for text-side prompt planning and structured story understanding. It does not generate images. The prompt planner produces strict JSON containing global character information and per-scene metadata. The important fields include:
+
+\paragraph{Character-level fields.}
+The planner produces \texttt{character\_specs}, where each character has a \texttt{subject\_type} and type-specific identity fields. The supported subject types include \texttt{human}, \texttt{animal}, \texttt{robot}, \texttt{object}, \texttt{vehicle}, and \texttt{unknown}. Human fields include hair color, hairstyle, body build, outfit, and accessories. Animal fields include species, fur color, fur pattern, markings, and body size. Robot/object fields include material, color scheme, shape features, and signature parts.
+
+\paragraph{Scene-level fields.}
+For each scene, the planner may output:
+
+\begin{itemize}[leftmargin=*]
+    \item \texttt{primary\_action}: the main event in the panel;
+    \item \texttt{generation\_prompt}: an optimized scene prompt;
+    \item \texttt{scoring\_prompt}: prompt used for candidate scoring;
+    \item \texttt{action\_prompt}: short action-focused phrase;
+    \item \texttt{primary\_visible\_character\_ids}: characters expected to be visible;
+    \item \texttt{continuity\_subject\_ids}: subjects relevant for cross-frame continuity;
+    \item \texttt{identity\_conditioning\_subject\_id}: the character whose anchor can be safely injected, if unambiguous;
+    \item \texttt{interaction\_summary}: natural description of interaction between subjects;
+    \item \texttt{spatial\_relation}: relation such as side-by-side or across table, when supported;
+    \item \texttt{framing}: shot type such as medium shot or wide shot;
+    \item \texttt{setting\_focus}: scene location or local setting;
+    \item routing metadata, such as \texttt{continuity\_route\_hint}, \texttt{route\_change\_level}, and \texttt{route\_reason}.
+\end{itemize}
+
+\subsection{Subject-Type Normalization}
+
+A key robustness improvement was subject-type-aware normalization. Earlier versions could accidentally render animals as human characters when LLM identity fields were empty. The current prompt pipeline applies general deterministic fallback rules: tags such as \texttt{Cat}, \texttt{Dog}, and \texttt{Bird} are treated as animals; \texttt{Robot} is treated as a robot; human names and roles receive human identity defaults. These rules are applied uniformly across stories and are not per-case hard-coding.
+
+This normalization affects both the storygen route and the native StoryDiffusion prompt adapter. For example, a Cat/Dog story should produce descriptors such as:
+
+\begin{lstlisting}
+[Cat] small gray cat, visible striped fur pattern
+[Dog] medium brown dog, visible spotted coat pattern, floppy ears
+\end{lstlisting}
+
+rather than:
+
+\begin{lstlisting}
+[Cat] human person
+[Dog] human person
+\end{lstlisting}
+
+\subsection{Prompt Outputs for Different Backends}
+
+The same structured representation is consumed differently by each backend.
+
+\paragraph{For \pipelineA.}
+The final downstream contract is \texttt{PromptSpec}. The generator consumes \texttt{generation\_prompt} and \texttt{negative\_prompt}. The scorer can use \texttt{scoring\_prompt} and \texttt{action\_prompt}. The Anchor Bank consumes \texttt{character\_specs} to generate identity anchors.
+
+\paragraph{For \pipelineB.}
+The native StoryDiffusion adapter converts the structured representation into:
+
+\begin{itemize}[leftmargin=*]
+    \item \texttt{general\_prompt}: stable identity descriptions using \texttt{[Character]} tags;
+    \item \texttt{identity\_prompts}: front-loaded identity prompts used to build the StoryDiffusion identity bank;
+    \item \texttt{scene\_prompts}: natural storyboard-style prompts focused on action, setting, and framing;
+    \item \texttt{prompt\_array}: identity prompts followed by story scene prompts;
+    \item \texttt{save\_image\_start\_index}: index from which story frames are saved, skipping identity reference images.
+\end{itemize}
+
+The native path also supports \texttt{--save-identity-images}, which saves skipped identity frames under \texttt{identity\_refs/}. This allows direct diagnosis of whether failures come from the identity bank itself or from later scene generation.
+
+\section{Pipeline A: Anchor-Conditioned Diffusion Pipeline}
+\label{sec:pipeline_a}
+
+\pipelineA{} is our explicit identity-control pipeline. Its main design principle is to separate textual story understanding from visual identity control.
+
+\subsection{Major Decision Steps}
+
+The pipeline uses the following decision sequence:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Parse story:} split the input into ordered scene blocks and extract tagged entities.
+    \item \textbf{Plan prompts:} use the LLM-assisted planner to produce \texttt{PromptSpec}, \texttt{CharacterSpec}, route metadata, and scene-level fields.
+    \item \textbf{Build Anchor Bank:} generate portrait and half-body identity candidates for each recurring character.
+    \item \textbf{Select canonical anchor:} choose a canonical half-body anchor using automatic quality and alignment criteria.
+    \item \textbf{Apply scene identity gate:} determine whether a scene has a single clear subject. If the scene is ambiguous or contains multiple primary subjects, IP-Adapter can be skipped to avoid injecting the wrong identity.
+    \item \textbf{Generate image candidates:} generate one or more candidate panels using the local diffusion backend.
+    \item \textbf{Score and select:} use text/image and cross-frame consistency scoring to select final panels.
+    \item \textbf{Save artifacts:} write generated images, anchor images, prompt bundles, logs, and summaries for reproducibility.
+\end{enumerate}
+
+\subsection{Rationale}
+
+This pipeline explicitly controls identity through generated visual anchors. It is especially useful for single-character or clear-subject stories, where a canonical identity reference can be injected safely. For multi-character scenes, the identity gate prevents forcing one character's anchor into a scene containing multiple equally important subjects.
+
+\section{Pipeline B: Native StoryDiffusion with Natural Prompt Adapter}
+\label{sec:pipeline_b}
+
+The native StoryDiffusion pipeline was implemented as a controlled comparison against our explicit Anchor Bank + IP-Adapter pipeline. Instead of injecting an external IP-Adapter reference image, native StoryDiffusion uses front-loaded identity prompts to form an internal identity bank.
+
+\subsection{Prompt Structure}
+
+For each story, the adapter builds:
+
+\begin{lstlisting}
+general_prompt:
+[Jack] human man, short brown hair, casual shirt
+[Sara] human woman, long blonde hair, summer dress
+
+prompt_array:
+[Jack] a single human man ..., standing alone, centered, plain background
+[Sara] a single human woman ..., standing alone, centered, plain background
+[Jack] [Sara] Jack and Sara sit together in a park and talk, medium shot
+[Jack] [Sara] Jack and Sara continue talking at a cafe table
+[Jack] [Sara] Jack and Sara look at an exhibition wall together, wide shot
+\end{lstlisting}
+
+The identity prompts are not final story frames. They are used to initialize identity representations. The story frames are saved starting from \texttt{save\_image\_start\_index}. When \texttt{--save-identity-images} is enabled, the skipped identity images are saved for debugging.
+
+\subsection{Native Prompt Modes}
+
+We iterated through several native prompt modes:
+
+\begin{itemize}[leftmargin=*]
+    \item \texttt{current}: direct or near-direct reuse of earlier prompt fields;
+    \item \texttt{clean}: type-aware cleanup for humans, animals, and robots;
+    \item \texttt{clean\_v2}: separates stable identity from lightweight scene prompts;
+    \item \texttt{natural}: rewrites scene prompts into shorter storyboard-style descriptions.
+\end{itemize}
+
+The \texttt{natural} mode is the current recommended native StoryDiffusion ablation mode because it avoids repeating full identity descriptions inside every scene prompt.
+
+\subsection{Known Limitation}
+
+A major limitation observed during development is that native StoryDiffusion identity reference images can become character sheets or multi-view turnarounds, even when prompts and negative prompts request a single subject. This can weaken downstream identity consistency because the identity bank is initialized from a polluted reference frame. We therefore preserve identity reference images as a diagnostic artifact and treat this behavior as a limitation of the native baseline rather than a prompt parsing bug.
+
+\section{Pipeline C: DiT Exploratory Backend}
+\label{sec:pipeline_c}
+
+\todo{This section should be finalized after teammate results are available.}
+
+The DiT backend is treated as an exploratory third pipeline. At the current report-drafting stage, its role is to test whether a transformer-based diffusion backend can provide better visual quality or consistency than the SDXL/IP-Adapter and native StoryDiffusion variants. Unless stable reproducible outputs are available, DiT should be presented as an exploratory comparison rather than the final submitted system.
+
+\paragraph{Current placeholder.}
+The repository includes a DiT-related commit/submodule. However, the report should only claim DiT as a comparable pipeline if the final experiments include reproducible commands, output folders, and qualitative examples.
+
+\section{Controlled Comparisons on Test-A}
+\label{sec:experiments}
+
+\subsection{Evaluation Criteria}
+
+We evaluate all pipelines qualitatively using the following criteria:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Identity consistency:} whether the same character remains visually stable across panels.
+    \item \textbf{Scene faithfulness:} whether each panel depicts the intended action and setting.
+    \item \textbf{Subject count correctness:} whether all required characters or subjects appear without merging or duplication.
+    \item \textbf{Visual quality:} whether images are coherent and visually appealing.
+    \item \textbf{Artifact severity:} whether panels contain severe anatomy, duplication, or layout errors.
+    \item \textbf{Automation robustness:} whether the pipeline works without per-case manual editing.
+\end{itemize}
+
+\subsection{Minimal Test-A Comparison Matrix}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{p{0.18\textwidth} p{0.22\textwidth} X X}
+\toprule
+\textbf{Story} & \textbf{Pipelines} & \textbf{Purpose} & \textbf{Artifacts to inspect} \\
+\midrule
+Test-A 19: Student & A vs B & Single human identity; tests case-insensitive character spec lookup and identity stability & final panels; \texttt{identity\_refs/}; \texttt{storydiffusion\_prompt\_debug.json}; anchor outputs \\
+\midrule
+Test-A 03: Cat/Dog & A vs B & Animal identity and dual-subject handling; tests subject-type prompt robustness & final panels; animal prompt debug; subject count correctness \\
+\midrule
+Test-A 13: Robot & A vs B & Non-human robot identity; tests robot/object-specific identity fields & final panels; robot prompt debug \\
+\midrule
+Test set 06: Jack/Sara & A vs B & Two-human interaction; tests identity separation and scene faithfulness across park/cafe/exhibition & final panels; native identity refs; scene prompt mapping \\
+\midrule
+\todo{DiT selected stories} & C vs A/B & Exploratory backend comparison & DiT output folders and commands \\
+\bottomrule
+\end{tabularx}
+\caption{Minimal controlled comparison matrix. Replace story labels with exact Test-A ids if required by the final evaluation protocol.}
+\label{tab:controlled_comparisons}
+\end{table}
+
+\subsection{Planned Result Table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{p{0.14\textwidth} p{0.22\textwidth} c c c c X}
+\toprule
+\textbf{Story} & \textbf{Method} & \textbf{ID} & \textbf{Scene} & \textbf{Count} & \textbf{Quality} & \textbf{Notes} \\
+\midrule
+19 & \pipelineA & \todo{} & \todo{} & \todo{} & \todo{} & \todo{Fill after final run} \\
+19 & \pipelineB & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+03 & \pipelineA & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+03 & \pipelineB & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+13 & \pipelineA & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+13 & \pipelineB & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+06 & \pipelineA & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+06 & \pipelineB & \todo{} & \todo{} & \todo{} & \todo{} & \todo{} \\
+\bottomrule
+\end{tabularx}
+\caption{Qualitative score table. Suggested scale: 1--5, where higher is better.}
+\label{tab:results}
+\end{table}
+
+\section{Final Pipeline Selection}
+\label{sec:final_selection}
+
+\todo{Fill after final controlled comparisons.}
+
+We select the final submitted pipeline based on robustness rather than isolated best-looking outputs. The selected pipeline should provide the best trade-off among identity consistency, scene faithfulness, subject count correctness, visual quality, and automation robustness.
+
+\paragraph{If \pipelineA{} is selected.}
+We will state that explicit Anchor Bank + IP-Adapter conditioning provides more diagnosable and controllable identity preservation than the native text-only identity bank.
+
+\paragraph{If \pipelineB{} is selected.}
+We will state that native StoryDiffusion provides stronger story-level panel coherence, while Anchor Bank + IP-Adapter remains an important controlled comparison for explicit identity conditioning.
+
+\paragraph{If \pipelineC{} is selected or partially used.}
+We will describe DiT as an exploratory backend only if its outputs are stable and reproducible across representative Test-A stories.
+
+\section{Qualitative Examples}
+\label{sec:qualitative_examples}
+
+The final report should include 8--12 qualitative examples. Suggested examples are listed below. Replace the placeholders with image paths after final runs.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{p{0.10\textwidth} p{0.22\textwidth} p{0.16\textwidth} X}
+\toprule
+\textbf{Ex.} & \textbf{Story / method} & \textbf{Type} & \textbf{Report point} \\
+\midrule
+1 & Student 19, final pipeline & Success & Single human identity and pronoun handling \\
+2 & Cat/Dog 03, final pipeline & Success / comparison & Animal subject-type robustness \\
+3 & Robot 13, final pipeline & Success / comparison & Non-human identity handling \\
+4 & Jack/Sara 06, final pipeline & Success / comparison & Two-human interaction and scene faithfulness \\
+5 & Student 19, native StoryDiffusion & Comparison & Native identity bank behavior; inspect \texttt{identity\_refs/} \\
+6 & Cat/Dog 03, native StoryDiffusion & Comparison & Native dual animal prompt behavior \\
+7 & Native identity ref failure & Failure & Character-sheet / multi-view identity reference limitation \\
+8 & With vs without IP-Adapter & Ablation & Effect of IP-Adapter identity conditioning \\
+9 & Anchor candidate selection & Appendix / ablation & Why canonical anchor selection is needed \\
+10 & DiT good case & Exploratory & DiT potential advantage, if available \\
+11 & DiT bad case & Failure & DiT instability, if available \\
+12 & Prompt robustness before/after & Appendix & Cat/Dog or Student prompt cleanup improvement \\
+\bottomrule
+\end{tabularx}
+\caption{Candidate qualitative examples.}
+\label{tab:qual_examples}
+\end{table}
+
+\subsection{Figure Template}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.30\textwidth}
+    \centering
+    \fbox{\includegraphics[width=0.95\linewidth]{figures/placeholder.png}}
+    \caption{Scene 1}
+\end{subfigure}
+\begin{subfigure}{0.30\textwidth}
+    \centering
+    \fbox{\includegraphics[width=0.95\linewidth]{figures/placeholder.png}}
+    \caption{Scene 2}
+\end{subfigure}
+\begin{subfigure}{0.30\textwidth}
+    \centering
+    \fbox{\includegraphics[width=0.95\linewidth]{figures/placeholder.png}}
+    \caption{Scene 3}
+\end{subfigure}
+\caption{\todo{Replace with a representative final pipeline output. Include story id, method, and one-sentence observation.}}
+\end{figure}
+
+\section{Failure Analysis}
+\label{sec:failure_analysis}
+
+\subsection{Native StoryDiffusion Identity References Become Character Sheets}
+
+One important native StoryDiffusion failure mode is that identity reference prompts may generate multi-view character sheets rather than a single clean subject. This can happen even when the prompt contains phrases such as ``one person in the image'' and the negative prompt includes ``character sheet'' and ``turnaround''. Since native StoryDiffusion uses these early reference frames to initialize identity, a polluted identity reference can weaken downstream identity consistency. This issue is diagnosed by saving \texttt{identity\_refs/} and comparing identity images with later story frames.
+
+\subsection{Case-Insensitive CharacterSpec Lookup}
+
+A previous native prompt bug occurred when the story tag used \texttt{[Student]} while the LLM-generated \texttt{character\_specs} dictionary used the key \texttt{student}. Exact-key lookup caused the renderer to fall back to \texttt{human person}. The current renderer resolves character specs case-insensitively while preserving the original display tag, so \texttt{[Student]} can correctly receive attributes such as male, short brown hair, glasses, and casual shirt.
+
+\subsection{Animal and Robot Subject-Type Contamination}
+
+Earlier prompt versions could use human identity wording for animals or robots. For example, an animal identity prompt might accidentally contain outfit or hairstyle terms. The subject-type-aware prompt normalization now prevents animal and robot subjects from falling back to generic human identity wording.
+
+\subsection{Two-Character Identity Drift}
+
+Two-character scenes remain difficult. Even when both characters are visible and the prompt is correct, clothing and facial identity can drift across panels. This can happen in both native StoryDiffusion and text-to-image pipelines, but the causes differ: native StoryDiffusion depends on its identity bank, while the Anchor Bank + IP-Adapter pipeline may skip ambiguous dual-subject scenes to avoid injecting the wrong single-character anchor.
+
+\subsection{Scene Following Failures}
+
+Another failure mode is scene confusion, such as a cafe scene being rendered as an exhibition-like setting. Natural native scene prompts reduced some of these errors by using concise storyboard-style descriptions, but scene following can still depend on model choice, seed, resolution, and number of inference steps.
+
+\subsection{DiT Instability}
+
+\todo{Fill after DiT experiments. If DiT is unstable, describe one good case and one bad case rather than claiming it as a reliable final backend.}
+
+\section{Dataset Description}
+\label{sec:dataset}
+
+We used the provided story test files and project-local debugging examples. The input format consists of scene blocks marked by \texttt{[SCENE-n]} and separated by \texttt{[SEP]}. Tagged entities are written using angle brackets, e.g., \texttt{<Cat>} or \texttt{<Jack>}.
+
+\paragraph{Development and debugging data.}
+During development, we used \texttt{test\_set} and additional local examples to debug prompt generation, routing, anchor creation, IP-Adapter conditioning, and native StoryDiffusion integration. These examples were used to identify failure modes and improve general pipeline logic.
+
+\paragraph{Test-A controlled comparison data.}
+For the final controlled comparisons, we use Test-A stories selected to cover representative subject and scene types: single human identity, animal pair, robot/non-human subject, and two-human interaction. \todo{List the final Test-A file names used.}
+
+\paragraph{Selection and processing.}
+Stories were not manually edited per case for final generation. The same automated parser, prompt planner, and generation scripts were applied across stories. Some deterministic validation rules, such as subject-type-aware rendering, are general rules applied uniformly to all inputs.
+
+\section{Compliance Statement}
+\label{sec:compliance}
+
+All submitted image outputs are generated automatically by scripted pipelines. We do not manually edit generated images or manually revise prompts for individual test cases after seeing outputs. We do not hard-code per-story outputs. General deterministic rules, such as subject-type-aware prompt rendering for humans, animals, and robots, are applied uniformly and are not customized for individual stories.
+
+The system is not an agent-based image generation system. It does not inspect generated images and then autonomously call tools, rewrite prompts, or iteratively modify outputs. Candidate generation, scoring, routing, and logging are implemented as fixed pipeline steps.
+
+We used the OpenAI API only for text-side prompt planning and structured story understanding. No external image-generation API was used. Image generation was performed through local execution of model components and repositories, including local diffusers/SDXL-style generation, IP-Adapter conditioning, the official external StoryDiffusion repository accessed through \texttt{--storydiffusion-root}, and DiT if included in final experiments.
+
+External resources disclosed:
+
+\begin{itemize}[leftmargin=*]
+    \item OpenAI API for LLM-assisted prompt planning only;
+    \item local/open-source diffusion model checkpoints and diffusers components;
+    \item IP-Adapter weights and code components;
+    \item official external StoryDiffusion repository, executed locally and not used as an image-generation API;
+    \item DiT repository/checkpoint if included in final comparison;
+    \item standard Python packages, CUDA/PyTorch environment, and fonts used by the generation backends.
+\end{itemize}
+
+\section{Conclusion}
+
+This project implements and compares multiple fully automated approaches to multi-panel story image generation. The central technical contribution is a structured prompt and identity-control framework that separates story understanding from visual identity control. Through controlled comparisons on Test-A, we evaluate whether explicit Anchor Bank + IP-Adapter conditioning, native StoryDiffusion identity banks, or an exploratory DiT backend provides the best trade-off among identity consistency, scene faithfulness, visual quality, and automation robustness. \todo{Add final selected pipeline and one-sentence result after final experiments.}
+
+\appendix
+
+\section{Anchor Selection Examples}
+
+\todo{Insert 1--2 examples showing anchor candidates and the selected canonical anchor. Explain why canonical anchor selection matters.}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.22\textwidth}
+    \centering
+    \fbox{\includegraphics[width=0.95\linewidth]{figures/placeholder.png}}
+    \caption{Candidate 1}
+\end{subfigure}
+\begin{subfigure}{0.22\textwidth}
+    \centering
+    \fbox{\includegraphics[width=0.95\linewidth]{figures/placeholder.png}}
+    \caption{Candidate 2}
+\end{subfigure}
+\begin{subfigure}{0.22\textwidth}
+    \centering
+    \fbox{\includegraphics[width=0.95\linewidth]{figures/placeholder.png}}
+    \caption{Candidate 3}
+\end{subfigure}
+\begin{subfigure}{0.22\textwidth}
+    \centering
+    \fbox{\includegraphics[width=0.95\linewidth]{figures/placeholder.png}}
+    \caption{Canonical}
+\end{subfigure}
+\caption{\todo{Anchor Bank candidate selection example.}}
+\end{figure}
+
+\section{With vs Without IP-Adapter}
+
+\todo{Add 1--2 examples comparing the same story generated with and without IP-Adapter. Use this to justify explicit identity conditioning.}
+
+% \section{Appendix C: Native Prompt Mode Evolution}
+
+% \begin{table}[H]
+% \centering
+% \small
+% \begin{tabularx}{\textwidth}{p{0.18\textwidth} X X}
+% \toprule
+% \textbf{Mode} & \textbf{Behavior} & \textbf{Reason for change} \\
+% \midrule
+% \texttt{current} & Direct reuse of earlier prompt fields & Could contain SDXL/IP-Adapter-oriented text not suited for native StoryDiffusion \\
+% \texttt{clean} & Type-aware cleanup & Prevents animals/robots from falling back to human wording \\
+% \texttt{clean\_v2} & Separates identity prompts from scene prompts & Avoids repeating full identity descriptions in every scene \\
+% \texttt{natural} & Short storyboard-style scene prompts & Reduces mechanical prompt lists and improves scene readability \\
+% \bottomrule
+% \end{tabularx}
+% \caption{Native StoryDiffusion prompt mode evolution.}
+% \end{table}
+
+\section{Native Identity Reference Debug}
+
+\todo{Insert native StoryDiffusion identity reference examples. Include at least one case where identity refs become character sheets / multi-view images, and explain how this affects downstream identity consistency.}
+
+\section{DiT Extra Cases}
+
+\todo{Insert DiT good/bad cases if available. Otherwise state that DiT remained exploratory and was not selected as the final backend due to instability or incomplete reproducibility.}
+
+\end{document}

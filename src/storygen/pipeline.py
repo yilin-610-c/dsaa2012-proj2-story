@@ -51,7 +51,15 @@ def _resolve_run_name(config: dict[str, Any], explicit_run_name: str | None = No
     return f"{prefix}_{timestamp}"
 
 
-def _seed_for_candidate(base_seed: int, scene_index: int, candidate_index: int) -> int:
+def _seed_for_candidate(
+    base_seed: int,
+    scene_index: int,
+    candidate_index: int,
+    *,
+    shared_scene_seed: bool = False,
+) -> int:
+    if shared_scene_seed:
+        return int(base_seed + candidate_index)
     return int(base_seed + scene_index * 1000 + candidate_index)
 
 
@@ -430,6 +438,7 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
 
     base_seed = int(config["generation"]["base_seed"])
     candidate_count = int(config["generation"]["candidate_count"])
+    shared_scene_seed = bool(config.get("generation", {}).get("shared_scene_seed", False))
     previous_results = []
     scene_results = []
 
@@ -454,7 +463,12 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         )
 
         for candidate_index in range(candidate_count):
-            seed = _seed_for_candidate(base_seed, scene.index, candidate_index)
+            seed = _seed_for_candidate(
+                base_seed,
+                scene.index,
+                candidate_index,
+                shared_scene_seed=shared_scene_seed,
+            )
             route_decision = choose_scene_route(
                 story=story,
                 scene=scene,

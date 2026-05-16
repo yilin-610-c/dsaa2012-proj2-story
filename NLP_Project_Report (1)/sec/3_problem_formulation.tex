@@ -1,0 +1,32 @@
+\section{Problem Formulation}
+\label{sec:problem}
+
+\paragraph{Input.}
+A story is an ordered list of scenes.
+Each scene block is marked by an identifier (e.g., \texttt{SCENE-1}) and separated by a delimiter.
+Recurring entities appear as tagged names in angle brackets, e.g., \texttt{<Girl>} or \texttt{<Jack>}.
+Pronouns in scene text refer to entities introduced in earlier scenes.
+
+\paragraph{Output.}
+For $N$ scenes, the system outputs $N$ images $\{I_1,\ldots,I_N\}$, one per scene, without manual per-case editing of prompts or pixels.
+
+\paragraph{Evaluation dimensions.}
+We assess outputs qualitatively along six criteria used throughout controlled comparisons:
+\begin{enumerate}
+  \item \textbf{Identity consistency:} recurring characters remain visually recognizable.
+  \item \textbf{Scene faithfulness:} each panel depicts the intended action and setting.
+  \item \textbf{Subject count correctness:} required characters appear without merging, duplication, or omission.
+  \item \textbf{Visual quality:} coherence, aesthetics, and absence of severe artifacts.
+  \item \textbf{Artifact severity:} anatomy errors, layout breakdowns, or identity pollution.
+  \item \textbf{Automation robustness:} the same pipeline runs end-to-end without story-specific overrides.
+\end{enumerate}
+
+\paragraph{Routing variable.}
+Let $E$ be the set of distinct tagged entity names across all scenes.
+The hybrid policy selects:
+\begin{itemize}
+  \item \textbf{Single-character path} when $|E|=1$: anchor bank + IP-Adapter on SDXL-Turbo with identity strength $\lambda$ (we use $\lambda=0.3$ in the primary reported run).
+  \item \textbf{Multi-character path} when $|E|\geq 2$: native StoryDiffusion with identity reference prompts followed by natural scene prompts.
+\end{itemize}
+
+This routing is deterministic from the input text and does not require an LLM to count entities at runtime.

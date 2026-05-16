@@ -80,8 +80,18 @@ class DitTextToImageGenerator(BaseImageGenerator):
         started_at = time.time()
         generator = torch.Generator(device=self.device).manual_seed(request.seed)
 
-        # Inject LoRA trigger word into prompt if configured
-        prompt = request.prompt_spec.generation_prompt
+        # prompt_mode: "simple" (default) = scoring_prompt, "full" = generation_prompt
+        prompt_mode = str(self.model_config.get("prompt_mode", "simple")).strip()
+        if prompt_mode == "full":
+            base = request.prompt_spec.generation_prompt or ""
+        else:
+            scoring = (request.prompt_spec.scoring_prompt or "").strip()
+            style = (request.prompt_spec.style_prompt or "").strip()
+            base = scoring
+            if style:
+                base = f"{base}, {style}" if base else style
+        prompt = base
+
         lora_trigger = str(self.model_config.get("lora_trigger") or "").strip()
         if lora_trigger:
             prompt = f"{lora_trigger} {prompt}"
@@ -120,6 +130,7 @@ class DitTextToImageGenerator(BaseImageGenerator):
             "lora_checkpoint_dir": str(lora_dir) if lora_dir else None,
             "lora_peft_merged_into_transformer": bool(lora_dir),
             "lora_trigger_prefix": lora_trigger if lora_trigger else None,
+            "prompt_mode": prompt_mode,
             "pixart_prompt": prompt,
         }
 

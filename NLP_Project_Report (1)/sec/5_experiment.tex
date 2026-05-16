@@ -1,0 +1,53 @@
+\section{Experiments}
+\label{sec:exp}
+
+\subsection{Dataset and stories}
+We evaluate on the course story test set and local debugging stories.
+Each file uses scene markers and \texttt{[SEP]} delimiters; entities are tagged in angle brackets.
+No story received manual prompt or image edits after generation.
+
+\paragraph{Primary showcase (Story-14).}
+A single-character rain narrative (\texttt{<Girl>}: runs in the rain; stands under a roof; watches the rain slow).
+This story exercises pronoun resolution (``She''), scene-consistency (roof, rain), and IP-Adapter at $\lambda=0.3$.
+It is the main single-entity result for the submitted hybrid pipeline.
+
+\paragraph{Controlled comparison matrix.}
+Table~\ref{tab:controlled_comparisons} lists representative Test-A stories covering single human, animal pair, robot, and two-human interaction.
+
+\begin{table}[!t]
+  \centering
+  \small
+  \caption{Controlled qualitative comparison matrix.}
+  \label{tab:controlled_comparisons}
+  \begin{tabular}{p{0.14\columnwidth}p{0.18\columnwidth}p{0.28\columnwidth}}
+    \toprule
+    \textbf{Story} & \textbf{Routes} & \textbf{Stress test} \\
+    \midrule
+    19 Student & Single & One human; case-insensitive spec lookup \\
+    03 Cat/Dog & Single vs native & Animal subject types; dual animals \\
+    13 Robot & Single vs native & Non-human robot identity \\
+    06 Jack/Sara & Multi (native) & Two humans; interaction scenes \\
+    14 Girl/rain & Single (primary) & Pronouns; scene consistency; $\lambda$ ablation \\
+  \end{tabular}
+\end{table}
+
+\subsection{Evaluation protocol}
+All scores are \textbf{qualitative} on a 1--5 scale (higher is better) across identity, scene faithfulness, subject count, visual quality, artifacts, and automation robustness (Section~\ref{sec:problem}).
+Two authors independently rated a subset of runs; disagreements were resolved by discussion.
+We report representative panels rather than aggregate means because the course evaluation is relative and human-judged.
+
+\subsection{Ablation studies}
+\label{sec:ablations}
+
+\paragraph{Scene-consistency phrases.}
+On Story-14 and setting-sensitive stories, we compare generation with and without the scene-consistency suffix assembled from setting-focus and continuity metadata.
+
+\paragraph{Identity conditioning strength.}
+On Story-14, we vary $\lambda \in \{0.1, 0.3, 0.7\}$ for IP-Adapter while holding prompts and seeds fixed where possible.
+
+\paragraph{DiT exploratory runs.}
+We run PixArt-$\alpha$ with (a) scene-level inference only, (b) story-joint cross-scene blending, and (c) DreamBooth LoRA trained on 4--8 reference images per character, using the same story texts as the SDXL baseline for side-by-side comparison.
+
+\subsection{Implementation environment}
+Experiments used local GPU inference (NVIDIA RTX-class, 24\,GB VRAM), PyTorch with float16, and publicly available checkpoints (SDXL-Turbo, IP-Adapter weights, PixArt-$\alpha$, CLIP ViT-B/32).
+The LLM planner uses a text API for structured JSON only; all image synthesis is local.
