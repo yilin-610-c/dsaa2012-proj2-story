@@ -45,6 +45,12 @@ def _parse_set_override(value: str) -> tuple[str, Any]:
     return key, parsed
 
 
+def _storydiffusion_root_arg(value: str) -> Path:
+    if not str(value or "").strip():
+        raise argparse.ArgumentTypeError("--storydiffusion-root cannot be empty")
+    return Path(value)
+
+
 def classify_story(story_path: Path) -> tuple[str, int]:
     raw = story_path.read_text(encoding="utf-8")
     blocks = [block.strip() for block in raw.split("[SEP]") if block.strip()]
@@ -234,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--storydiffusion-root",
-        type=Path,
+        type=_storydiffusion_root_arg,
         default=None,
         help="Path to the external official StoryDiffusion repo for native probe routes.",
     )
