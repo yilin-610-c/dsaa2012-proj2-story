@@ -18,7 +18,16 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "storydiffusion_gradio_probe"
 DEFAULT_NEGATIVE_PROMPT = (
     "bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs, "
     "bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, "
-    "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs"
+    "cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs, "
+    "character sheet, turnaround, multiple views, duplicate person, repeated person, triptych"
+)
+ANTI_CHARACTER_SHEET_NEGATIVE_TERMS = (
+    "character sheet",
+    "turnaround",
+    "multiple views",
+    "duplicate person",
+    "repeated person",
+    "triptych",
 )
 
 
@@ -47,6 +56,7 @@ class ProbeConfig:
     font_choice: str
     character_files: str
     save_image_start_index: int
+    save_identity_images: bool
 
 
 def _read_mapping(path: Path) -> dict[str, Any]:
@@ -68,6 +78,16 @@ def _as_lines(value: Any) -> str:
     if isinstance(value, list):
         return "\n".join(str(item) for item in value)
     return str(value or "")
+
+
+def _append_native_negative_terms(value: str) -> str:
+    clauses = [clause.strip() for clause in value.split(",") if clause.strip()]
+    seen = {clause.lower() for clause in clauses}
+    for term in ANTI_CHARACTER_SHEET_NEGATIVE_TERMS:
+        if term.lower() not in seen:
+            clauses.append(term)
+            seen.add(term.lower())
+    return ", ".join(clauses)
 
 
 def _path_list(value: Any, *, base_dir: Path, repo_root: Path) -> list[Path]:
@@ -112,7 +132,7 @@ def load_probe_config(path: Path, overrides: argparse.Namespace) -> ProbeConfig:
 
     prompt_array = _as_lines(overrides.prompt or prompts.get("prompt_array"))
     general_prompt = _as_lines(overrides.general_prompt or prompts.get("general_prompt"))
-    negative_prompt = _as_lines(prompts.get("negative_prompt") or DEFAULT_NEGATIVE_PROMPT)
+    negative_prompt = _append_native_negative_terms(_as_lines(prompts.get("negative_prompt") or DEFAULT_NEGATIVE_PROMPT))
 
     return ProbeConfig(
         storydiffusion_root=storydiffusion_root,
@@ -129,7 +149,7 @@ def load_probe_config(path: Path, overrides: argparse.Namespace) -> ProbeConfig:
         guidance_scale=float(generation.get("guidance_scale", 5.0)),
         sa32=float(generation.get("sa32", 0.5)),
         sa64=float(generation.get("sa64", 0.5)),
-        id_length=int(generation.get("id_length", 3)),
+        id_length=int(generation.get("storydiffusion_internal_id_length", generation.get("id_length", 3))),
         height=int(generation.get("height", 768)),
         width=int(generation.get("width", 768)),
         style_strength_ratio=float(generation.get("style_strength_ratio", 20)),
@@ -138,6 +158,7 @@ def load_probe_config(path: Path, overrides: argparse.Namespace) -> ProbeConfig:
         font_choice=str(generation.get("font_choice", "Inkfree.ttf")),
         character_files=str(payload.get("character_files") or ""),
         save_image_start_index=int(payload.get("save_image_start_index", 0)),
+        save_identity_images=bool(overrides.save_identity_images or payload.get("save_identity_images", False)),
     )
 
 
@@ -161,8 +182,39 @@ def validate_config(config: ProbeConfig) -> None:
             raise ValueError('Reference-image mode needs the PhotoMaker trigger word " img" in general_prompt')
 
 
+def _patch_gradio_launch_methods() -> list[tuple[Any, str, Any]]:
+    patched: list[tuple[Any, str, Any]] = []
+
+    def skipped_launch(*args: Any, **kwargs: Any) -> None:
+        print("[storydiffusion_probe] skipped Gradio launch during import")
+        return None
+
+    try:
+        import gradio
+    except Exception:
+        return patched
+
+    blocks = getattr(getattr(gradio, "blocks", None), "Blocks", None)
+    if blocks is not None and hasattr(blocks, "launch"):
+        patched.append((blocks, "launch", blocks.launch))
+        blocks.launch = skipped_launch
+
+    interface = getattr(gradio, "Interface", None)
+    if interface is not None and hasattr(interface, "launch"):
+        patched.append((interface, "launch", interface.launch))
+        interface.launch = skipped_launch
+
+    return patched
+
+
+def _restore_gradio_launch_methods(patched: list[tuple[Any, str, Any]]) -> None:
+    for owner, attr_name, original in reversed(patched):
+        setattr(owner, attr_name, original)
+
+
 def import_gradio_app(storydiffusion_root: Path):
     os.environ["STORYDIFFUSION_DISABLE_GRADIO_LAUNCH"] = "1"
+    patched_launch_methods = _patch_gradio_launch_methods()
     sys.path.insert(0, str(storydiffusion_root))
     old_cwd = Path.cwd()
     os.chdir(storydiffusion_root)
@@ -170,6 +222,7 @@ def import_gradio_app(storydiffusion_root: Path):
         import gradio_app_sdxl_specific_id_low_vram as gradio_app
     finally:
         os.chdir(old_cwd)
+        _restore_gradio_launch_methods(patched_launch_methods)
     return gradio_app
 
 
@@ -216,6 +269,22 @@ def run_generation(config: ProbeConfig) -> list[Path]:
     if final_images is None:
         raise RuntimeError("StoryDiffusion returned no images")
 
+    prompt_lines = config.prompt_array.splitlines()
+    identity_paths: list[Path] = []
+    identity_image_prompt_map: dict[str, dict[str, Any]] = {}
+    if config.save_identity_images and config.save_image_start_index > 0:
+        identity_dir = config.output_dir / "identity_refs"
+        identity_dir.mkdir(parents=True, exist_ok=True)
+        for index, image in enumerate(final_images[: config.save_image_start_index]):
+            output_path = identity_dir / f"identity_{index:03d}.png"
+            image.save(output_path)
+            identity_paths.append(output_path)
+            identity_image_prompt_map[output_path.name] = {
+                "path": str(output_path),
+                "prompt_array_index": index,
+                "prompt": prompt_lines[index] if index < len(prompt_lines) else "",
+            }
+
     images_to_save = final_images[config.save_image_start_index :]
     saved_paths = []
     for index, image in enumerate(images_to_save):
@@ -246,8 +315,11 @@ def run_generation(config: ProbeConfig) -> list[Path]:
             "comic_type": config.comic_type,
         },
         "images": [str(path) for path in saved_paths],
+        "identity_images": [str(path) for path in identity_paths],
+        "identity_image_prompt_map": identity_image_prompt_map,
         "raw_image_count": len(final_images),
         "save_image_start_index": config.save_image_start_index,
+        "save_identity_images": config.save_identity_images,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     shutil.copyfile(manifest_path, config.output_dir / "last_manifest.json")
@@ -271,6 +343,7 @@ def parse_args() -> argparse.Namespace:
         "--prompt",
         help="Override prompts.prompt_array. Use shell $'line1\\nline2' quoting for multiple lines.",
     )
+    parser.add_argument("--save-identity-images", action="store_true", help="Save skipped identity reference images.")
     return parser.parse_args()
 
 

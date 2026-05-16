@@ -6,6 +6,7 @@ from typing import Any
 from storygen.character_specs import build_rule_based_character_specs
 from storygen.llm_assisted_prompt_builder import LLMAssistedPromptBuilder
 from storygen.llm_client import BaseLLMClient
+from storygen.native_prompting import LLMDirectPromptBuilder, build_anchor_prompt_bundle
 from storygen.prompt_stack.factory import build_rule_prompt_builder
 from storygen.types import PromptBundle, Story
 
@@ -71,6 +72,34 @@ class LLMAssistedPromptPipeline(BasePromptPipeline):
         return self.builder.metadata()
 
 
+class LLMDirectPromptPipeline(BasePromptPipeline):
+    def __init__(
+        self,
+        prompt_config: dict[str, Any],
+        *,
+        llm_client: BaseLLMClient | None = None,
+        event_logger=None,
+    ) -> None:
+        self.prompt_config = prompt_config
+        self.builder = LLMDirectPromptBuilder(
+            prompt_config,
+            llm_client=llm_client,
+            event_logger=event_logger,
+        )
+        self.last_bundle: PromptBundle | None = None
+
+    def build(self, story: Story) -> PromptBundle:
+        payload = self.builder.build(story)
+        if "anchor" not in payload.target_backends:
+            raise ValueError("prompt.pipeline=llm_direct requires prompt.llm_direct.targets to include 'anchor'")
+        self.last_bundle = build_anchor_prompt_bundle(payload, story, self.prompt_config)
+        self.last_bundle.metadata.update(self.metadata())
+        return self.last_bundle
+
+    def metadata(self) -> dict[str, Any]:
+        return self.builder.metadata()
+
+
 ApiPromptPipeline = LLMAssistedPromptPipeline
 
 
@@ -80,4 +109,6 @@ def build_prompt_pipeline(prompt_config: dict[str, Any], *, event_logger=None) -
         return RuleBasedPromptPipeline(prompt_config)
     if pipeline_type in {"llm_assisted", "api"}:
         return LLMAssistedPromptPipeline(prompt_config, event_logger=event_logger)
+    if pipeline_type == "llm_direct":
+        return LLMDirectPromptPipeline(prompt_config, event_logger=event_logger)
     raise ValueError(f"Unsupported prompt pipeline: {pipeline_type}")

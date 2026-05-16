@@ -831,13 +831,33 @@ def test_llm_builder_cache_miss_calls_client_and_writes_cache(tmp_path: Path) ->
     assert client.calls == 1
     assert (tmp_path / "cache" / f"{cache_key}.json").exists()
     assert prompts["SCENE-1"].generation_prompt == "Hero, human person, runs along the path, path"
-    assert prompts["SCENE-1"].character_prompt == "Hero, human person"
+    assert prompts["SCENE-1"].character_prompt == "Hero, human person, short dark brown hair, red jacket"
     assert prompts["SCENE-1"].scoring_prompt == "Hero runs"
     assert prompts["SCENE-1"].action_prompt == "running"
     assert prompts["SCENE-1"].global_context_prompt == "city park, clean storyboard frame, keep the same lighting and palette"
     assert "cat, dog, pet animal" in prompts["SCENE-1"].negative_prompt
     assert "non-human subject" not in prompts["SCENE-1"].negative_prompt
     assert prompts["SCENE-1"].full_prompt
+
+
+def test_llm_builder_defaults_to_cache_disabled_when_config_missing(tmp_path: Path) -> None:
+    client = FakeLLMClient()
+    config = _prompt_config(tmp_path)
+    config.pop("cache")
+    events: list[str] = []
+    builder = LLMAssistedPromptBuilder(
+        config,
+        llm_client=client,
+        event_logger=lambda event, **metadata: events.append(event),
+    )
+
+    builder.build_story_prompts(_story())
+    builder.build_story_prompts(_story())
+
+    assert client.calls == 2
+    assert builder.metadata()["cache_enabled"] is False
+    assert events.count("llm_prompt_cache_disabled") == 2
+    assert "llm_prompt_cache_hit" not in events
 
 
 def test_llm_pipeline_metadata_includes_route_hints(tmp_path: Path) -> None:
@@ -893,6 +913,22 @@ def test_llm_pipeline_metadata_includes_multiple_character_specs(tmp_path: Path)
     assert len(character_specs) == len(set(character_specs))
     assert character_specs["Jack"]["signature_outfit"] == "black jacket"
     assert character_specs["Sara"]["signature_accessory"] == "yellow scarf"
+
+
+def test_llm_under_specified_human_character_gets_visual_defaults(tmp_path: Path) -> None:
+    builder = LLMAssistedPromptBuilder(
+        _prompt_config(tmp_path, cache_enabled=False),
+        llm_client=FakeLLMClient(_ryan_bus_payload()),
+    )
+
+    prompts = builder.build_story_prompts(_ryan_bus_story())
+    character_specs = builder.metadata()["character_specs"]
+
+    assert character_specs["Ryan"]["hair_color"] == "dark brown"
+    assert character_specs["Ryan"]["hairstyle"] == "short hair"
+    assert character_specs["Ryan"]["signature_outfit"] == "blue jacket"
+    assert prompts["SCENE-1"].character_prompt == "Ryan, human man, short dark brown hair, blue jacket"
+    assert "walking quickly toward a bus" in prompts["SCENE-1"].generation_prompt
 
 
 def test_llm_pipeline_accepts_unspecified_identity_conditioning_subject(tmp_path: Path) -> None:
@@ -1117,7 +1153,8 @@ def test_llm_named_subject_with_human_pronouns_does_not_infer_animal_from_action
     prompts = builder.build_story_prompts(_milo_story())
     character_specs = builder.metadata()["character_specs"]
 
-    assert prompts["SCENE-1"].character_prompt == "Milo, human man"
+    assert prompts["SCENE-1"].character_prompt.startswith("Milo, human man")
+    assert "dog" not in prompts["SCENE-1"].character_prompt.lower()
     assert "dog" not in prompts["SCENE-1"].generation_prompt.lower()
     assert "dog" not in prompts["SCENE-2"].generation_prompt.lower()
     assert "dog" not in prompts["SCENE-3"].generation_prompt.lower()
@@ -1146,7 +1183,7 @@ def test_llm_lightweight_identity_uses_llm_age_before_pronoun_fallback(tmp_path:
 
     prompts = builder.build_story_prompts(_milo_story())
 
-    assert prompts["SCENE-1"].character_prompt == "Milo, human boy"
+    assert prompts["SCENE-1"].character_prompt == "Milo, human boy, short dark brown hair, red hoodie"
     assert prompts["SCENE-1"].generation_prompt.startswith("Milo, human boy")
     assert "human man" not in prompts["SCENE-1"].generation_prompt
 
@@ -1240,7 +1277,7 @@ def test_llm_anonymous_friend_prompt_avoids_unknown_identity_text(tmp_path: Path
     route_hint = builder.metadata()["scene_route_hints"]["SCENE-2"]
     generation_prompt = prompts["SCENE-2"].generation_prompt.lower()
 
-    assert prompts["SCENE-2"].character_prompt == "Tom, human man"
+    assert prompts["SCENE-2"].character_prompt == "Tom, human man, short dark brown hair, blue jacket"
     assert "friend is an adult unknown" not in generation_prompt
     assert "unknown" not in generation_prompt
     assert "unknown" not in prompts["SCENE-2"].full_prompt.lower()
@@ -1343,7 +1380,8 @@ def test_llm_builder_loads_artifact_without_calling_client(tmp_path: Path) -> No
     prompts = LLMAssistedPromptBuilder(config, llm_client=client).build_story_prompts(_story())
 
     assert client.calls == 0
-    assert prompts["SCENE-1"].generation_prompt == "human person, Hero, same red jacket, Hero runs"
+    assert prompts["SCENE-1"].generation_prompt.startswith("human person, Hero")
+    assert "Hero runs" in prompts["SCENE-1"].generation_prompt
 
 
 def test_llm_builder_exports_artifact_after_api_success(tmp_path: Path) -> None:
@@ -1360,6 +1398,141 @@ def test_llm_builder_exports_artifact_after_api_success(tmp_path: Path) -> None:
     assert payload["validated_output"]["global"]["characters"][0]["character_id"] == "Hero"
     assert "OPENAI_API_KEY" not in exported[0].read_text(encoding="utf-8")
     assert "api_key" not in json.dumps(payload).lower()
+
+
+def test_llm_builder_infers_animal_subjects_and_clears_human_fields(tmp_path: Path) -> None:
+    story = Story(
+        source_path="03.txt",
+        raw_text="<Cat> hides.\n<Cat> meets <Dog>.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Cat> hides.", "Cat hides.", ["Cat"]),
+            Scene("SCENE-2", 1, "<Cat> meets <Dog>.", "Cat meets Dog.", ["Cat", "Dog"]),
+        ],
+        all_entities=["Cat", "Dog"],
+        recurring_entities=["Cat", "Dog"],
+        entity_to_scene_ids={"Cat": ["SCENE-1", "SCENE-2"], "Dog": ["SCENE-2"]},
+    )
+    payload = {
+        "global": {
+            "main_character": "Cat",
+            "identity_cues": [],
+            "shared_setting": ["room"],
+            "style_cues": [],
+            "characters": [
+                {"character_id": "Cat", "hair_color": "black", "hairstyle": "short hair", "signature_outfit": "jacket"},
+                {"character_id": "Dog", "hair_color": "", "hairstyle": "", "signature_outfit": ""},
+            ],
+        },
+        "scenes": [
+            {
+                "scene_id": "SCENE-1",
+                "primary_action": "hides",
+                "secondary_elements": ["corner"],
+                "generation_prompt": "Cat hiding in a corner",
+                "scoring_prompt": "cat hiding",
+                "action_prompt": "hiding",
+                "continuity_subject_ids": ["Cat"],
+                "continuity_route_hint": "text2img",
+                "route_change_level": "large",
+                "route_factors": _route_factors(),
+                "route_reason": "First scene.",
+                "identity_conditioning_subject_id": "Cat",
+                "primary_visible_character_ids": ["Cat"],
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "medium shot",
+                "setting_focus": "corner",
+            },
+            {
+                "scene_id": "SCENE-2",
+                "primary_action": "Cat looks at Dog",
+                "secondary_elements": ["room"],
+                "generation_prompt": "Cat is. Dog is. Cat looks at Dog",
+                "scoring_prompt": "cat and dog together",
+                "action_prompt": "looking",
+                "continuity_subject_ids": ["Cat", "Dog"],
+                "continuity_route_hint": "text2img",
+                "route_change_level": "large",
+                "route_factors": _route_factors(),
+                "route_reason": "Dog joins.",
+                "identity_conditioning_subject_id": None,
+                "primary_visible_character_ids": ["Cat", "Dog"],
+                "interaction_summary": "",
+                "spatial_relation": "",
+                "framing": "",
+                "setting_focus": "room",
+            },
+        ],
+    }
+
+    builder = LLMAssistedPromptBuilder(_prompt_config(tmp_path, cache_enabled=False), llm_client=FakeLLMClient(payload))
+    prompts = builder.build_story_prompts(story)
+
+    cat = builder.last_character_specs["Cat"]
+    dog = builder.last_character_specs["Dog"]
+    assert cat["subject_type"] == "animal"
+    assert cat["species"] == "cat"
+    assert cat["hairstyle"] is None
+    assert cat["signature_outfit"] is None
+    assert dog["subject_type"] == "animal"
+    assert dog["species"] == "dog"
+    assert "human person" not in prompts["SCENE-1"].generation_prompt
+    assert "outfit" not in prompts["SCENE-1"].generation_prompt.lower()
+    assert "Cat is. Dog is." not in prompts["SCENE-2"].generation_prompt
+    assert "both animals" in builder.last_scene_plans["SCENE-2"]["framing"]
+
+
+def test_llm_builder_infers_robot_subject_without_human_identity(tmp_path: Path) -> None:
+    story = Story(
+        source_path="13.txt",
+        raw_text="<Robot> rolls forward.",
+        scenes=[Scene("SCENE-1", 0, "<Robot> rolls forward.", "Robot rolls forward.", ["Robot"])],
+        all_entities=["Robot"],
+        recurring_entities=["Robot"],
+        entity_to_scene_ids={"Robot": ["SCENE-1"]},
+    )
+    payload = _llm_payload()
+    payload["global"]["main_character"] = "Robot"
+    payload["global"]["identity_cues"] = []
+    payload["global"]["characters"] = [{"character_id": "Robot", "hair_color": "brown", "signature_outfit": "coat"}]
+    payload["scenes"] = [
+        {
+            **payload["scenes"][0],
+            "scene_id": "SCENE-1",
+            "generation_prompt": "Robot rolls forward",
+            "scoring_prompt": "robot rolling forward",
+            "action_prompt": "rolling forward",
+            "identity_conditioning_subject_id": "Robot",
+            "primary_visible_character_ids": ["Robot"],
+        }
+    ]
+
+    builder = LLMAssistedPromptBuilder(_prompt_config(tmp_path, cache_enabled=False), llm_client=FakeLLMClient(payload))
+    prompts = builder.build_story_prompts(story)
+
+    robot = builder.last_character_specs["Robot"]
+    assert robot["subject_type"] == "robot"
+    assert robot["material"] == "metal"
+    assert robot["hair_color"] is None
+    assert robot["signature_outfit"] is None
+    prompt_text = prompts["SCENE-1"].generation_prompt.lower()
+    assert "human person" not in prompt_text
+    assert "hair" not in prompt_text
+    assert "outfit" not in prompt_text
+
+
+def test_llm_response_record_is_available_without_api_key(tmp_path: Path) -> None:
+    builder = LLMAssistedPromptBuilder(_prompt_config(tmp_path, cache_enabled=False), llm_client=FakeLLMClient())
+
+    builder.build_story_prompts(_story())
+
+    record = builder.metadata()["_llm_response_record"]
+    assert record["raw_response"]
+    assert record["parsed_response"]["global"]["main_character"] == "Hero"
+    assert record["validated_output"]["global"]["characters"][0]["character_id"] == "Hero"
+    assert record["request_metadata"]["builder_version"] == "llm_assisted_v9"
+    assert "OPENAI_API_KEY" not in json.dumps(record)
+    assert "api_key" not in json.dumps(record).lower()
 
 
 @pytest.mark.parametrize(
@@ -1472,7 +1645,7 @@ def test_llm_builder_preserves_explicit_human_identity_without_duplicate_prefix(
 
     prompts = builder.build_story_prompts(_story())
 
-    assert prompts["SCENE-1"].character_prompt == "Hero, human woman"
+    assert prompts["SCENE-1"].character_prompt == "Hero, human woman, short dark brown hair, red jacket"
     assert prompts["SCENE-1"].generation_prompt.startswith("Hero, human woman")
     assert "long brown hair" not in prompts["SCENE-1"].generation_prompt
     assert "blue pajamas" not in prompts["SCENE-1"].generation_prompt

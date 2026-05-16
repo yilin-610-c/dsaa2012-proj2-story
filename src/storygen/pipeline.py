@@ -267,8 +267,16 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         prompt_pipeline=prompt_pipeline.metadata().get("pipeline"),
     )
     prompt_bundle = prompt_pipeline.build(story)
-    save_json(run_context.logs_directory / "prompt_pipeline.json", prompt_pipeline.metadata())
-    save_json(run_context.logs_directory / "prompt_bundle.json", prompt_bundle.metadata)
+    prompt_pipeline_metadata = dict(prompt_pipeline.metadata())
+    prompt_bundle_metadata = dict(prompt_bundle.metadata)
+    pipeline_llm_response_record = prompt_pipeline_metadata.pop("_llm_response_record", None)
+    bundle_llm_response_record = prompt_bundle_metadata.pop("_llm_response_record", None)
+    llm_response_record = pipeline_llm_response_record or bundle_llm_response_record
+    prompt_bundle.metadata.pop("_llm_response_record", None)
+    if llm_response_record:
+        save_json(run_context.logs_directory / "llm_prompt_response.json", llm_response_record)
+    save_json(run_context.logs_directory / "prompt_pipeline.json", prompt_pipeline_metadata)
+    save_json(run_context.logs_directory / "prompt_bundle.json", prompt_bundle_metadata)
     prompt_specs = prompt_bundle.scene_prompts
     scene_route_hints = prompt_bundle.metadata.get("scene_route_hints", {})
     generator = build_generation_backend(config["model"], config["runtime"])

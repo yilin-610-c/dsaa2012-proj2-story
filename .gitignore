@@ -7,3 +7,5 @@ outputs_local/*
 outputs_remote/*
 !outputs/.gitkeep
 .cache/
+outputs_*/
+output_test/

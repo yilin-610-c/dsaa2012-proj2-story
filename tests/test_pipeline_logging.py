@@ -126,6 +126,22 @@ class FakeGuidedPromptPipeline:
         return self._metadata
 
 
+class FakeLLMAuditPromptPipeline(FakeGuidedPromptPipeline):
+    def build(self, story) -> PromptBundle:
+        bundle = super().build(story)
+        self._metadata["_llm_response_record"] = {
+            "cache_key": "fake-cache-key",
+            "request_metadata": {"builder_version": "llm_assisted_v9", "model": "fake"},
+            "response_metadata": {"provider": "fake"},
+            "raw_response": "{\"global\": {}}",
+            "parsed_response": {"global": {}},
+            "validated_output": {"global": {"characters": []}, "scenes": []},
+            "builder_version": "llm_assisted_v9",
+        }
+        bundle.metadata = self._metadata
+        return bundle
+
+
 class FakeSmallChangePromptPipeline(FakeGuidedPromptPipeline):
     def build(self, story) -> PromptBundle:
         self._metadata = {
@@ -409,6 +425,36 @@ def test_run_pipeline_logs_llm_guided_route_metadata(tmp_path, monkeypatch) -> N
     assert route_events[1]["continuity_subject_ids"] == ["Lily"]
     assert route_events[1]["llm_route_change_level"] == "small"
     assert route_events[1]["generation_mode"] == "text2img"
+
+
+def test_run_pipeline_writes_separate_llm_response_audit_log(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", lambda model, runtime: FakeSceneGenerator())
+    monkeypatch.setattr("storygen.pipeline.build_prompt_pipeline", lambda prompt, event_logger=None: FakeLLMAuditPromptPipeline(prompt))
+    config = resolve_config(
+        "configs/base.yaml",
+        "llm_prompt_img2img_guided",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "llm_audit_log_test",
+            "scoring.type": "heuristic",
+            "generation.candidate_count": 1,
+        },
+    )
+
+    summary = run_pipeline(config)
+    run_dir = Path(summary.run_directory)
+
+    llm_log = json.loads((run_dir / "logs" / "llm_prompt_response.json").read_text(encoding="utf-8"))
+    prompt_bundle_log = json.loads((run_dir / "logs" / "prompt_bundle.json").read_text(encoding="utf-8"))
+    prompt_pipeline_log = json.loads((run_dir / "logs" / "prompt_pipeline.json").read_text(encoding="utf-8"))
+
+    assert llm_log["cache_key"] == "fake-cache-key"
+    assert llm_log["raw_response"]
+    assert llm_log["validated_output"]["global"]["characters"] == []
+    assert llm_log["request_metadata"]["builder_version"] == "llm_assisted_v9"
+    assert "_llm_response_record" not in prompt_bundle_log
+    assert "_llm_response_record" not in prompt_pipeline_log
+    assert "api_key" not in json.dumps(llm_log).lower()
 
 
 def test_character_specs_metadata_does_not_change_downstream_generation_requests(tmp_path, monkeypatch) -> None:
