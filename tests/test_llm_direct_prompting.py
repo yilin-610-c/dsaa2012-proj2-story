@@ -65,6 +65,7 @@ def _story_double() -> Story:
 def _payload(targets=("anchor", "storydiffusion")) -> dict:
     return {
         "target_backends": list(targets),
+        "visual_continuity_anchors": [],
         "characters": [
             {
                 "character_id": "Ben",
@@ -81,7 +82,14 @@ def _payload(targets=("anchor", "storydiffusion")) -> dict:
                 "anchor_generation_prompt": "a young man driving a car along a quiet road, hands near the steering wheel, medium shot",
                 "storydiffusion_prompt": "[Ben] driving a car along a quiet road, hands near the steering wheel, medium shot",
                 "scoring_prompt": "Ben driving a car on a road",
-                "action_prompt": "",
+                "action_prompt": "Ben driving with hands near the steering wheel",
+                "scene_visual_plan": {
+                    "visual_action": "Ben drives a car along a quiet road",
+                    "action_visibility_cue": "hands near the steering wheel",
+                    "camera_framing": "medium shot",
+                },
+                "scene_change_level": "large",
+                "action_critical": True,
             },
             {
                 "scene_id": "SCENE-2",
@@ -89,8 +97,15 @@ def _payload(targets=("anchor", "storydiffusion")) -> dict:
                 "identity_conditioning_subject_id": "Ben",
                 "anchor_generation_prompt": "a young man stopping the car beside a quiet road, medium shot",
                 "storydiffusion_prompt": "[Ben] stopping the car beside a quiet road, medium shot",
-                "scoring_prompt": "Ben stopping a car",
-                "action_prompt": "",
+                "scoring_prompt": "Ben stopping a car beside the road",
+                "action_prompt": "Ben stopping the car beside the road",
+                "scene_visual_plan": {
+                    "visual_action": "Ben stops the car beside a quiet road",
+                    "action_visibility_cue": "car stopped beside the road",
+                    "camera_framing": "medium shot",
+                },
+                "scene_change_level": "medium",
+                "action_critical": True,
             },
         ],
         "storydiffusion": {
@@ -123,9 +138,11 @@ def test_anchor_adapter_copies_llm_prompt_fields_exactly() -> None:
     first = bundle.scene_prompts["SCENE-1"]
     assert first.generation_prompt == payload.scenes[0].anchor_generation_prompt
     assert first.scoring_prompt == payload.scenes[0].scoring_prompt
-    assert first.action_prompt == ""
+    assert first.action_prompt == payload.scenes[0].action_prompt
     assert bundle.metadata["character_specs"]["Ben"]["anchor_reference_prompt"] == payload.characters[0].anchor_reference_prompt
     assert bundle.metadata["scene_route_hints"]["SCENE-1"]["identity_conditioning_subject_id"] == "Ben"
+    assert bundle.metadata["scene_route_hints"]["SCENE-1"]["route_change_level"] == "large"
+    assert bundle.metadata["scene_route_hints"]["SCENE-1"]["action_critical"] is True
 
 
 def test_anchor_only_payload_does_not_require_storydiffusion_fields() -> None:
@@ -143,7 +160,6 @@ def test_storydiffusion_only_payload_does_not_require_anchor_fields() -> None:
         character.pop("anchor_reference_prompt")
     for scene in raw["scenes"]:
         scene.pop("anchor_generation_prompt")
-        scene.pop("scoring_prompt")
         scene.pop("visible_character_ids")
         scene.pop("identity_conditioning_subject_id")
     payload = NativePromptPayload.from_dict(raw)
@@ -164,7 +180,9 @@ def test_json_schema_is_target_conditional() -> None:
     character_props = storydiffusion_schema["properties"]["characters"]["items"]["properties"]
     assert "storydiffusion_prompt" in storydiffusion_scene_props
     assert "anchor_generation_prompt" not in storydiffusion_scene_props
-    assert "scoring_prompt" not in storydiffusion_scene_props
+    assert "scoring_prompt" in storydiffusion_scene_props
+    assert "action_prompt" in storydiffusion_scene_props
+    assert "scene_visual_plan" in storydiffusion_scene_props
     assert "anchor_reference_prompt" not in character_props
     assert "storydiffusion" in storydiffusion_schema["properties"]
 
@@ -206,18 +224,32 @@ def test_storydiffusion_id_metadata_for_two_characters() -> None:
             "visible_character_ids": ["Ben", "Sara"],
             "identity_conditioning_subject_id": None,
             "anchor_generation_prompt": "",
-            "storydiffusion_prompt": "[Ben] [Sara] meeting on a quiet street, both visible, medium two-shot",
-            "scoring_prompt": "",
-            "action_prompt": "",
+            "storydiffusion_prompt": "[Ben] [Sara] meet on a quiet street, both visible in a medium shot two-shot composition",
+                "scoring_prompt": "Ben and Sara meeting on a quiet street, both visible",
+                "action_prompt": "Ben and Sara meeting on a quiet street",
+            "scene_visual_plan": {
+                "visual_action": "Ben and Sara meet on a quiet street",
+                "action_visibility_cue": "both visible in a medium two-shot",
+                "camera_framing": "medium shot",
+            },
+            "scene_change_level": "large",
+            "action_critical": False,
         },
         {
             "scene_id": "SCENE-2",
             "visible_character_ids": ["Ben", "Sara"],
             "identity_conditioning_subject_id": None,
             "anchor_generation_prompt": "",
-            "storydiffusion_prompt": "[Ben] [Sara] talking together on the same quiet street, medium two-shot",
-            "scoring_prompt": "",
-            "action_prompt": "",
+            "storydiffusion_prompt": "[Ben] [Sara] talk together on the same quiet street, both visible in a medium shot two-shot composition",
+                "scoring_prompt": "Ben and Sara talking together on the same quiet street",
+                "action_prompt": "Ben and Sara talking together on the same quiet street",
+            "scene_visual_plan": {
+                "visual_action": "Ben and Sara talk together on the same quiet street",
+                "action_visibility_cue": "both visible in a medium two-shot",
+                "camera_framing": "medium shot",
+            },
+            "scene_change_level": "small",
+            "action_critical": False,
         },
     ]
     raw["storydiffusion"]["general_prompt"] = (
@@ -251,6 +283,20 @@ def test_subject_type_unknown_allowed_with_concrete_identity() -> None:
     )
     raw["scenes"][0]["anchor_generation_prompt"] = "a small red floating lantern with gold trim floating beside a car on a quiet road, medium shot"
     raw["scenes"][1]["anchor_generation_prompt"] = "a small red floating lantern with gold trim resting beside the stopped car, medium shot"
+    raw["scenes"][0]["scene_visual_plan"] = {
+        "visual_action": "the lantern floats beside a car on a quiet road",
+        "action_visibility_cue": "small red lantern hovering beside the car",
+        "camera_framing": "medium shot",
+    }
+    raw["scenes"][0]["action_prompt"] = "red lantern hovering beside the car on the road"
+    raw["scenes"][0]["scoring_prompt"] = "red lantern floating beside a car on the road"
+    raw["scenes"][1]["scene_visual_plan"] = {
+        "visual_action": "the lantern rests beside the stopped car",
+        "action_visibility_cue": "small red lantern beside a stopped car",
+        "camera_framing": "medium shot",
+    }
+    raw["scenes"][1]["action_prompt"] = "red lantern resting beside the stopped car"
+    raw["scenes"][1]["scoring_prompt"] = "red lantern beside a stopped car"
     payload = NativePromptPayload.from_dict(raw)
     assert validate_native_prompt_payload(payload, _story_single(), targets=["anchor"]) == []
 
@@ -359,6 +405,7 @@ def test_pronoun_explicit_interaction_requires_both_participants() -> None:
     )
     raw = {
         "target_backends": ["anchor", "storydiffusion"],
+        "visual_continuity_anchors": [],
         "characters": [
             {
                 "character_id": "Nina",
@@ -381,6 +428,14 @@ def test_pronoun_explicit_interaction_requires_both_participants() -> None:
                 "anchor_generation_prompt": "Nina stands in the snow, medium shot",
                 "storydiffusion_prompt": "[Nina] stands in the snow, medium shot",
                 "scoring_prompt": "Nina standing in the snow",
+                "action_prompt": "Nina standing in the snow",
+                "scene_visual_plan": {
+                    "visual_action": "Nina stands in the snow",
+                    "action_visibility_cue": "Nina visible in falling snow",
+                    "camera_framing": "medium shot",
+                },
+                "scene_change_level": "large",
+                "action_critical": False,
             },
             {
                 "scene_id": "SCENE-2",
@@ -389,6 +444,14 @@ def test_pronoun_explicit_interaction_requires_both_participants() -> None:
                 "anchor_generation_prompt": "Leo stands in a crowd, medium shot",
                 "storydiffusion_prompt": "[Leo] stands in a crowd, medium shot",
                 "scoring_prompt": "Leo standing in a crowd",
+                "action_prompt": "Leo standing in a crowd",
+                "scene_visual_plan": {
+                    "visual_action": "Leo stands in a crowd",
+                    "action_visibility_cue": "Leo visible among people",
+                    "camera_framing": "medium shot",
+                },
+                "scene_change_level": "medium",
+                "action_critical": False,
             },
         ],
         "storydiffusion": {
@@ -410,7 +473,7 @@ def test_pronoun_explicit_interaction_requires_both_participants() -> None:
 
 def test_warning_only_does_not_trigger_repair() -> None:
     warning_payload = _payload(("anchor",))
-    warning_payload["scenes"][0]["scoring_prompt"] = "Ben driving a car with thoughtful mood"
+    warning_payload["scenes"][0]["scoring_prompt"] = "Ben driving a car with hands near steering wheel, thoughtful mood"
     client = FakeLLMClient([warning_payload])
     builder = LLMDirectPromptBuilder(
         {
@@ -537,3 +600,259 @@ def test_missing_backend_minimum_fields_remains_fatal() -> None:
         builder.build(_story_single())
     assert builder.last_validation_status == "failed_unparseable_payload"
     assert builder.last_generation_allowed is False
+
+
+def test_stateful_planning_bird_flight_payload() -> None:
+    story = Story(
+        source_path="extra_06.txt",
+        raw_text="[SCENE-1] <Bird> sits on a branch.\n[SEP]\n[SCENE-2] It looks around.\n[SEP]\n[SCENE-3] It flies away.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Bird> sits on a branch.", "Bird sits on a branch.", ["Bird"]),
+            Scene("SCENE-2", 1, "It looks around.", "It looks around.", []),
+            Scene("SCENE-3", 2, "It flies away.", "It flies away.", []),
+        ],
+        all_entities=["Bird"],
+        recurring_entities=["Bird"],
+        entity_to_scene_ids={"Bird": ["SCENE-1"]},
+    )
+    raw = {
+        "target_backends": ["anchor"],
+        "visual_continuity_anchors": [
+            {
+                "anchor_id": "same_branch",
+                "type": "persistent_setting",
+                "applies_to_scene_ids": ["SCENE-1", "SCENE-2", "SCENE-3"],
+                "prompt_phrase": "same tree branch",
+                "state_by_scene": {},
+            }
+        ],
+        "characters": [
+            {
+                "character_id": "Bird",
+                "subject_type": "animal",
+                "stable_identity": "a small colorful bird with blue orange yellow and green feathers",
+                "anchor_reference_prompt": "a single small colorful bird with blue orange yellow and green feathers, full body identity reference, neutral pose, simple plain background, one bird only",
+            }
+        ],
+        "scenes": [
+            {
+                "scene_id": "SCENE-1",
+                "visible_character_ids": ["Bird"],
+                "identity_conditioning_subject_id": "Bird",
+                "anchor_generation_prompt": "a small colorful bird with blue orange yellow and green feathers perched on the same tree branch, feet gripping the branch, medium shot",
+                "scene_visual_plan": {
+                    "visual_action": "the bird is perched on the same tree branch",
+                    "action_visibility_cue": "feet gripping the branch",
+                    "camera_framing": "medium shot",
+                },
+                "scene_change_level": "small",
+                "action_critical": False,
+                "action_prompt": "bird perched on branch with feet gripping branch",
+                "scoring_prompt": "colorful bird perched on same branch with feet gripping it",
+            },
+            {
+                "scene_id": "SCENE-2",
+                "visible_character_ids": ["Bird"],
+                "identity_conditioning_subject_id": "Bird",
+                "anchor_generation_prompt": "a small colorful bird with blue orange yellow and green feathers perched on the same tree branch, head turned as it looks around, medium shot",
+                "scene_visual_plan": {
+                    "visual_action": "the bird looks around while perched on the same tree branch",
+                    "action_visibility_cue": "head turned to the side",
+                    "camera_framing": "medium shot",
+                },
+                "scene_change_level": "small",
+                "action_critical": True,
+                "action_prompt": "bird perched on same branch with head turned to look around",
+                "scoring_prompt": "colorful bird looking around on same branch with head turned",
+            },
+            {
+                "scene_id": "SCENE-3",
+                "visible_character_ids": ["Bird"],
+                "identity_conditioning_subject_id": "Bird",
+                "anchor_generation_prompt": "a small colorful bird with blue orange yellow and green feathers fully airborne above the same tree branch, wings fully spread, both feet lifted clear of the branch, medium-wide shot",
+                "scene_visual_plan": {
+                    "visual_action": "the bird is fully airborne and flying away from the same tree branch",
+                    "action_visibility_cue": "wings fully spread, both feet lifted clear of the branch",
+                    "camera_framing": "medium-wide shot",
+                },
+                "scene_change_level": "large",
+                "action_critical": True,
+                "action_prompt": "bird airborne in mid-flight, wings fully spread, feet not touching the branch",
+                "scoring_prompt": "small colorful bird flying above the branch, wings spread, feet off the branch",
+            },
+        ],
+    }
+    payload = NativePromptPayload.from_dict(raw)
+    assert validate_native_prompt_payload(payload, story, targets=["anchor"]) == []
+    assert payload.scenes[2].scene_change_level == "large"
+    assert payload.scenes[2].action_critical is True
+    assert "branch" not in payload.characters[0].anchor_reference_prompt.lower()
+
+
+def test_stateful_planning_lucy_lighting_anchor() -> None:
+    story = Story(
+        source_path="lucy.txt",
+        raw_text="[SCENE-1] <Lucy> walks into a room.\n[SEP]\n[SCENE-2] She turns on the light.\n[SEP]\n[SCENE-3] She sits on a chair.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Lucy> walks into a room.", "Lucy walks into a room.", ["Lucy"]),
+            Scene("SCENE-2", 1, "She turns on the light.", "She turns on the light.", []),
+            Scene("SCENE-3", 2, "She sits on a chair.", "She sits on a chair.", []),
+        ],
+        all_entities=["Lucy"],
+        recurring_entities=["Lucy"],
+        entity_to_scene_ids={"Lucy": ["SCENE-1"]},
+    )
+    raw = _payload(("anchor",))
+    raw["characters"][0]["character_id"] = "Lucy"
+    raw["characters"][0]["stable_identity"] = "a young woman with short black hair and a red sweater"
+    raw["characters"][0]["anchor_reference_prompt"] = "a single young woman with short black hair and a red sweater, centered, simple background, one person only"
+    raw["visual_continuity_anchors"] = [
+        {
+            "anchor_id": "room_lighting",
+            "type": "evolving_visual_state",
+            "applies_to_scene_ids": ["SCENE-1", "SCENE-2", "SCENE-3"],
+            "prompt_phrase": "",
+            "state_by_scene": {
+                "SCENE-1": "dim room before the light is turned on",
+                "SCENE-2": "same room as warm light turns on and fills the room",
+                "SCENE-3": "same now-lit room with warm light continuing",
+            },
+        }
+    ]
+    raw["scenes"] = [
+        {
+            "scene_id": "SCENE-1",
+            "visible_character_ids": ["Lucy"],
+            "identity_conditioning_subject_id": "Lucy",
+            "anchor_generation_prompt": "a young woman with short black hair and a red sweater walks through a doorway into a dim room before the light is turned on, dark room visible, medium-wide shot",
+            "scene_visual_plan": {"visual_action": "Lucy walks into the dim room", "action_visibility_cue": "doorway and dark room visible", "camera_framing": "medium-wide shot"},
+            "scene_change_level": "large",
+            "action_critical": True,
+            "action_prompt": "Lucy walking through doorway into dim room",
+            "scoring_prompt": "Lucy walking into dim room through doorway",
+        },
+        {
+            "scene_id": "SCENE-2",
+            "visible_character_ids": ["Lucy"],
+            "identity_conditioning_subject_id": "Lucy",
+            "anchor_generation_prompt": "a young woman with short black hair and a red sweater turns on the light in the same room as warm light turns on and fills the room, medium shot",
+            "scene_visual_plan": {"visual_action": "Lucy turns on the light", "action_visibility_cue": "hand near light switch and warm light filling room", "camera_framing": "medium shot"},
+            "scene_change_level": "medium",
+            "action_critical": True,
+            "action_prompt": "Lucy turning on light switch as warm light fills room",
+            "scoring_prompt": "Lucy turning on light, warm light filling room",
+        },
+        {
+            "scene_id": "SCENE-3",
+            "visible_character_ids": ["Lucy"],
+            "identity_conditioning_subject_id": "Lucy",
+            "anchor_generation_prompt": "a young woman with short black hair and a red sweater sits on a chair with seated posture in the same now-lit room with warm light continuing, medium shot",
+            "scene_visual_plan": {"visual_action": "Lucy sits on a chair", "action_visibility_cue": "seated posture on chair in lit room", "camera_framing": "medium shot"},
+            "scene_change_level": "medium",
+            "action_critical": True,
+            "action_prompt": "Lucy seated on chair in warm lit room",
+            "scoring_prompt": "Lucy sitting on chair in warm lit room",
+        },
+    ]
+    assert validate_native_prompt_payload(NativePromptPayload.from_dict(raw), story, targets=["anchor"]) == []
+
+
+def test_stateful_planning_milo_toys_persist() -> None:
+    story = Story(
+        source_path="milo.txt",
+        raw_text="[SCENE-1] <Milo> sits on the floor with toys.\n[SEP]\n[SCENE-2] He rolls over and laughs.\n[SEP]\n[SCENE-3] He lies down and rests.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Milo> sits on the floor with toys.", "Milo sits on the floor with toys.", ["Milo"]),
+            Scene("SCENE-2", 1, "He rolls over and laughs.", "He rolls over and laughs.", []),
+            Scene("SCENE-3", 2, "He lies down and rests.", "He lies down and rests.", []),
+        ],
+        all_entities=["Milo"],
+        recurring_entities=["Milo"],
+        entity_to_scene_ids={"Milo": ["SCENE-1"]},
+    )
+    raw = _payload(("anchor",))
+    raw["characters"][0]["character_id"] = "Milo"
+    raw["characters"][0]["stable_identity"] = "a toddler boy with short brown hair and blue pajamas"
+    raw["characters"][0]["anchor_reference_prompt"] = "a single toddler boy with short brown hair and blue pajamas, centered, simple background, one person only"
+    raw["visual_continuity_anchors"] = [
+        {
+            "anchor_id": "floor_toys",
+            "type": "persistent_setting",
+            "applies_to_scene_ids": ["SCENE-1", "SCENE-2", "SCENE-3"],
+            "prompt_phrase": "same playroom floor with colorful toys nearby",
+            "state_by_scene": {},
+        }
+    ]
+    raw["scenes"] = []
+    prompts = [
+        ("SCENE-1", "Milo sits on the same playroom floor with colorful toys nearby", "seated on floor among toys", "Milo sitting on floor with toys"),
+        ("SCENE-2", "Milo rolls over and laughs on the same playroom floor with colorful toys nearby", "rolling body pose on floor near toys", "Milo rolling over on floor with toys nearby"),
+        ("SCENE-3", "Milo lies down and rests on the same playroom floor with colorful toys nearby", "lying down posture on floor near toys", "Milo lying down on floor with toys nearby"),
+    ]
+    for scene_id, visual_action, cue, scoring in prompts:
+        raw["scenes"].append(
+            {
+                "scene_id": scene_id,
+                "visible_character_ids": ["Milo"],
+                "identity_conditioning_subject_id": "Milo",
+                "anchor_generation_prompt": f"a toddler boy with short brown hair and blue pajamas, {visual_action}, {cue}, medium shot",
+                "storydiffusion_prompt": "",
+                "scene_visual_plan": {"visual_action": visual_action, "action_visibility_cue": cue, "camera_framing": "medium shot"},
+                "scene_change_level": "medium",
+                "action_critical": True,
+                "action_prompt": cue,
+                "scoring_prompt": scoring,
+            }
+        )
+    assert validate_native_prompt_payload(NativePromptPayload.from_dict(raw), story, targets=["anchor"]) == []
+
+
+def test_stateful_planning_robot_task_and_scanning() -> None:
+    story = Story(
+        source_path="robot.txt",
+        raw_text="[SCENE-1] <Robot> works in a factory.\n[SEP]\n[SCENE-2] It stops and scans the area.\n[SEP]\n[SCENE-3] It continues its task.",
+        scenes=[
+            Scene("SCENE-1", 0, "<Robot> works in a factory.", "Robot works in a factory.", ["Robot"]),
+            Scene("SCENE-2", 1, "It stops and scans the area.", "It stops and scans the area.", []),
+            Scene("SCENE-3", 2, "It continues its task.", "It continues its task.", []),
+        ],
+        all_entities=["Robot"],
+        recurring_entities=["Robot"],
+        entity_to_scene_ids={"Robot": ["SCENE-1"]},
+    )
+    raw = _payload(("anchor",))
+    raw["characters"][0]["character_id"] = "Robot"
+    raw["characters"][0]["subject_type"] = "robot"
+    raw["characters"][0]["stable_identity"] = "a silver and blue service robot with round sensor eyes"
+    raw["characters"][0]["anchor_reference_prompt"] = "a single silver and blue service robot with round sensor eyes, centered, simple background, one robot only"
+    raw["visual_continuity_anchors"] = [
+        {
+            "anchor_id": "assembly_task",
+            "type": "persistent_task_and_setting",
+            "applies_to_scene_ids": ["SCENE-1", "SCENE-2", "SCENE-3"],
+            "prompt_phrase": "same factory assembly station with metal parts on a conveyor belt",
+            "state_by_scene": {},
+        }
+    ]
+    raw["scenes"] = []
+    scene_data = [
+        ("SCENE-1", "the robot assembles parts at the same factory assembly station and conveyor belt", "robot arms holding metal parts over conveyor", "medium-wide shot", "robot assembling metal parts on conveyor belt"),
+        ("SCENE-2", "the robot stops and scans the same factory assembly station and conveyor belt", "head turned, glowing sensor eyes projecting scanning beam", "medium close-up shot", "robot scanning factory machines with glowing sensor beam"),
+        ("SCENE-3", "the robot continues assembling parts at the same factory assembly station and conveyor belt", "robot arms back on metal parts over conveyor", "medium-wide shot", "robot continuing assembly task on conveyor belt"),
+    ]
+    for scene_id, visual_action, cue, framing, scoring in scene_data:
+        raw["scenes"].append(
+            {
+                "scene_id": scene_id,
+                "visible_character_ids": ["Robot"],
+                "identity_conditioning_subject_id": "Robot",
+                "anchor_generation_prompt": f"a silver and blue service robot with round sensor eyes, {visual_action}, {cue}, {framing}",
+                "storydiffusion_prompt": "",
+                "scene_visual_plan": {"visual_action": visual_action, "action_visibility_cue": cue, "camera_framing": framing},
+                "scene_change_level": "medium",
+                "action_critical": True,
+                "action_prompt": cue,
+                "scoring_prompt": scoring,
+            }
+        )
+    assert validate_native_prompt_payload(NativePromptPayload.from_dict(raw), story, targets=["anchor"]) == []

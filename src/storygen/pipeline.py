@@ -478,14 +478,16 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 "route_reason": route_decision.route_reason,
                 "init_image_path": route_decision.init_image_path,
                 "img2img_strength": route_decision.img2img_strength,
-                "route_change_level": route_decision.route_change_level,
+                "route_change_level": route_decision.route_change_level or (route_hint or {}).get("route_change_level"),
                 "continuity_subject_ids": route_decision.continuity_subject_ids,
                 "continuity_route_hint": route_decision.continuity_route_hint,
-                "llm_route_change_level": route_decision.llm_route_change_level,
+                "llm_route_change_level": route_decision.llm_route_change_level or (route_hint or {}).get("llm_route_change_level"),
                 "route_level_adjustment_reason": route_decision.route_level_adjustment_reason,
                 "route_factors": route_decision.route_factors,
                 "identity_conditioning_subject_id": (route_hint or {}).get("identity_conditioning_subject_id"),
                 "primary_visible_character_ids": list((route_hint or {}).get("primary_visible_character_ids", [])),
+                "action_critical": bool((route_hint or {}).get("action_critical", False)),
+                "scene_visual_plan": dict((route_hint or {}).get("scene_visual_plan", {})),
             }
             reference_image_path = None
             identity_config = config.get("generation", {}).get("identity_conditioning", {})

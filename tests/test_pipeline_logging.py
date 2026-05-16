@@ -111,6 +111,12 @@ class FakeGuidedPromptPipeline:
                     "continuity_route_hint": "img2img",
                     "llm_route_change_level": "small",
                     "route_change_level": "medium",
+                    "action_critical": True,
+                    "scene_visual_plan": {
+                        "visual_action": "Lily changes pose",
+                        "action_visibility_cue": "arm reaches toward object",
+                        "camera_framing": "medium shot",
+                    },
                     "route_level_adjustment_reason": "small_inconsistent_with_route_factors",
                     "route_factors": {"primary_action_change": True, "composition_change_needed": True},
                     "route_reason": "same subject with visible action change",
@@ -411,6 +417,8 @@ def test_run_pipeline_logs_llm_guided_route_metadata(tmp_path, monkeypatch) -> N
     assert candidate_metadata["continuity_subject_ids"] == ["Lily"]
     assert candidate_metadata["continuity_route_hint"] == "img2img"
     assert candidate_metadata["llm_route_change_level"] == "small"
+    assert candidate_metadata["action_critical"] is True
+    assert candidate_metadata["scene_visual_plan"]["visual_action"] == "Lily changes pose"
     assert candidate_metadata["route_level_adjustment_reason"] == "small_inconsistent_with_route_factors"
     assert candidate_metadata["route_factors"] == {"primary_action_change": True, "composition_change_needed": True}
     assert candidate_metadata["img2img_strength"] is None

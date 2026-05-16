@@ -515,6 +515,17 @@ class LLMDirectPromptBuilder:
             f"{story.all_entities}\n"
             "Scenes:\n"
             f"{scene_lines}\n\n"
+            "Stateful Visual Prompt Planning:\n"
+            "- Before writing final prompts, infer visual_continuity_anchors, one scene_visual_plan per scene, scene_change_level, and action_critical.\n"
+            "- Since every panel is generated independently with text2img, final prompts must be self-contained; encode both continuity and visual progression directly in each final prompt.\n"
+            "- visual_continuity_anchors capture persistent settings/objects/tasks or evolving visual states. Use prompt_phrase for persistent anchors and state_by_scene for evolving states. Every applicable anchor must appear in final scene prompts, and do not output anchors that are unused.\n"
+            "- Do not carry location-specific objects across a clear location change. Character identity/clothing can persist across locations.\n"
+            "- scene_visual_plan.visual_action must turn abstract verbs into visible actions. action_visibility_cue must say what visible evidence proves the action. camera_framing must be one of wide shot, medium-wide shot, medium shot, medium close-up shot, close-up shot.\n"
+            "- Final anchor_generation_prompt and storydiffusion_prompt must already include applicable continuity anchors, visual_action, action_visibility_cue, and camera_framing. Local code will not combine these fields for you.\n"
+            "- scene_change_level describes how much the expected image differs from the previous panel: small for minor pose/action variation, medium for visible pose/interaction change in same context, large for major pose/action/location/composition change.\n"
+            "- action_critical is true when scene success depends on a specific visible pose, movement, object interaction, or spatial relation rather than only the subject identity.\n"
+            "- action_prompt is required and must be a short visible-action phrase. For action-critical scenes it must distinguish success from near-miss candidates.\n"
+            "- scoring_prompt is required and must be short but concrete; include the key action and important visible evidence, not only the subject and nearby setting.\n"
             "Rules:\n"
             "- Do not rely on local code to add hair, outfit, species, setting, action, framing, emotion, background, or reference constraints.\n"
             "- subject_type is your judgment and must be one of human, animal, robot, object, vehicle, unknown.\n"
@@ -522,6 +533,7 @@ class LLMDirectPromptBuilder:
             "- stable_identity is short stable visual identity text for inspection and general prompt reasoning.\n"
             "- stable_identity, general_prompt, anchor_reference_prompt, and identity_reference_prompts must describe only stable visual identity. They must not include scene-specific locations, temporary props, actions, story events, personality, preferences, habits, or narrative background.\n"
             "- anchor_reference_prompt is a final executable identity/reference prompt for Anchor Bank; do not include bracket tags, and include single-subject and simple/centered-background reference constraints yourself.\n"
+            "- anchor_reference_prompt is identity-only. Avoid scene-specific poses, locations, props, or task equipment unless they are part of the character's stable visual identity.\n"
             "- Do not include banned layout terms such as character sheet, turnaround, multiple views, or duplicate subject in identity prompts.\n"
             "- Resolve pronouns from story context using exact character ids.\n"
             "- If a scene combines a pronoun with an explicit tagged character and describes an interaction, resolve the pronoun and include both participants in visible ids and scene prompts.\n"
@@ -555,6 +567,19 @@ class LLMDirectPromptBuilder:
 
     def _json_schema(self) -> dict[str, Any]:
         string_or_null = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        scene_visual_plan_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["visual_action", "action_visibility_cue", "camera_framing"],
+            "properties": {
+                "visual_action": {"type": "string"},
+                "action_visibility_cue": {"type": "string"},
+                "camera_framing": {
+                    "type": "string",
+                    "enum": ["wide shot", "medium-wide shot", "medium shot", "medium close-up shot", "close-up shot"],
+                },
+            },
+        }
         character_properties: dict[str, Any] = {
             "character_id": {"type": "string"},
             "subject_type": {"type": "string"},
@@ -565,15 +590,28 @@ class LLMDirectPromptBuilder:
             character_properties["anchor_reference_prompt"] = {"type": "string"}
             character_required.append("anchor_reference_prompt")
 
-        scene_properties: dict[str, Any] = {"scene_id": {"type": "string"}}
-        scene_required = ["scene_id"]
+        scene_properties: dict[str, Any] = {
+            "scene_id": {"type": "string"},
+            "scene_visual_plan": scene_visual_plan_schema,
+            "scene_change_level": {"type": "string", "enum": ["small", "medium", "large"]},
+            "action_critical": {"type": "boolean"},
+            "action_prompt": {"type": "string"},
+            "scoring_prompt": {"type": "string"},
+        }
+        scene_required = [
+            "scene_id",
+            "scene_visual_plan",
+            "scene_change_level",
+            "action_critical",
+            "action_prompt",
+            "scoring_prompt",
+        ]
         if "anchor" in self.targets:
             scene_properties.update(
                 {
                     "visible_character_ids": {"type": "array", "items": {"type": "string"}},
                     "identity_conditioning_subject_id": string_or_null,
                     "anchor_generation_prompt": {"type": "string"},
-                    "scoring_prompt": {"type": "string"},
                 }
             )
             scene_required.extend(
@@ -581,7 +619,6 @@ class LLMDirectPromptBuilder:
                     "visible_character_ids",
                     "identity_conditioning_subject_id",
                     "anchor_generation_prompt",
-                    "scoring_prompt",
                 ]
             )
         if "storydiffusion" in self.targets:
@@ -590,6 +627,34 @@ class LLMDirectPromptBuilder:
 
         top_properties: dict[str, Any] = {
             "target_backends": {"type": "array", "items": {"type": "string"}},
+            "visual_continuity_anchors": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["anchor_id", "type", "applies_to_scene_ids", "prompt_phrase", "state_by_scene"],
+                    "properties": {
+                        "anchor_id": {"type": "string"},
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "persistent_setting",
+                                "persistent_object",
+                                "persistent_task_and_setting",
+                                "evolving_visual_state",
+                                "weather_or_lighting_state",
+                                "vehicle_or_transport_context",
+                            ],
+                        },
+                        "applies_to_scene_ids": {"type": "array", "items": {"type": "string"}},
+                        "prompt_phrase": {"type": "string"},
+                        "state_by_scene": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
+                    },
+                },
+            },
             "characters": {
                 "type": "array",
                 "items": {
@@ -619,7 +684,7 @@ class LLMDirectPromptBuilder:
                 },
             },
         }
-        top_required = ["target_backends", "characters", "scenes", "notes"]
+        top_required = ["target_backends", "visual_continuity_anchors", "characters", "scenes", "notes"]
         if "storydiffusion" in self.targets:
             top_properties["storydiffusion"] = {
                 "type": "object",

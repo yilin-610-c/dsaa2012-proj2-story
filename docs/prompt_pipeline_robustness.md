@@ -85,13 +85,26 @@ For native clean StoryDiffusion prompt-only config generation, the debug JSON al
 
 `llm_direct` is a general LLM-owned prompt pipeline for Anchor/IP-Adapter and native StoryDiffusion prompt payloads. It uses target-conditional schemas:
 
-- `targets: ["anchor"]` requires anchor reference prompts, anchor scene prompts, scoring prompts, visible character ids, and identity-conditioning ids.
-- `targets: ["storydiffusion"]` requires StoryDiffusion scene prompts plus `general_prompt`, identity reference prompts, and identity prompt count. Anchor scene/scoring fields are not required.
+- `targets: ["anchor"]` requires anchor reference prompts, anchor scene prompts, scoring prompts, action prompts, visible character ids, identity-conditioning ids, and scene planning metadata.
+- `targets: ["storydiffusion"]` requires StoryDiffusion scene prompts plus `general_prompt`, identity reference prompts, identity prompt count, action prompts, scoring prompts, and scene planning metadata. Anchor scene fields are not required.
 - `targets: ["anchor", "storydiffusion"]` requires both sets. The two scene prompt fields stay separate; adapters must not convert one into the other.
 
 Validation now records structured issues with severity `hard_error`, `repair_error`, or `warning`. Hard errors cover malformed interfaces such as bad tags, scene count mismatch, missing target-required fields, and invalid subject types. Repair errors cover prompt boundary violations such as scene leakage in identity/reference fields. Warnings cover non-blocking risks such as token overlap, mood-heavy scene prompts, or unsafe negative prompt wording.
 
 The builder defaults to one repair attempt and best-effort continuation: hard or repair errors trigger repair once, warning-only payloads continue without repair, and unresolved non-fatal validator issues are logged without blocking generation when the payload still contains the minimum fields needed by the selected backend. Local code never rewrites semantic prompt content. API/no-payload failures and payloads that cannot construct backend prompts remain fatal and are recorded as `failed_no_payload` or `failed_unparseable_payload`.
+
+## Stateful Visual Prompt Planning
+
+`llm_direct` now uses Stateful Visual Prompt Planning. The LLM must emit self-contained panel prompts plus planning metadata:
+
+- `visual_continuity_anchors` for persistent or evolving visual state, such as a repeated setting/object/task or lighting state.
+- `scene_visual_plan` with `visual_action`, `action_visibility_cue`, and an allowed camera framing.
+- `scene_change_level` (`small`, `medium`, or `large`) and `action_critical`.
+- final `action_prompt` and `scoring_prompt` with concrete visible evidence for candidate selection.
+
+These fields are not local prompt ingredients. The LLM-authored `anchor_generation_prompt` and `storydiffusion_prompt` must already contain the relevant continuity anchors, action evidence, and framing. Validators check that the plan is reflected in the final prompt text and may request LLM repair, but adapters do not synthesize or rewrite visual content.
+
+For the Anchor/IP-Adapter scene profile, `scene_change_level` is copied into `metadata.scene_route_hints` as `route_change_level`, and `cloud_anchor_ipadapter_scene` enables the existing route-aware scorer. This lets large/action-critical changes reduce previous-image consistency pressure and rely more on text/action evidence without asking the LLM to output numeric scorer weights.
 
 ## Prompt-Only Audit
 

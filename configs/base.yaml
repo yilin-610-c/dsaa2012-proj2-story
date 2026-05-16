@@ -336,6 +336,9 @@ runtime_profiles:
         enabled: true
         scale: 0.55
         fail_on_missing_anchor: false
+    scoring:
+      route_aware:
+        enabled: true
   # Backward-compatible alias for older commands. Despite the historical name,
   # this route is a story-level wrapper over diffusers text2img with Anchor Bank
   # and IP-Adapter identity conditioning; it is not native StoryDiffusion.
