@@ -9,7 +9,7 @@ from storygen.native_prompting.types import (
     NativeScenePrompt,
     NativeStoryDiffusionPromptPayload,
 )
-from storygen.native_prompting.validator import NativePromptValidationError, validate_native_prompt_payload
+from storygen.native_prompting.validator import NativePromptValidationError, ValidationIssue, validate_native_prompt_payload
 
 __all__ = [
     "LLMDirectPromptBuilder",
@@ -18,6 +18,7 @@ __all__ = [
     "NativePromptValidationError",
     "NativeScenePrompt",
     "NativeStoryDiffusionPromptPayload",
+    "ValidationIssue",
     "build_anchor_prompt_bundle",
     "build_storydiffusion_prompt_payload",
     "validate_native_prompt_payload",

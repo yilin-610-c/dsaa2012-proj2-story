@@ -32,7 +32,12 @@ class NativeStoryDiffusionPromptPayload:
     general_prompt: str = ""
     identity_reference_prompts: list[str] = field(default_factory=list)
     identity_prompts_per_character: int = 1
-    negative_prompt_extra: str = ""
+    identity_negative_prompt_extra: str = ""
+    scene_negative_prompt_extra: str = ""
+
+    @property
+    def negative_prompt_extra(self) -> str:
+        return self.scene_negative_prompt_extra
 
 
 @dataclass(slots=True)
@@ -76,6 +81,7 @@ class NativePromptPayload:
             if isinstance(item, dict)
         ]
         storydiffusion_payload = payload.get("storydiffusion") if isinstance(payload.get("storydiffusion"), dict) else {}
+        legacy_negative_prompt_extra = str(storydiffusion_payload.get("negative_prompt_extra", "")).strip()
         storydiffusion = NativeStoryDiffusionPromptPayload(
             general_prompt=str(storydiffusion_payload.get("general_prompt", "")).strip(),
             identity_reference_prompts=[
@@ -86,7 +92,10 @@ class NativePromptPayload:
             if isinstance(storydiffusion_payload.get("identity_reference_prompts", []), list)
             else [],
             identity_prompts_per_character=_safe_int(storydiffusion_payload.get("identity_prompts_per_character", 1), default=0),
-            negative_prompt_extra=str(storydiffusion_payload.get("negative_prompt_extra", "")).strip(),
+            identity_negative_prompt_extra=str(
+                storydiffusion_payload.get("identity_negative_prompt_extra", legacy_negative_prompt_extra)
+            ).strip(),
+            scene_negative_prompt_extra=str(storydiffusion_payload.get("scene_negative_prompt_extra", "")).strip(),
         )
         return cls(
             target_backends=[str(value).strip().lower() for value in payload.get("target_backends", [])],
@@ -125,7 +134,8 @@ class NativePromptPayload:
                 "general_prompt": self.storydiffusion.general_prompt,
                 "identity_reference_prompts": list(self.storydiffusion.identity_reference_prompts),
                 "identity_prompts_per_character": self.storydiffusion.identity_prompts_per_character,
-                "negative_prompt_extra": self.storydiffusion.negative_prompt_extra,
+                "identity_negative_prompt_extra": self.storydiffusion.identity_negative_prompt_extra,
+                "scene_negative_prompt_extra": self.storydiffusion.scene_negative_prompt_extra,
             },
             "notes": dict(self.notes),
         }

@@ -86,6 +86,8 @@ def build_storydiffusion_prompt_payload(payload: NativePromptPayload, story: Sto
         "storydiffusion_id_length": identity_prompts_per_character,
         "saved_image_prompt_map": saved_image_prompt_map,
         "final_prompt_array": prompt_array,
+        "identity_negative_prompt_extra": payload.storydiffusion.identity_negative_prompt_extra,
+        "scene_negative_prompt_extra": payload.storydiffusion.scene_negative_prompt_extra,
         "native_prompt_payload": payload.to_dict(),
     }
     return {
@@ -102,6 +104,8 @@ def build_storydiffusion_prompt_payload(payload: NativePromptPayload, story: Sto
         "prompt_array": prompt_array,
         "save_image_start_index": save_image_start_index,
         "storydiffusion_id_length": identity_prompts_per_character,
-        "negative_prompt_extra": payload.storydiffusion.negative_prompt_extra,
+        "identity_negative_prompt_extra": payload.storydiffusion.identity_negative_prompt_extra,
+        "scene_negative_prompt_extra": payload.storydiffusion.scene_negative_prompt_extra,
+        "negative_prompt_extra": payload.storydiffusion.scene_negative_prompt_extra,
         "debug": debug,
     }

@@ -129,6 +129,11 @@ def _last_llm_direct_payload_from_metadata(metadata: dict[str, Any]) -> dict[str
     record = metadata.get("_llm_response_record")
     if not isinstance(record, dict):
         return None
+    attempts = record.get("repair_attempts")
+    if isinstance(attempts, list) and attempts:
+        last_response = attempts[-1].get("response") if isinstance(attempts[-1], dict) else None
+        if isinstance(last_response, dict) and isinstance(last_response.get("parsed_json"), dict):
+            return last_response["parsed_json"]
     for response_key in ("repair_response", "initial_response"):
         response = record.get(response_key)
         if not isinstance(response, dict):
@@ -321,6 +326,24 @@ def _json_inline(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def _short_markdown_value(value: Any, *, max_chars: int = 120) -> str:
+    if isinstance(value, str):
+        text = value
+    else:
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    text = text.replace("\n", "\\n").replace("`", "'")
+    if len(text) > max_chars:
+        return text[: max_chars - 3] + "..."
+    return text
+
+
+def _repair_diff_markdown_line(diff: dict[str, Any]) -> str:
+    path = diff.get("path", "")
+    before = _short_markdown_value(diff.get("before"))
+    after = _short_markdown_value(diff.get("after"))
+    return f"- `{path}`: `{before}` -> `{after}`"
+
+
 def render_markdown(audit_payload: dict[str, Any]) -> str:
     lines = [
         "# Prompt Audit",
@@ -355,6 +378,25 @@ def render_markdown(audit_payload: dict[str, Any]) -> str:
                 if isinstance(metadata, dict):
                     validation_errors = metadata.get("validation_errors") or []
                     repair_errors = metadata.get("repair_errors") or metadata.get("repair_validation_errors") or []
+                    validation_issues = metadata.get("validation_issues") or []
+                    warnings = metadata.get("warnings") or []
+                    lines.extend(
+                        [
+                            f"- Validation status: `{metadata.get('validation_status', '')}`",
+                            f"- Generation allowed: `{metadata.get('generation_allowed', '')}`",
+                            f"- Repair attempts used: `{metadata.get('repair_attempts_used', '')}`",
+                            "",
+                        ]
+                    )
+                    if validation_issues:
+                        lines.append("Validation issues:")
+                        for issue in validation_issues:
+                            if isinstance(issue, dict):
+                                lines.append(
+                                    f"- `{issue.get('severity')}` `{issue.get('code')}` `{issue.get('path')}`: "
+                                    f"{issue.get('message')}"
+                                )
+                        lines.append("")
                     if validation_errors:
                         lines.append("Initial validation errors:")
                         for error in validation_errors:
@@ -364,6 +406,21 @@ def render_markdown(audit_payload: dict[str, Any]) -> str:
                         lines.append("Repair validation errors:")
                         for error in repair_errors:
                             lines.append(f"- `{error}`")
+                        lines.append("")
+                    if warnings:
+                        lines.append("Warnings:")
+                        for warning in warnings:
+                            if isinstance(warning, dict):
+                                lines.append(
+                                    f"- `{warning.get('code')}` `{warning.get('path')}`: {warning.get('message')}"
+                                )
+                        lines.append("")
+                    repair_diff = metadata.get("repair_diff") or []
+                    if repair_diff:
+                        lines.append("Repair diffs:")
+                        for diff in repair_diff:
+                            if isinstance(diff, dict):
+                                lines.append(_repair_diff_markdown_line(diff))
                         lines.append("")
                 last_payload = pipeline_payload.get("last_llm_direct_payload")
                 if isinstance(last_payload, dict):
@@ -389,6 +446,33 @@ def render_markdown(audit_payload: dict[str, Any]) -> str:
                 continue
             native_payload = _last_llm_direct_payload_from_metadata(pipeline_payload.get("metadata", {}))
             if isinstance(native_payload, dict):
+                metadata = pipeline_payload.get("metadata", {})
+                if isinstance(metadata, dict):
+                    lines.extend(
+                        [
+                            f"- Target backends: `{', '.join(metadata.get('target_backends', []))}`",
+                            f"- Validation status: `{metadata.get('validation_status', '')}`",
+                            f"- Generation allowed: `{metadata.get('generation_allowed', '')}`",
+                            f"- Repair attempts used: `{metadata.get('repair_attempts_used', '')}`",
+                            "",
+                        ]
+                    )
+                    warnings = metadata.get("warnings") or []
+                    if warnings:
+                        lines.append("Warnings:")
+                        for warning in warnings:
+                            if isinstance(warning, dict):
+                                lines.append(
+                                    f"- `{warning.get('code')}` `{warning.get('path')}`: {warning.get('message')}"
+                                )
+                        lines.append("")
+                    repair_diff = metadata.get("repair_diff") or []
+                    if repair_diff:
+                        lines.append("Repair diffs:")
+                        for diff in repair_diff:
+                            if isinstance(diff, dict):
+                                lines.append(_repair_diff_markdown_line(diff))
+                        lines.append("")
                 lines.extend(["#### LLM-Direct Characters", ""])
                 for character in native_payload.get("characters", []):
                     lines.extend(

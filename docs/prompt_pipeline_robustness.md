@@ -81,6 +81,18 @@ The API key is not recorded. `prompt_bundle.json` keeps only summary metadata an
 
 For native clean StoryDiffusion prompt-only config generation, the debug JSON also includes the same `llm_response_record` when the prompt builder made or loaded an LLM response.
 
+## LLM-Direct Prompt Validation
+
+`llm_direct` is a general LLM-owned prompt pipeline for Anchor/IP-Adapter and native StoryDiffusion prompt payloads. It uses target-conditional schemas:
+
+- `targets: ["anchor"]` requires anchor reference prompts, anchor scene prompts, scoring prompts, visible character ids, and identity-conditioning ids.
+- `targets: ["storydiffusion"]` requires StoryDiffusion scene prompts plus `general_prompt`, identity reference prompts, and identity prompt count. Anchor scene/scoring fields are not required.
+- `targets: ["anchor", "storydiffusion"]` requires both sets. The two scene prompt fields stay separate; adapters must not convert one into the other.
+
+Validation now records structured issues with severity `hard_error`, `repair_error`, or `warning`. Hard errors cover malformed interfaces such as bad tags, scene count mismatch, missing target-required fields, and invalid subject types. Repair errors cover prompt boundary violations such as scene leakage in identity/reference fields. Warnings cover non-blocking risks such as token overlap, mood-heavy scene prompts, or unsafe negative prompt wording.
+
+The builder runs LLM repair up to `prompt.llm_direct.repair_attempts` times for hard or repair errors. Each repair prompt includes the original story, target backends, previous payload, and structured validation issues. Local code never rewrites semantic prompt content. `validation_policy`, `on_hard_error`, and `allow_generation_with_boundary_errors` control whether unresolved boundary errors may proceed in best-effort mode.
+
 ## Prompt-Only Audit
 
 To regenerate clean native StoryDiffusion prompt debug files without image generation, run `run_test_set.py` without `--run`. This requires `OPENAI_API_KEY` because `clean` mode uses `llm_assisted_v9`.
