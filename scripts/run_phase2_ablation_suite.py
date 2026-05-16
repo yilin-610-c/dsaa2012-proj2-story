@@ -315,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--save-identity-images", action="store_true")
     parser.add_argument(
         "--storydiffusion-prompt-mode",
-        choices=("current", "clean", "clean_v2", "natural"),
+        choices=("current", "clean", "clean_v2", "natural", "llm_direct"),
         default="current",
         help="Forwarded to native StoryDiffusion routes; clean uses llm_assisted PromptSpec generation_prompt.",
     )

@@ -1,157 +1,77 @@
-# Native StoryDiffusion Teammate Runbook
+# Teammate Image Generation Runbook
 
-This runbook is for high-VRAM native StoryDiffusion ablation runs delegated to a teammate. It focuses on the native StoryDiffusion path:
+This runbook asks a teammate to run two image-generation batches:
 
-- `scripts/run_phase2_ablation_suite.py`
-- `scripts/run_auto_story_pipeline_modular.py`
-- `storydiffusion_gradio_probe/run_test_set.py`
-- external official StoryDiffusion repo through `--storydiffusion-root`
+1. Native StoryDiffusion on six selected stories.
+2. Anchor Bank + IP-Adapter on four selected stories, using both a distilled SDXL model and a non-distilled SDXL model.
 
-It does not run the default `cloud_anchor_ipadapter_story` storygen + Anchor Bank + IP-Adapter route unless `--methods storygen` is added explicitly.
+The goal is to get real image outputs for qualitative comparison. Do not reduce image size, steps, or candidate settings unless the run fails from OOM.
 
-## Environment
+## Setup
 
-There are two separate repositories involved:
-
-1. This project repo: `dsaa2012-proj2-story`
-2. The official external StoryDiffusion repo: `StoryDiffusion`
-
-The official StoryDiffusion repo is **not vendored** into this project and is **not a git submodule**. Native StoryDiffusion runs import the official Gradio app from that external folder, so every real native run must know where that folder is.
-
-If the external repo is not already installed, clone it outside this project repo, for example:
+Use this project repo plus the external official StoryDiffusion repo.
 
 ```bash
-mkdir -p /path/to/external/repos
-cd /path/to/external/repos
-git clone https://github.com/HVision-NKU/StoryDiffusion.git
-```
-
-Then use that folder path in every native command:
-
-```bash
---storydiffusion-root /path/to/external/repos/StoryDiffusion
-```
-
-For example, if the repo was cloned to `/home/teammate/spring25/StoryDiffusion`, every command below should use:
-
-```bash
---storydiffusion-root /home/teammate/spring25/StoryDiffusion
-```
-
-Required checks:
-
-```bash
-cd /path/to/dsaa2012-proj2-story
+cd /path/to/dsaa2012-phase1-ablation
 git switch phase1/native-single-storydiffusion-ablation
 git pull
 
-conda activate storygen
-python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no cuda')"
-
-conda run -n storydiffusion python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no cuda')"
-
-test -f /path/to/external/repos/StoryDiffusion/gradio_app_sdxl_specific_id_low_vram.py
+export OPENAI_API_KEY="..."
+export STORYDIFFUSION_ROOT=/path/to/StoryDiffusion
 ```
 
-Replace `/path/to/external/repos/StoryDiffusion` in the commands below with the real external StoryDiffusion folder on the teammate's machine.
+Sanity checks:
 
-For WSL machines that need the CUDA driver library path:
+```bash
+test -f "$STORYDIFFUSION_ROOT/gradio_app_sdxl_specific_id_low_vram.py"
+
+conda run -n storygen python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+conda run -n storydiffusion python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+```
+
+For WSL, also set:
 
 ```bash
 export LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH
 ```
 
-For `--storydiffusion-prompt-mode natural`, the prompt builder uses the LLM-assisted prompt path. Set:
-
-```bash
-export OPENAI_API_KEY="..."
-```
-
-## Model Choice
-
-The native probe forwards `--native-sd-type` to StoryDiffusion's `--sd-type`. Valid names depend on the external StoryDiffusion repo config; common choices are:
-
-- `Unstable`
-- `RealVision`
-- `Juggernaut`
-- `SDXL`
-
-Do not test all models on all stories first. If identity reference images still look like character sheets or three-view turnarounds, test model choice on one or two stories only, then use the best-looking setting for the broader run.
-
-Recommended first model sanity check:
-
-```bash
-conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" python scripts/run_phase2_ablation_suite.py \
-  --suite custom \
-  --stories test_setA/19.txt \
-  --methods native \
-  --output-root outputs_ablation/model_sanity_unstable \
-  --single-env storygen \
-  --double-env storydiffusion \
-  --storydiffusion-root /path/to/StoryDiffusion \
-  --storydiffusion-prompt-mode natural \
-  --native-sd-type Unstable \
-  --native-width 768 \
-  --native-height 768 \
-  --native-num-steps 35 \
-  --native-id-lengths 1 \
-  --save-identity-images \
-  --continue-on-error
-```
-
-Optional one-story comparison:
-
-```bash
-conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" python scripts/run_phase2_ablation_suite.py \
-  --suite custom \
-  --stories test_setA/19.txt \
-  --methods native \
-  --output-root outputs_ablation/model_sanity_realvision \
-  --single-env storygen \
-  --double-env storydiffusion \
-  --storydiffusion-root /path/to/StoryDiffusion \
-  --storydiffusion-prompt-mode natural \
-  --native-sd-type RealVision \
-  --native-width 768 \
-  --native-height 768 \
-  --native-num-steps 35 \
-  --native-id-lengths 1 \
-  --save-identity-images \
-  --continue-on-error
-```
-
-Compare:
-
-- `outputs_ablation/model_sanity_*/custom/native_natural_id1_test_setA_19/identity_refs/`
-- `outputs_ablation/model_sanity_*/custom/native_natural_id1_test_setA_19/*.storydiffusion_prompt_debug.json`
-- saved story frames in the same run folder
-
-## Stage 1: Three Representative Stories
-
-Run this first. It covers one single human identity, one animal pair, and one two-human story.
+## Batch A: Native StoryDiffusion
 
 Stories:
 
-- `test_setA/19.txt`: Student, single human identity
-- `test_setA/03.txt`: Cat/Dog, animal dual subject
-- `test_set/06.txt`: Jack/Sara, two-human story
+```text
+test_set/02.txt
+test_set/04.txt
+test_set/05.txt
+test_set/06.txt
+test_set/07.txt
+test_set/17.txt
+```
+
+Output root:
+
+```text
+outputs_teammate/native_storydiffusion_llm_direct_selected
+```
 
 Dry run:
 
 ```bash
-conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" python scripts/run_phase2_ablation_suite.py \
+conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+  python scripts/run_phase2_ablation_suite.py \
   --suite custom \
-  --stories test_setA/19.txt,test_setA/03.txt,test_set/06.txt \
+  --stories test_set/02.txt,test_set/04.txt,test_set/05.txt,test_set/06.txt,test_set/07.txt,test_set/17.txt \
   --methods native \
-  --output-root outputs_ablation/native_stage1_representative \
+  --output-root outputs_teammate/native_storydiffusion_llm_direct_selected \
   --single-env storygen \
   --double-env storydiffusion \
-  --storydiffusion-root /path/to/StoryDiffusion \
-  --storydiffusion-prompt-mode natural \
+  --storydiffusion-root "$STORYDIFFUSION_ROOT" \
+  --storydiffusion-prompt-mode llm_direct \
   --native-sd-type Unstable \
   --native-width 768 \
   --native-height 768 \
   --native-num-steps 35 \
+  --native-guidance-scale 5.0 \
   --native-id-lengths 1 \
   --save-identity-images \
   --dry-run
@@ -160,124 +80,230 @@ conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" python
 Real run:
 
 ```bash
-conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" python scripts/run_phase2_ablation_suite.py \
+conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+  python scripts/run_phase2_ablation_suite.py \
   --suite custom \
-  --stories test_setA/19.txt,test_setA/03.txt,test_set/06.txt \
+  --stories test_set/02.txt,test_set/04.txt,test_set/05.txt,test_set/06.txt,test_set/07.txt,test_set/17.txt \
   --methods native \
-  --output-root outputs_ablation/native_stage1_representative \
+  --output-root outputs_teammate/native_storydiffusion_llm_direct_selected \
   --single-env storygen \
   --double-env storydiffusion \
-  --storydiffusion-root /path/to/StoryDiffusion \
-  --storydiffusion-prompt-mode natural \
+  --storydiffusion-root "$STORYDIFFUSION_ROOT" \
+  --storydiffusion-prompt-mode llm_direct \
   --native-sd-type Unstable \
   --native-width 768 \
   --native-height 768 \
   --native-num-steps 35 \
+  --native-guidance-scale 5.0 \
   --native-id-lengths 1 \
   --save-identity-images \
-  --continue-on-error
+  --continue-on-error \
+  --resume
 ```
 
-Check before expanding:
+Expected run folders:
 
-- `outputs_ablation/native_stage1_representative/custom/suite_manifest.jsonl`
-- each run's `identity_refs/`
-- each run's `*.storydiffusion_prompt_debug.json`
-- whether identity refs are single-subject images, not three-view character sheets
-- whether story frames preserve identity across panels
+```text
+outputs_teammate/native_storydiffusion_llm_direct_selected/custom/native_llm_direct_id1_test_set_02
+outputs_teammate/native_storydiffusion_llm_direct_selected/custom/native_llm_direct_id1_test_set_04
+outputs_teammate/native_storydiffusion_llm_direct_selected/custom/native_llm_direct_id1_test_set_05
+outputs_teammate/native_storydiffusion_llm_direct_selected/custom/native_llm_direct_id1_test_set_06
+outputs_teammate/native_storydiffusion_llm_direct_selected/custom/native_llm_direct_id1_test_set_07
+outputs_teammate/native_storydiffusion_llm_direct_selected/custom/native_llm_direct_id1_test_set_17
+```
 
-## Stage 2: Half-Coverage Suite
+Check in each folder:
 
-Run this if Stage 1 looks usable. This list is intentionally mixed across human, animal, robot, child, occupation/action, travel/vehicle, and two-character stories.
+- generated story images
+- `identity_refs/`
+- `manifest.json`
+- `*.yaml`
+- `*.storydiffusion_prompt_debug.json`
+
+## Batch B: Anchor Bank + IP-Adapter, Distilled SDXL
 
 Stories:
 
 ```text
-test_setA/19.txt,test_setA/03.txt,test_set/06.txt,test_setA/13.txt,
-test_set/14.txt,test_set/16.txt,test_set/17.txt,test_setA/10.txt,
-test_setA/15.txt,test_setA/18.txt,test_setA/20.txt,test_set/07.txt,
-test_set/extra_03.txt,test_set/extra_06.txt,test_setA/extra_10.txt,test_setA/extra_11.txt
+test_set/02.txt
+test_set/04.txt
+test_set/05.txt
+test_set/17.txt
 ```
 
-Command:
+This uses the distilled SDXL-Turbo scene model.
 
-```bash
-conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" python scripts/run_phase2_ablation_suite.py \
-  --suite custom \
-  --stories test_setA/19.txt,test_setA/03.txt,test_set/06.txt,test_setA/13.txt,test_set/14.txt,test_set/16.txt,test_set/17.txt,test_setA/10.txt,test_setA/15.txt,test_setA/18.txt,test_setA/20.txt,test_set/07.txt,test_set/extra_03.txt,test_set/extra_06.txt,test_setA/extra_10.txt,test_setA/extra_11.txt \
-  --methods native \
-  --output-root outputs_ablation/native_stage2_half \
-  --single-env storygen \
-  --double-env storydiffusion \
-  --storydiffusion-root /path/to/StoryDiffusion \
-  --storydiffusion-prompt-mode natural \
-  --native-sd-type Unstable \
-  --native-width 768 \
-  --native-height 768 \
-  --native-num-steps 35 \
-  --native-id-lengths 1 \
-  --save-identity-images \
-  --continue-on-error \
-  --resume
+Output root:
+
+```text
+outputs_teammate/anchor_ipadapter_distilled_selected
 ```
 
-If this is too slow or hits OOM, reduce only one dimension at a time:
-
-- first try `--native-width 640 --native-height 640`
-- then try `--native-num-steps 30`
-- keep `--native-id-lengths 1` unless identity refs are clearly too weak
-
-## Stage 3: Full Native Suite
-
-Run this after Stage 1 and Stage 2 are acceptable. The command uses all currently tracked story files from both test folders.
-
-Command:
+Dry run:
 
 ```bash
-conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" python scripts/run_phase2_ablation_suite.py \
-  --suite custom \
-  --stories test_set/01.txt,test_set/02.txt,test_set/04.txt,test_set/05.txt,test_set/06.txt,test_set/07.txt,test_set/08.txt,test_set/09.txt,test_set/11.txt,test_set/14.txt,test_set/16.txt,test_set/17.txt,test_set/extra_03.txt,test_set/extra_06.txt,test_set/extra_08.txt,test_set/extra_09.txt,test_setA/03.txt,test_setA/10.txt,test_setA/12.txt,test_setA/13.txt,test_setA/15.txt,test_setA/18.txt,test_setA/19.txt,test_setA/20.txt,test_setA/extra_01.txt,test_setA/extra_02.txt,test_setA/extra_04.txt,test_setA/extra_05.txt,test_setA/extra_07.txt,test_setA/extra_10.txt,test_setA/extra_11.txt,test_setA/extra_12.txt \
-  --methods native \
-  --output-root outputs_ablation/native_stage3_full \
-  --single-env storygen \
-  --double-env storydiffusion \
-  --storydiffusion-root /path/to/StoryDiffusion \
-  --storydiffusion-prompt-mode natural \
-  --native-sd-type Unstable \
-  --native-width 768 \
-  --native-height 768 \
-  --native-num-steps 35 \
-  --native-id-lengths 1 \
-  --save-identity-images \
-  --continue-on-error \
-  --resume
+for story in 02 04 05 17; do
+  conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+    python scripts/run_auto_story_pipeline_modular.py \
+    --input "test_set/${story}.txt" \
+    --run-name "anchor_ipadapter_distilled_test_set_${story}" \
+    --output-root outputs_teammate/anchor_ipadapter_distilled_selected \
+    --single-env storygen \
+    --double-env storygen \
+    --single-route storygen \
+    --double-route storygen \
+    --set prompt.pipeline=llm_direct \
+    --set 'prompt.llm_direct.targets=["anchor"]' \
+    --set prompt.llm.max_output_tokens=6000 \
+    --set model.scene_model_id=stabilityai/sdxl-turbo \
+    --set model.anchor_bank_model_id=stabilityai/sdxl-turbo \
+    --set model.width=768 \
+    --set model.height=768 \
+    --set model.num_inference_steps=4 \
+    --set model.guidance_scale=0.0 \
+    --set generation.candidate_count=3 \
+    --set generation.identity_conditioning.scale=0.3 \
+    --dry-run
+done
+```
+
+Real run:
+
+```bash
+for story in 02 04 05 17; do
+  conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+    python scripts/run_auto_story_pipeline_modular.py \
+    --input "test_set/${story}.txt" \
+    --run-name "anchor_ipadapter_distilled_test_set_${story}" \
+    --output-root outputs_teammate/anchor_ipadapter_distilled_selected \
+    --single-env storygen \
+    --double-env storygen \
+    --single-route storygen \
+    --double-route storygen \
+    --set prompt.pipeline=llm_direct \
+    --set 'prompt.llm_direct.targets=["anchor"]' \
+    --set prompt.llm.max_output_tokens=6000 \
+    --set model.scene_model_id=stabilityai/sdxl-turbo \
+    --set model.anchor_bank_model_id=stabilityai/sdxl-turbo \
+    --set model.width=768 \
+    --set model.height=768 \
+    --set model.num_inference_steps=4 \
+    --set model.guidance_scale=0.0 \
+    --set generation.candidate_count=3 \
+    --set generation.identity_conditioning.scale=0.3
+done
+```
+
+Expected run folders:
+
+```text
+outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_test_set_02
+outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_test_set_04
+outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_test_set_05
+outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_test_set_17
+```
+
+## Batch C: Anchor Bank + IP-Adapter, Non-Distilled SDXL
+
+This uses the non-distilled SDXL base model with higher step count and normal CFG.
+
+Output root:
+
+```text
+outputs_teammate/anchor_ipadapter_sdxl_base_selected
+```
+
+Dry run:
+
+```bash
+for story in 02 04 05 17; do
+  conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+    python scripts/run_auto_story_pipeline_modular.py \
+    --input "test_set/${story}.txt" \
+    --run-name "anchor_ipadapter_sdxl_base_test_set_${story}" \
+    --output-root outputs_teammate/anchor_ipadapter_sdxl_base_selected \
+    --single-env storygen \
+    --double-env storygen \
+    --single-route storygen \
+    --double-route storygen \
+    --set prompt.pipeline=llm_direct \
+    --set 'prompt.llm_direct.targets=["anchor"]' \
+    --set prompt.llm.max_output_tokens=6000 \
+    --set model.scene_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
+    --set model.anchor_bank_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
+    --set model.width=768 \
+    --set model.height=768 \
+    --set model.num_inference_steps=35 \
+    --set model.guidance_scale=5.0 \
+    --set generation.candidate_count=3 \
+    --set generation.identity_conditioning.scale=0.3 \
+    --dry-run
+done
+```
+
+Real run:
+
+```bash
+for story in 02 04 05 17; do
+  conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+    python scripts/run_auto_story_pipeline_modular.py \
+    --input "test_set/${story}.txt" \
+    --run-name "anchor_ipadapter_sdxl_base_test_set_${story}" \
+    --output-root outputs_teammate/anchor_ipadapter_sdxl_base_selected \
+    --single-env storygen \
+    --double-env storygen \
+    --single-route storygen \
+    --double-route storygen \
+    --set prompt.pipeline=llm_direct \
+    --set 'prompt.llm_direct.targets=["anchor"]' \
+    --set prompt.llm.max_output_tokens=6000 \
+    --set model.scene_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
+    --set model.anchor_bank_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
+    --set model.width=768 \
+    --set model.height=768 \
+    --set model.num_inference_steps=35 \
+    --set model.guidance_scale=5.0 \
+    --set generation.candidate_count=3 \
+    --set generation.identity_conditioning.scale=0.3
+done
+```
+
+Expected run folders:
+
+```text
+outputs_teammate/anchor_ipadapter_sdxl_base_selected/anchor_ipadapter_sdxl_base_test_set_02
+outputs_teammate/anchor_ipadapter_sdxl_base_selected/anchor_ipadapter_sdxl_base_test_set_04
+outputs_teammate/anchor_ipadapter_sdxl_base_selected/anchor_ipadapter_sdxl_base_test_set_05
+outputs_teammate/anchor_ipadapter_sdxl_base_selected/anchor_ipadapter_sdxl_base_test_set_17
 ```
 
 ## What To Send Back
 
-Please send back:
+Please send these artifacts back.
 
-- `outputs_ablation/<run>/custom/suite_manifest.jsonl`
-- for each failed run, the terminal traceback and the run folder
-- for each representative run, the full run folder including:
-  - `identity_refs/`
-  - generated story images
-  - `manifest.json`
-  - `*.yaml`
-  - `*.storydiffusion_prompt_debug.json`
+Native StoryDiffusion:
 
-For quick visual review, prioritize:
+- `outputs_teammate/native_storydiffusion_llm_direct_selected/custom/suite_manifest.jsonl`
+- each selected run folder
+- especially `identity_refs/`, generated story images, `manifest.json`, `*.yaml`, and `*.storydiffusion_prompt_debug.json`
 
-- `native_natural_id1_test_setA_19`
-- `native_natural_id1_test_setA_03`
-- `native_natural_id1_test_set_06`
-- one robot run, e.g. `native_natural_id1_test_setA_13`
-- one animal single run, e.g. `native_natural_id1_test_set_extra_03`
+Anchor + IP-Adapter:
+
+- all four run folders under `outputs_teammate/anchor_ipadapter_distilled_selected/`
+- all four run folders under `outputs_teammate/anchor_ipadapter_sdxl_base_selected/`
+- for each run: `run_summary.json`, `manifest.json` if present, `logs/prompt_bundle.json`, `logs/story_scene_plans.json`, `anchors/`, and generated scene images
+
+If any run fails, send:
+
+- terminal traceback
+- exact command
+- output folder if it was created
+- `logs/` folder if present
 
 ## Notes
 
-- `--native-id-lengths 1` means one front-loaded identity reference prompt per character. This usually avoids multiplying bad identity refs.
-- `--save-identity-images` saves those front-loaded identity frames under `identity_refs/` so we can inspect whether the identity bank itself is clean.
-- `--resume` skips completed run folders when `manifest.json` or `run_summary.json` exists.
-- `--continue-on-error` keeps the suite moving if one story fails.
-- Use separate `--output-root` folders when comparing `--native-sd-type`; otherwise run names can collide because model type is not part of the experiment name.
+- Native StoryDiffusion uses `--storydiffusion-prompt-mode llm_direct`, so prompt generation uses the new best-effort `llm_direct` pipeline.
+- Anchor + IP-Adapter commands use `prompt.pipeline=llm_direct` with `prompt.llm_direct.targets=["anchor"]`; this generates only anchor-compatible prompts.
+- Batch B and Batch C intentionally use separate output roots so distilled and non-distilled outputs never collide.
+- `generation.candidate_count=3` is intentional and should not be lowered unless the run fails from memory.
+- For non-distilled SDXL, use `35` steps and `guidance_scale=5.0`; for SDXL-Turbo, use `4` steps and `guidance_scale=0.0`.
