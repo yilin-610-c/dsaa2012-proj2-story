@@ -106,6 +106,25 @@ These fields are not local prompt ingredients. The LLM-authored `anchor_generati
 
 For the Anchor/IP-Adapter scene profile, `scene_change_level` is copied into `metadata.scene_route_hints` as `route_change_level`, and `cloud_anchor_ipadapter_scene` enables the existing route-aware scorer. This lets large/action-critical changes reduce previous-image consistency pressure and rely more on text/action evidence without asking the LLM to output numeric scorer weights.
 
+The current instruction also distinguishes prompt detail levels explicitly:
+
+- `anchor_generation_prompt` is the richest executable scene prompt and should include stable identity, current action, pose or object interaction, relevant setting/continuity anchor, spatial relation, visible near-miss-disambiguating evidence, and camera framing.
+- `action_prompt` stays short and focuses on the decisive visible action cue.
+- `scoring_prompt` stays short and focuses on the key action evidence needed for candidate selection.
+
+## Relaxed Validation
+
+`llm_direct` validation is now intentionally lighter. Repair is reserved for structural or backend-usability problems such as malformed payloads, missing target-required fields, bad ids/tags, invalid scene metadata enums, or anchor identity prompts that leak story scene content.
+
+Prompt-quality issues no longer trigger repair by default. Warnings are still logged in audit/debug outputs for:
+
+- scene plan fields not strongly reflected in the final prompt text
+- action or scoring prompts that are still usable but too generic
+- continuity anchors that are weakly reflected
+- reference-only wording or similar prompt-quality risks
+
+This reduces unnecessary extra LLM repair calls while preserving audit visibility into prompt quality.
+
 ## Prompt-Only Audit
 
 To regenerate clean native StoryDiffusion prompt debug files without image generation, run `run_test_set.py` without `--run`. This requires `OPENAI_API_KEY` because `clean` mode uses `llm_assisted_v9`.

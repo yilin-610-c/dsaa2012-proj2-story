@@ -665,7 +665,7 @@ def _validate_anchor_reference_prompt(
     if not any(term in lowered for term in SINGLE_SUBJECT_TERMS):
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "anchor_reference_missing_single_subject",
             path,
             f"{path} must request a single subject",
@@ -675,7 +675,7 @@ def _validate_anchor_reference_prompt(
     if not any(term in lowered for term in REFERENCE_FRAMING_TERMS):
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "anchor_reference_missing_clean_background",
             path,
             f"{path} must include simple/centered reference framing",
@@ -696,7 +696,7 @@ def _validate_anchor_prompt_has_no_tags(
     if tags:
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             code,
             path,
             f"{path} contains StoryDiffusion-style bracket tag(s): {', '.join(f'[{tag}]' for tag in tags[:4])}",
@@ -728,7 +728,7 @@ def _validate_anchor_generation_identity_context(
     if len(overlap) < required_overlap:
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "anchor_generation_missing_stable_identity",
             path,
             f"{path} does not include enough stable visual identity for {identity_conditioning_subject_id}",
@@ -743,7 +743,7 @@ def _validate_identity_reference_prompt(issues: list[ValidationIssue], field_nam
         if term in lowered:
             _add_issue(
                 issues,
-                "repair_error",
+                "warning",
                 "identity_reference_banned_layout",
                 field_name,
                 f"{field_name} contains banned identity-reference term: {term}",
@@ -765,7 +765,7 @@ def _validate_identity_boundary(
         if term in lowered:
             _add_issue(
                 issues,
-                "repair_error",
+                "warning",
                 "identity_narrative_habit",
                 path,
                 f"{path} contains narrative habit/personality wording: {term}",
@@ -792,7 +792,7 @@ def _validate_scene_prompt_not_reference_only(issues: list[ValidationIssue], fie
         if term in lowered:
             _add_issue(
                 issues,
-                "repair_error",
+                "warning",
                 "scene_prompt_reference_only_phrase",
                 field_name,
                 f"{field_name} contains reference-only phrase: {term}",
@@ -855,7 +855,7 @@ def _validate_stateful_scene_planning(
             elif final_prompts and not _phrase_reflected(value, final_prompts):
                 _add_issue(
                     issues,
-                    "repair_error",
+                    "warning",
                     f"scene_visual_plan_{field_name}_not_reflected",
                     path,
                     f"{path} is not reflected in final scene prompt(s)",
@@ -887,7 +887,7 @@ def _validate_stateful_scene_planning(
     if not str(scene.action_prompt or "").strip():
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "missing_action_prompt",
             f"{scene_path}.action_prompt",
             f"{scene.scene_id} must include action_prompt",
@@ -897,7 +897,7 @@ def _validate_stateful_scene_planning(
     elif scene.action_critical and not _text_reflects_plan(scene.action_prompt, visual_action, action_visibility_cue):
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "action_critical_action_prompt_too_generic",
             f"{scene_path}.action_prompt",
             f"{scene.scene_id} action_prompt is too generic for an action-critical scene",
@@ -909,7 +909,7 @@ def _validate_stateful_scene_planning(
         if not str(scene.scoring_prompt or "").strip():
             _add_issue(
                 issues,
-                "repair_error",
+                "warning",
                 "action_critical_missing_scoring_prompt",
                 f"{scene_path}.scoring_prompt",
                 f"{scene.scene_id} must include scoring_prompt for action-critical selection",
@@ -919,7 +919,7 @@ def _validate_stateful_scene_planning(
         elif not _text_reflects_plan(scene.scoring_prompt, visual_action, action_visibility_cue):
             _add_issue(
                 issues,
-                "repair_error",
+                "warning",
                 "action_critical_scoring_prompt_too_generic",
                 f"{scene_path}.scoring_prompt",
                 f"{scene.scene_id} scoring_prompt is too generic for action-critical candidate selection",
@@ -982,7 +982,7 @@ def _validate_visual_continuity_anchors(
             if final_prompts and not _phrase_reflected(phrase, final_prompts):
                 _add_issue(
                     issues,
-                    "repair_error",
+                    "warning",
                     "visual_anchor_not_reflected",
                     anchor_path,
                     f"{anchor_path} is not reflected in final prompt for {scene_id}",
@@ -1006,7 +1006,7 @@ def _validate_storydiffusion_scene_detail(
     if len(words) < min_words:
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "storydiffusion_scene_prompt_too_short",
             path,
             f"scenes[{scene_id}].storydiffusion_prompt is too short for a visual frame prompt; expected at least {min_words} words after tags",
@@ -1202,7 +1202,24 @@ def _words(value: str) -> list[str]:
 
 
 def _content_words(value: str) -> list[str]:
-    return [word.lower() for word in _words(value) if len(word) > 2 and word.lower() not in STOPWORDS]
+    return [_normalize_content_word(word) for word in _words(value) if len(word) > 2 and word.lower() not in STOPWORDS]
+
+
+def _normalize_content_word(word: str) -> str:
+    normalized = word.lower()
+    if len(normalized) > 5 and normalized.endswith("ing"):
+        normalized = normalized[:-3]
+        if len(normalized) >= 2 and normalized[-1] == normalized[-2]:
+            normalized = normalized[:-1]
+    elif len(normalized) > 4 and normalized.endswith("ed"):
+        normalized = normalized[:-2]
+        if len(normalized) >= 2 and normalized[-1] == normalized[-2]:
+            normalized = normalized[:-1]
+    elif len(normalized) > 4 and normalized.endswith("es"):
+        normalized = normalized[:-2]
+    elif len(normalized) > 3 and normalized.endswith("s"):
+        normalized = normalized[:-1]
+    return normalized
 
 
 def _final_scene_prompts(scene: Any, *, requested_targets: list[str]) -> list[str]:

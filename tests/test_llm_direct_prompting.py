@@ -349,7 +349,7 @@ def test_anchor_reference_rejects_storydiffusion_bracket_tags() -> None:
     )
     payload = NativePromptPayload.from_dict(raw)
     issues = validate_native_prompt_payload(payload, _story_single(), targets=["anchor"])
-    assert any(issue.severity == "repair_error" and issue.code == "anchor_reference_contains_storydiffusion_tag" for issue in issues)
+    assert any(issue.severity == "warning" and issue.code == "anchor_reference_contains_storydiffusion_tag" for issue in issues)
 
 
 def test_anchor_generation_requires_stable_identity_context() -> None:
@@ -357,7 +357,7 @@ def test_anchor_generation_requires_stable_identity_context() -> None:
     raw["scenes"][0]["anchor_generation_prompt"] = "Ben drives a car along a quiet road, medium shot"
     payload = NativePromptPayload.from_dict(raw)
     issues = validate_native_prompt_payload(payload, _story_single(), targets=["anchor"])
-    assert any(issue.severity == "repair_error" and issue.code == "anchor_generation_missing_stable_identity" for issue in issues)
+    assert any(issue.severity == "warning" and issue.code == "anchor_generation_missing_stable_identity" for issue in issues)
 
 
 def test_scene_prompts_reject_reference_only_constraints() -> None:
@@ -370,7 +370,7 @@ def test_scene_prompts_reject_reference_only_constraints() -> None:
     )
     payload = NativePromptPayload.from_dict(raw)
     errors = validate_native_prompt_payload(payload, _story_single(), targets=["anchor", "storydiffusion"])
-    assert any(error.severity == "repair_error" for error in errors)
+    assert any(error.severity == "warning" and error.code == "scene_prompt_reference_only_phrase" for error in errors)
     assert any("$.scenes[0].anchor_generation_prompt contains reference-only phrase" in error for error in errors)
     assert any("$.scenes[1].storydiffusion_prompt contains reference-only phrase" in error for error in errors)
 
@@ -420,7 +420,7 @@ def test_identity_leakage_is_repair_error_and_overlap_is_warning() -> None:
     raw["storydiffusion"]["general_prompt"] = "[Ben] a young man who often drives along roads"
     payload = NativePromptPayload.from_dict(raw)
     issues = validate_native_prompt_payload(payload, _story_single(), targets=["storydiffusion"])
-    assert any(issue.severity == "repair_error" and issue.code == "identity_narrative_habit" for issue in issues)
+    assert any(issue.severity == "warning" and issue.code == "identity_narrative_habit" for issue in issues)
 
 
 def test_pronoun_explicit_interaction_requires_both_participants() -> None:
@@ -521,6 +521,55 @@ def test_warning_only_does_not_trigger_repair() -> None:
     assert builder.last_warnings
 
 
+def test_paraphrased_visual_action_does_not_trigger_repair() -> None:
+    paraphrased = _payload(("anchor",))
+    paraphrased["visual_continuity_anchors"] = [
+        {
+            "anchor_id": "same_floor",
+            "type": "persistent_setting",
+            "applies_to_scene_ids": ["SCENE-1"],
+            "prompt_phrase": "same floor with colorful toys nearby",
+            "state_by_scene": [],
+        }
+    ]
+    paraphrased["scenes"][0]["anchor_generation_prompt"] = (
+        "a young man with short brown hair and a blue jacket sits cross-legged among colorful toys scattered on the floor, medium shot"
+    )
+    paraphrased["scenes"][0]["action_prompt"] = "sitting cross-legged on the floor"
+    paraphrased["scenes"][0]["scoring_prompt"] = "young man seated cross-legged on the floor among toys"
+    paraphrased["scenes"][0]["scene_visual_plan"] = {
+        "visual_action": "sitting on the floor",
+        "action_visibility_cue": "cross-legged posture among toys on the floor",
+        "camera_framing": "medium shot",
+    }
+
+    issues = validate_native_prompt_payload(NativePromptPayload.from_dict(paraphrased), _story_single(), targets=["anchor"])
+    assert not any(issue.severity in {"hard_error", "repair_error"} for issue in issues)
+
+    client = FakeLLMClient([paraphrased])
+    builder = LLMDirectPromptBuilder(
+        {
+            "llm": {"provider": "openai", "model": "fake"},
+            "llm_direct": {"targets": ["anchor"], "repair_attempts": 1},
+        },
+        llm_client=client,
+    )
+    payload = builder.build(_story_single())
+    assert payload.scenes[0].anchor_generation_prompt == paraphrased["scenes"][0]["anchor_generation_prompt"]
+    assert client.calls == 1
+
+
+def test_llm_direct_instruction_mentions_anchor_detail_policy() -> None:
+    builder = LLMDirectPromptBuilder({"llm_direct": {"targets": ["anchor"]}})
+    user_prompt = builder._build_messages(_story_single())[1]["content"]
+
+    assert "Different prompt fields use different detail levels" in user_prompt
+    assert "anchor_generation_prompt should be the richest executable scene prompt" in user_prompt
+    assert "2-4 concrete visible cues" in user_prompt
+    assert "Exact wording does not need to match scene_visual_plan" in user_prompt
+    assert "Do not mark every scene as action_critical" in user_prompt
+
+
 def test_repair_runs_until_valid_and_records_field_diff() -> None:
     invalid = _payload(("storydiffusion",))
     invalid["scenes"][0]["storydiffusion_prompt"] = "[Alex] driving a car"
@@ -583,7 +632,7 @@ def test_best_effort_can_allow_unresolved_boundary_errors() -> None:
     )
     payload = builder.build(_story_single())
     assert payload.characters[0].anchor_reference_prompt == invalid["characters"][0]["anchor_reference_prompt"]
-    assert builder.last_validation_status == "best_effort_with_unresolved_issues"
+    assert builder.last_validation_status == "passed_with_warnings"
     assert builder.last_generation_allowed is True
 
 
