@@ -7,6 +7,11 @@ This runbook asks a teammate to run two image-generation batches:
 
 The goal is to get real image outputs for qualitative comparison. Do not reduce image size, steps, or candidate settings unless the run fails from OOM.
 
+Working convention:
+
+- Final image-generation experiments should be run on the remote host.
+- Local runs are for prompt-only audit, unit tests, and low-budget sanity checks unless a task explicitly says otherwise.
+
 ## Setup
 
 Use this project repo plus the external official StoryDiffusion repo.

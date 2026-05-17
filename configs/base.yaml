@@ -339,6 +339,14 @@ runtime_profiles:
     scoring:
       route_aware:
         enabled: true
+        consistency_weight_by_change_level:
+          small: 0.20
+          medium: 0.10
+          large: 0.0
+        consistency_weight_by_change_level_when_action_critical:
+          small: 0.10
+          medium: 0.05
+          large: 0.0
   # Backward-compatible alias for older commands. Despite the historical name,
   # this route is a story-level wrapper over diffusers text2img with Anchor Bank
   # and IP-Adapter identity conditioning; it is not native StoryDiffusion.

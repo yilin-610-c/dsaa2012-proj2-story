@@ -104,13 +104,26 @@ The builder defaults to one repair attempt and best-effort continuation: hard or
 
 These fields are not local prompt ingredients. The LLM-authored `anchor_generation_prompt` and `storydiffusion_prompt` must already contain the relevant continuity anchors, action evidence, and framing. Validators check that the plan is reflected in the final prompt text and may request LLM repair, but adapters do not synthesize or rewrite visual content.
 
-For the Anchor/IP-Adapter scene profile, `scene_change_level` is copied into `metadata.scene_route_hints` as `route_change_level`, and `cloud_anchor_ipadapter_scene` enables the existing route-aware scorer. This lets large/action-critical changes reduce previous-image consistency pressure and rely more on text/action evidence without asking the LLM to output numeric scorer weights.
+For the Anchor/IP-Adapter scene profile, `scene_change_level` is copied into `metadata.scene_route_hints` as `route_change_level`, and `cloud_anchor_ipadapter_scene` enables the existing route-aware scorer. The scorer now treats `action_critical` as a direct weighting signal for this profile: `small/medium/large` changes use lower continuity weights, and `action_critical=true` lowers previous-image consistency further so CLIP selection can prioritize pose/action evidence over near-miss continuity. The score metadata records both the base weights and the effective weights after route-aware/action-critical adjustment.
 
 The current instruction also distinguishes prompt detail levels explicitly:
 
 - `anchor_generation_prompt` is the richest executable scene prompt and should include stable identity, current action, pose or object interaction, relevant setting/continuity anchor, spatial relation, visible near-miss-disambiguating evidence, and camera framing.
 - `action_prompt` stays short and focuses on the decisive visible action cue.
-- `scoring_prompt` stays short and focuses on the key action evidence needed for candidate selection.
+- `scoring_prompt` is a compact CLIP selection query rather than a scene summary. It stays short, focuses on the visible discriminator that separates the correct candidate from a near-miss, and avoids long identity descriptions or cinematic wording.
+
+Minimal sanity-check command for the Anchor scene profile:
+
+```bash
+conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+  python scripts/export_prompts.py \
+  --inputs test_set/04.txt test_set/extra_06.txt \
+  --output-dir outputs_anchor_fix/prompt_audit_stateful_scoring_check \
+  --pipelines llm_direct \
+  --llm-profile llm_prompt_anchor_bank \
+  --set 'prompt.llm_direct.targets=["anchor"]' \
+  --set prompt.llm.max_output_tokens=6000
+```
 
 ## Relaxed Validation
 

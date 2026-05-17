@@ -568,6 +568,10 @@ def test_llm_direct_instruction_mentions_anchor_detail_policy() -> None:
     assert "2-4 concrete visible cues" in user_prompt
     assert "Exact wording does not need to match scene_visual_plan" in user_prompt
     assert "Do not mark every scene as action_critical" in user_prompt
+    assert "scoring_prompt is used for CLIP-based candidate selection, not for image generation" in user_prompt
+    assert "short compact visual query, usually about 8-18 words" in user_prompt
+    assert "Compress the scene into a compact visual query for candidate selection" in user_prompt
+    assert "make scoring_prompt emphasize the visible action or pose over general identity or setting continuity" in user_prompt
 
 
 def test_visual_action_not_reflected_no_longer_emits_warning() -> None:

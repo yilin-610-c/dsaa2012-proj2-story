@@ -232,10 +232,13 @@ def test_route_aware_medium_lowers_consistency_weight_and_applies_penalty() -> N
         previous_results=[previous_result],
     )
 
-    assert score.metadata["weights"]["previous_image_consistency"] == 0.1
+    assert score.metadata["weights"]["previous_image_consistency"] == 0.3
+    assert score.metadata["effective_weights"]["previous_image_consistency"] == 0.1
     assert score.metadata["raw_weighted_score"] == 0.7375
     assert score.components["over_similarity_penalty"] == 0.05
     assert score.score == 0.6875
+    assert score.metadata["action_critical"] is False
+    assert score.metadata["route_aware"]["action_critical_override_applied"] is False
 
 
 def test_route_aware_large_can_select_less_similar_more_semantic_candidate() -> None:
@@ -298,3 +301,104 @@ def test_route_aware_large_can_select_less_similar_more_semantic_candidate() -> 
     assert score_a.components["over_similarity_penalty"] == 0.27
     assert score_b.components["over_similarity_penalty"] == 0.0
     assert selection.selected_candidate_index == 1
+
+
+def test_action_critical_route_aware_override_lowers_consistency_weight() -> None:
+    scorer = FakeCLIPConsistencyScorer()
+    scorer.scoring_config["route_aware"] = {
+        "enabled": True,
+        "consistency_weight_by_change_level": {"small": 0.2, "medium": 0.1, "large": 0.0},
+        "consistency_weight_by_change_level_when_action_critical": {"small": 0.1, "medium": 0.05, "large": 0.0},
+        "over_similarity_penalty": {
+            "enabled": True,
+            "threshold_by_change_level": {"small": None, "medium": 0.9, "large": 0.85},
+            "penalty_weight_by_change_level": {"medium": 0.15, "large": 0.25},
+        },
+    }
+    candidate = _candidate(0, "cand_a.png", {"route_change_level": "medium", "action_critical": True})
+    previous_result = SceneSelectionResult(
+        scene_id="SCENE-0",
+        selected_candidate_index=0,
+        selected_seed=1,
+        selected_image_path="prev.png",
+        selected_score=CandidateScore("SCENE-0", 0, 1, 1.0, "fake"),
+        candidate_scores=[],
+        candidate_image_paths=["prev.png"],
+    )
+
+    score = scorer.score_candidate(
+        story=_story(),
+        scene=_scene(),
+        prompt_spec=_prompt_spec(),
+        candidate=candidate,
+        previous_results=[previous_result],
+    )
+
+    assert score.metadata["weights"]["previous_image_consistency"] == 0.3
+    assert score.metadata["effective_weights"]["previous_image_consistency"] == 0.05
+    assert score.metadata["action_critical"] is True
+    assert score.metadata["route_aware"]["action_critical_override_applied"] is True
+    assert score.metadata["route_aware"]["base_consistency_weight"] == 0.1
+
+
+def test_action_critical_override_can_flip_selection_toward_better_action_match() -> None:
+    scorer = FakeCLIPConsistencyScorer()
+    scorer.scoring_config["route_aware"] = {
+        "enabled": True,
+        "consistency_weight_by_change_level": {"small": 0.2, "medium": 0.1, "large": 0.0},
+        "consistency_weight_by_change_level_when_action_critical": {"small": 0.1, "medium": 0.05, "large": 0.0},
+        "over_similarity_penalty": {
+            "enabled": True,
+            "threshold_by_change_level": {"small": None, "medium": 0.95, "large": 0.85},
+            "penalty_weight_by_change_level": {"medium": 0.0, "large": 0.25},
+        },
+    }
+    scorer.text_scores.update(
+        {
+            ("cand_a.png", "full"): 0.85,
+            ("cand_a.png", "local"): 0.85,
+            ("cand_b.png", "full"): 0.78,
+            ("cand_b.png", "local"): 0.78,
+        }
+    )
+    scorer.consistency_scores.update(
+        {
+            ("cand_a.png", "prev.png"): 0.2,
+            ("cand_b.png", "prev.png"): 0.95,
+        }
+    )
+    previous_result = SceneSelectionResult(
+        scene_id="SCENE-0",
+        selected_candidate_index=0,
+        selected_seed=1,
+        selected_image_path="prev.png",
+        selected_score=CandidateScore("SCENE-0", 0, 1, 1.0, "fake"),
+        candidate_scores=[],
+        candidate_image_paths=["prev.png"],
+    )
+    candidate_a = _candidate(0, "cand_a.png", {"route_change_level": "medium", "action_critical": True})
+    candidate_b = _candidate(1, "cand_b.png", {"route_change_level": "medium", "action_critical": True})
+
+    score_a = scorer.score_candidate(
+        story=_story(),
+        scene=_scene(),
+        prompt_spec=_prompt_spec(),
+        candidate=candidate_a,
+        previous_results=[previous_result],
+    )
+    score_b = scorer.score_candidate(
+        story=_story(),
+        scene=_scene(),
+        prompt_spec=_prompt_spec(),
+        candidate=candidate_b,
+        previous_results=[previous_result],
+    )
+    selection = scorer.select_best(
+        scene_id="SCENE-1",
+        candidates=[candidate_a, candidate_b],
+        candidate_scores=[score_a, score_b],
+    )
+
+    assert score_a.metadata["effective_weights"]["previous_image_consistency"] == 0.05
+    assert score_b.metadata["effective_weights"]["previous_image_consistency"] == 0.05
+    assert selection.selected_candidate_index == 0
