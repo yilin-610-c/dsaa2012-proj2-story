@@ -124,9 +124,38 @@ conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
   --output-dir outputs_anchor_fix/prompt_audit_stateful_scoring_check \
   --pipelines llm_direct \
   --llm-profile llm_prompt_anchor_bank \
-  --set 'prompt.llm_direct.targets=["anchor"]' \
+  --set 'prompt.llm_direct.targets=["anchor","storydiffusion"]' \
   --set prompt.llm.max_output_tokens=6000
 ```
+
+## Subject-Type Identity Conditioning Scale
+
+The Anchor/IP-Adapter path supports config-driven scale overrides by LLM-owned `subject_type`:
+
+```yaml
+generation:
+  identity_conditioning:
+    scale: 0.6
+    scale_by_subject_type:
+      animal: 0.1
+      robot: 0.1
+      object: 0.1
+      vehicle: 0.1
+```
+
+Humans keep the normal `scale` value. Non-human subjects use the configured override by default so IP-Adapter preserves broad identity cues without over-constraining action or pose. The selected scale, subject type, and scale reason are recorded in generation metadata/events.
+
+## Story-Level Candidate Selection
+
+Story-level backends no longer generate multiple candidates and silently select candidate 0. When `generation.candidate_count > 1`, each candidate is generated as a complete panel sequence. The existing per-image scorer scores each panel, scores are averaged within each story candidate, and the pipeline selects the highest-scoring complete sequence.
+
+This preserves story-level consistency by avoiding a mixture of panels from different seeds while still making candidate selection inspectable. The run writes:
+
+```text
+logs/story_candidate_selection.json
+```
+
+with `story_candidate_index`, `story_candidate_seed`, `panel_scores`, `aggregate_score`, and `aggregation_method: mean`.
 
 ## Relaxed Validation
 

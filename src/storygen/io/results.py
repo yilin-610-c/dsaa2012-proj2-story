@@ -106,6 +106,7 @@ def build_manifest(summary: RunSummary) -> dict[str, Any]:
         "run_directory": summary.run_directory,
         "config_path": str(Path(summary.run_directory) / "config_resolved.yaml"),
         "summary_path": str(Path(summary.run_directory) / "run_summary.json"),
+        "metadata": summary.metadata,
         "selected_outputs": [
             {
                 "scene_id": result.scene_id,

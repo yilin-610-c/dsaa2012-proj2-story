@@ -34,8 +34,26 @@ def test_cloud_anchor_ipadapter_scene_enables_route_aware_scoring() -> None:
     config = resolve_config("configs/base.yaml", "cloud_anchor_ipadapter_scene")
 
     assert config["prompt"]["pipeline"] == "llm_direct"
+    assert config["prompt"]["llm_direct"]["targets"] == ["anchor", "storydiffusion"]
+    assert config["prompt"]["manual_payload"]["path"] is None
     assert config["scoring"]["route_aware"]["enabled"] is True
     assert config["scoring"]["route_aware"]["consistency_weight_by_change_level"]["large"] == 0.0
+    assert config["scoring"]["route_aware"]["consistency_weight_by_change_level_when_action_critical"]["medium"] == 0.05
+    assert config["generation"]["identity_conditioning"]["scale_by_subject_type"]["animal"] == 0.1
+
+
+def test_dit_profiles_are_optional_and_do_not_replace_main_profiles() -> None:
+    anchor = resolve_config("configs/base.yaml", "cloud_anchor_ipadapter_scene")
+    dit_scene = resolve_config("configs/base.yaml", "dit_smoke_test")
+    dit_story = resolve_config("configs/base.yaml", "dit_story_joint_smoke")
+
+    assert anchor["model"]["backend"] == "diffusers_text2img"
+    assert dit_scene["model"]["backend"] == "dit_text2img"
+    assert dit_scene["model"]["granularity"] == "scene"
+    assert dit_story["model"]["backend"] == "dit_story_joint"
+    assert dit_story["model"]["granularity"] == "story"
+    assert dit_scene["generation"]["identity_conditioning"]["enabled"] is False
+    assert dit_story["generation"]["anchor_bank"]["enabled"] is False
 
 
 def test_resolve_config_supports_extension_profiles() -> None:

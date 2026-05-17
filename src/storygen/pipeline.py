@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from shutil import copyfile
 from typing import Any
 
 from storygen import __version__
@@ -32,6 +33,7 @@ from storygen.routing import choose_scene_route
 from storygen.scoring import CLIPConsistencyScorer, HeuristicScorer
 from storygen.types import (
     CandidateScore,
+    GenerationCandidate,
     GenerationRequest,
     PromptBundle,
     RunContext,
@@ -85,6 +87,7 @@ def _build_story_generation_request(
     *,
     scene_plans: list[StoryScenePlan] | None = None,
     anchor_bank_summary: dict[str, Any] | None = None,
+    seed_override: int | None = None,
 ) -> StoryGenerationRequest:
     story_prompt = prompt_bundle.story_prompt
     if story_prompt is not None:
@@ -103,9 +106,10 @@ def _build_story_generation_request(
         style_name = config["prompt"].get("style_name")
         negative_prompt = config["prompt"].get("negative_prompt", "")
 
+    seed = seed_override if seed_override is not None else int(config["generation"]["base_seed"])
     return StoryGenerationRequest(
         story_id=Path(story.source_path).stem,
-        seed=int(config["generation"]["base_seed"]),
+        seed=seed,
         character_description=character_description,
         panel_prompts=panel_prompts,
         num_identity_panels=num_identity_panels,
@@ -210,6 +214,8 @@ def _run_story_backend_placeholder(
     *,
     scene_plans: list[StoryScenePlan],
     anchor_bank_summary: dict[str, Any],
+    seed_override: int | None = None,
+    story_candidate_index: int | None = None,
 ) -> StoryGenerationResult:
     append_event(
         run_context,
@@ -226,18 +232,51 @@ def _run_story_backend_placeholder(
         config,
         scene_plans=scene_plans,
         anchor_bank_summary=anchor_bank_summary,
+        seed_override=seed_override,
     )
-    save_json(
-        run_context.logs_directory / "story_backend_request.json",
-        {
-            "story_id": request.story_id,
-            "scene_plans": request.scene_plans,
-            "anchor_bank_summary": request.anchor_bank_summary,
-            "character_specs": request.character_specs,
-            "panel_prompts": request.panel_prompts,
-        },
-    )
+    request_payload = {
+        "story_id": request.story_id,
+        "seed": request.seed,
+        "story_candidate_index": story_candidate_index,
+        "scene_plans": request.scene_plans,
+        "anchor_bank_summary": request.anchor_bank_summary,
+        "character_specs": request.character_specs,
+        "panel_prompts": request.panel_prompts,
+    }
+    save_json(run_context.logs_directory / "story_backend_request.json", request_payload)
+    if story_candidate_index is not None:
+        save_json(
+            run_context.logs_directory / f"story_backend_request_candidate_{story_candidate_index:03d}.json",
+            request_payload,
+        )
     return generator.generate_story(request)
+
+
+def _save_story_panel_candidate(
+    panel_output: Any,
+    run_context: RunContext,
+    *,
+    scene_index: int,
+    story_candidate_index: int,
+    seed: int,
+) -> str:
+    scene_dir = scene_directory(run_context, scene_index)
+    candidates_dir = scene_dir / "candidates"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    output_path = candidates_dir / f"cand_{story_candidate_index:03d}_seed_{seed}.png"
+    if panel_output.image is not None:
+        panel_output.image.save(output_path)
+    elif panel_output.image_path:
+        copyfile(panel_output.image_path, output_path)
+    else:
+        return ""
+    return str(output_path)
+
+
+def _aggregate_candidate_scores(candidate_scores: list[CandidateScore]) -> float:
+    if not candidate_scores:
+        return 0.0
+    return round(sum(float(score.score) for score in candidate_scores) / len(candidate_scores), 6)
 
 
 def run_pipeline(config: dict[str, Any]) -> RunSummary:
@@ -302,6 +341,7 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         "anchor_type": config.get("generation", {}).get("identity_conditioning", {}).get("anchor_type"),
         "apply_to_modes": config.get("generation", {}).get("identity_conditioning", {}).get("apply_to_modes", []),
         "scale": config.get("generation", {}).get("identity_conditioning", {}).get("scale"),
+        "scale_by_subject_type": config.get("generation", {}).get("identity_conditioning", {}).get("scale_by_subject_type", {}),
         "adapter_model_id": config.get("generation", {}).get("identity_conditioning", {}).get("adapter_model_id"),
         "adapter_subfolder": config.get("generation", {}).get("identity_conditioning", {}).get("adapter_subfolder"),
         "adapter_weight_name": config.get("generation", {}).get("identity_conditioning", {}).get("adapter_weight_name"),
@@ -346,52 +386,163 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         if scene_plans:
             prompt_bundle.metadata["previous_style_reference_path"] = next(iter(dual_face_refs.values()), {}).get("group_style_reference_path") if dual_face_refs else None
         save_json(run_context.logs_directory / "story_scene_plans.json", scene_plans)
-        story_result = _run_story_backend_placeholder(
-            story,
-            prompt_bundle,
-            generator,
-            run_context,
-            config,
-            scene_plans=scene_plans,
-            anchor_bank_summary=anchor_bank_summary,
+        scorer = _build_scorer(config)
+        base_seed = int(config["generation"]["base_seed"])
+        candidate_count = int(config["generation"]["candidate_count"])
+        story_candidate_payloads: list[dict[str, Any]] = []
+        candidates_by_scene: dict[str, list[GenerationCandidate]] = {scene.scene_id: [] for scene in story.scenes}
+        scores_by_scene: dict[str, list[CandidateScore]] = {scene.scene_id: [] for scene in story.scenes}
+
+        for story_candidate_index in range(candidate_count):
+            story_candidate_seed = _seed_for_candidate(base_seed, 0, story_candidate_index)
+            story_result = _run_story_backend_placeholder(
+                story,
+                prompt_bundle,
+                generator,
+                run_context,
+                config,
+                scene_plans=scene_plans,
+                anchor_bank_summary=anchor_bank_summary,
+                seed_override=story_candidate_seed,
+                story_candidate_index=story_candidate_index,
+            )
+            previous_story_candidate_results: list[SceneSelectionResult] = []
+            panel_scores: list[CandidateScore] = []
+            panel_paths: list[str] = []
+            for panel_output, scene in zip(story_result.panel_outputs, story.scenes):
+                prompt_spec = prompt_specs[scene.scene_id]
+                candidate_path = _save_story_panel_candidate(
+                    panel_output,
+                    run_context,
+                    scene_index=scene.index,
+                    story_candidate_index=story_candidate_index,
+                    seed=story_candidate_seed,
+                )
+                panel_output.image = None
+                panel_output.image_path = candidate_path
+                candidate = GenerationCandidate(
+                    scene_id=scene.scene_id,
+                    candidate_index=story_candidate_index,
+                    seed=story_candidate_seed,
+                    prompt_spec=prompt_spec,
+                    image=None,
+                    image_path=candidate_path,
+                    metadata={
+                        **dict(panel_output.metadata or {}),
+                        "story_candidate_index": story_candidate_index,
+                        "story_candidate_seed": story_candidate_seed,
+                    },
+                )
+                score = scorer.score_candidate(
+                    story=story,
+                    scene=scene,
+                    prompt_spec=prompt_spec,
+                    candidate=candidate,
+                    previous_results=previous_story_candidate_results,
+                )
+                score.metadata.update(
+                    {
+                        "story_candidate_index": story_candidate_index,
+                        "story_candidate_seed": story_candidate_seed,
+                    }
+                )
+                panel_scores.append(score)
+                panel_paths.append(candidate_path)
+                candidates_by_scene[scene.scene_id].append(candidate)
+                scores_by_scene[scene.scene_id].append(score)
+                previous_story_candidate_results.append(
+                    SceneSelectionResult(
+                        scene_id=scene.scene_id,
+                        selected_candidate_index=story_candidate_index,
+                        selected_seed=story_candidate_seed,
+                        selected_image_path=candidate_path,
+                        selected_score=score,
+                        candidate_scores=[score],
+                        candidate_image_paths=[candidate_path] if candidate_path else [],
+                    )
+                )
+
+            aggregate_score = _aggregate_candidate_scores(panel_scores)
+            story_candidate_payloads.append(
+                {
+                    "story_candidate_index": story_candidate_index,
+                    "story_candidate_seed": story_candidate_seed,
+                    "panel_scores": panel_scores,
+                    "panel_image_paths": panel_paths,
+                    "aggregate_score": aggregate_score,
+                    "aggregation_method": "mean",
+                    "backend": story_result.backend,
+                    "metadata": story_result.metadata,
+                }
+            )
+
+        winning_story_candidate = sorted(
+            story_candidate_payloads,
+            key=lambda payload: (-float(payload["aggregate_score"]), int(payload["story_candidate_index"])),
+        )[0]
+        winning_story_candidate_index = int(winning_story_candidate["story_candidate_index"])
+        winning_story_candidate_seed = int(winning_story_candidate["story_candidate_seed"])
+        save_json(
+            run_context.logs_directory / "story_candidate_selection.json",
+            {
+                "selection_policy": "aggregate_panel_scores",
+                "aggregation_method": "mean",
+                "winning_story_candidate_index": winning_story_candidate_index,
+                "winning_story_candidate_seed": winning_story_candidate_seed,
+                "story_candidates": story_candidate_payloads,
+            },
         )
         scene_results = []
-        for panel_output, scene in zip(story_result.panel_outputs, story.scenes):
+        for scene in story.scenes:
             scene_dir = scene_directory(run_context, scene.index)
             scene_dir.mkdir(parents=True, exist_ok=True)
             save_json(scene_dir / "prompt.json", prompt_specs[scene.scene_id])
-            if panel_output.image_path:
-                selected_path = save_selected_image(panel_output.image_path, run_context, scene.index)
-            elif panel_output.image is not None:
-                candidate_path = save_candidate_image(panel_output.image, run_context, scene.index, 0, int(config["generation"]["base_seed"]) + scene.index)
-                selected_path = save_selected_image(candidate_path, run_context, scene.index)
-            else:
-                selected_path = ""
-            panel_output.image = None
-            panel_output.image_path = selected_path
+            scene_candidates = candidates_by_scene[scene.scene_id]
+            scene_scores = scores_by_scene[scene.scene_id]
+            selected_candidate = next(
+                candidate for candidate in scene_candidates if candidate.candidate_index == winning_story_candidate_index
+            )
+            selected_score = next(
+                score for score in scene_scores if score.candidate_index == winning_story_candidate_index
+            )
+            selected_score.metadata.update(
+                {
+                    "story_candidate_aggregate_score": winning_story_candidate["aggregate_score"],
+                    "story_candidate_aggregation_method": "mean",
+                    "winning_story_candidate_index": winning_story_candidate_index,
+                    "winning_story_candidate_seed": winning_story_candidate_seed,
+                }
+            )
+            selected_path = save_selected_image(selected_candidate.image_path, run_context, scene.index) if selected_candidate.image_path else ""
             save_json(
                 scene_dir / "scene_result.json",
                 {
                     "scene": scene,
-                    "selection": panel_output,
-                    "candidates": [panel_output],
+                    "selection": SceneSelectionResult(
+                        scene_id=scene.scene_id,
+                        selected_candidate_index=winning_story_candidate_index,
+                        selected_seed=winning_story_candidate_seed,
+                        selected_image_path=selected_path,
+                        selected_score=selected_score,
+                        candidate_scores=sorted(scene_scores, key=lambda item: item.candidate_index),
+                        candidate_image_paths=[
+                            candidate.image_path or "" for candidate in sorted(scene_candidates, key=lambda item: item.candidate_index)
+                        ],
+                    ),
+                    "candidates": sorted(scene_candidates, key=lambda item: item.candidate_index),
                 },
             )
             scene_results.append(
                 SceneSelectionResult(
                     scene_id=scene.scene_id,
-                    selected_candidate_index=0,
-                    selected_seed=int(config["generation"]["base_seed"]) + scene.index,
+                    selected_candidate_index=winning_story_candidate_index,
+                    selected_seed=winning_story_candidate_seed,
                     selected_image_path=selected_path,
-                    selected_score=CandidateScore(
-                        scene_id=scene.scene_id,
-                        candidate_index=0,
-                        seed=int(config["generation"]["base_seed"]) + scene.index,
-                        score=0.0,
-                        scorer_name="storydiffusion_direct",
-                    ),
-                    candidate_scores=[],
-                    candidate_image_paths=[selected_path] if selected_path else [],
+                    selected_score=selected_score,
+                    candidate_scores=sorted(scene_scores, key=lambda item: item.candidate_index),
+                    candidate_image_paths=[
+                        candidate.image_path or "" for candidate in sorted(scene_candidates, key=lambda item: item.candidate_index)
+                    ],
                 )
             )
         summary = RunSummary(
@@ -409,10 +560,19 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
             input_story_path=story.source_path,
             output_root=str(run_context.output_root),
             run_directory=str(run_context.run_directory),
-            base_seed=int(config["generation"]["base_seed"]),
-            candidate_count=int(config["generation"]["candidate_count"]),
+            base_seed=base_seed,
+            candidate_count=candidate_count,
             resolved_config=config,
             scene_results=scene_results,
+            metadata={
+                "story_candidate_selection": {
+                    "selection_policy": "aggregate_panel_scores",
+                    "aggregation_method": "mean",
+                    "winning_story_candidate_index": winning_story_candidate_index,
+                    "winning_story_candidate_seed": winning_story_candidate_seed,
+                    "winning_story_candidate_aggregate_score": winning_story_candidate["aggregate_score"],
+                }
+            },
         )
         save_json(run_context.run_directory / "run_summary.json", summary)
         save_json(run_context.run_directory / "manifest.json", build_manifest(summary))
@@ -523,6 +683,9 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                         anchor_type=identity_options.get("identity_anchor_type"),
                         anchor_path=reference_image_path,
                         generation_mode=route_decision.generation_mode,
+                        subject_type=identity_options.get("identity_anchor_subject_type"),
+                        scale=identity_options.get("ip_adapter_scale"),
+                        scale_reason=identity_options.get("ip_adapter_scale_reason"),
                     )
                 else:
                     append_event(
@@ -577,6 +740,8 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                     anchor_type=candidate.metadata.get("identity_anchor_type"),
                     anchor_path=candidate.metadata.get("identity_anchor_path"),
                     scale=candidate.metadata.get("ip_adapter_scale"),
+                    scale_reason=candidate.metadata.get("ip_adapter_scale_reason"),
+                    subject_type=candidate.metadata.get("identity_anchor_subject_type"),
                 )
             candidate.image_path = save_candidate_image(candidate.image, run_context, scene.index, candidate_index, seed)
             candidate.image = None

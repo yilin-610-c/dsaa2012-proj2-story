@@ -6,6 +6,7 @@ from storygen.generators import BaseSceneGenerator, BaseStoryGenerator
 from storygen.pipeline import run_pipeline
 from storygen.prompt_builder import PromptBuilder
 from storygen.types import (
+    CandidateScore,
     GenerationCandidate,
     GenerationRequest,
     PanelGenerationOutput,
@@ -72,6 +73,20 @@ class FakeStoryGenerator(BaseStoryGenerator):
                 for plan in request.scene_plans
             ],
             metadata={"scene_plan_count": len(request.scene_plans)},
+        )
+
+
+class PreferSecondStoryCandidateScorer:
+    def score_candidate(self, *, story, scene, prompt_spec, candidate, previous_results):
+        del story, scene, prompt_spec, previous_results
+        score = 0.9 if candidate.candidate_index == 1 else 0.1
+        return CandidateScore(
+            scene_id=candidate.scene_id,
+            candidate_index=candidate.candidate_index,
+            seed=candidate.seed,
+            score=score,
+            scorer_name="prefer_second_story_candidate",
+            metadata={"test_scorer": True},
         )
 
 
@@ -596,6 +611,50 @@ def test_story_backend_receives_prompt_audit_scene_plans(tmp_path, monkeypatch) 
     assert request.scene_plans[0].generation_prompt == "optimized prompt audit generation for SCENE-1"
     assert request.scene_plans[0].route_hint["route_hint_adjustment_reason"] == "visible_character_change"
     assert request.scene_plans[0].prompt_spec.scene_consistency_prompt == "consistent story context for SCENE-1"
+
+
+def test_story_backend_candidate_selection_aggregates_whole_story_candidates(tmp_path, monkeypatch) -> None:
+    story_generator = FakeStoryGenerator()
+    scene_stub_generator = FakeSceneGenerator()
+
+    def fake_build_generation_backend(model_config, runtime_config):
+        if model_config.get("backend") == "storydiffusion_direct":
+            return story_generator
+        return scene_stub_generator
+
+    monkeypatch.setattr("storygen.pipeline.build_generation_backend", fake_build_generation_backend)
+    monkeypatch.setattr("storygen.pipeline._build_scorer", lambda config: PreferSecondStoryCandidateScorer())
+    monkeypatch.setattr(
+        "storygen.pipeline.build_prompt_pipeline",
+        lambda prompt, event_logger=None: FakeStoryPromptAuditPipeline(prompt),
+    )
+    monkeypatch.setattr("storygen.pipeline.run_anchor_bank", lambda **kwargs: {"enabled": False, "characters": {}})
+    config = resolve_config(
+        "configs/base.yaml",
+        "cloud_storydiffusion_debug",
+        overrides={
+            "runtime.output_root": str(tmp_path),
+            "runtime.run_name": "story_candidate_selection",
+            "runtime.input_path": "test_set/06.txt",
+            "generation.candidate_count": 2,
+            "generation.identity_conditioning.fail_on_missing_anchor": False,
+        },
+    )
+
+    summary = run_pipeline(config)
+    run_dir = Path(summary.run_directory)
+    selection_log = json.loads((run_dir / "logs" / "story_candidate_selection.json").read_text(encoding="utf-8"))
+    scene_one = json.loads((run_dir / "scenes" / "scene_001" / "scene_result.json").read_text(encoding="utf-8"))
+
+    assert len(story_generator.requests) == 2
+    assert selection_log["winning_story_candidate_index"] == 1
+    assert selection_log["story_candidates"][0]["aggregate_score"] == 0.1
+    assert selection_log["story_candidates"][1]["aggregate_score"] == 0.9
+    assert summary.metadata["story_candidate_selection"]["winning_story_candidate_index"] == 1
+    assert all(result.selected_candidate_index == 1 for result in summary.scene_results)
+    assert scene_one["selection"]["selected_candidate_index"] == 1
+    assert len(scene_one["selection"]["candidate_scores"]) == 2
+    assert len(scene_one["candidates"]) == 2
 
 
 def test_anchor_bank_enabled_generates_run_local_anchors_without_scene_reference_paths(tmp_path, monkeypatch) -> None:

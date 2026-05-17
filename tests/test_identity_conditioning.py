@@ -18,6 +18,12 @@ def _identity_config(*, fail_on_missing_anchor: bool = True) -> dict:
         "anchor_type": "half_body",
         "apply_to_modes": ["text2img"],
         "scale": 0.6,
+        "scale_by_subject_type": {
+            "animal": 0.1,
+            "robot": 0.1,
+            "object": 0.1,
+            "vehicle": 0.1,
+        },
         "adapter_model_id": "h94/IP-Adapter",
         "adapter_subfolder": "sdxl_models",
         "adapter_weight_name": "ip-adapter_sdxl.bin",
@@ -34,8 +40,8 @@ def _anchor_bank(tmp_path: Path) -> dict:
     sara.write_bytes(b"fake")
     return {
         "characters": {
-            "Jack": {"anchors": {"half_body": {"image_path": str(jack)}}},
-            "Sara": {"anchors": {"half_body": {"image_path": str(sara)}}},
+            "Jack": {"character_spec": {"subject_type": "human"}, "anchors": {"half_body": {"image_path": str(jack)}}},
+            "Sara": {"character_spec": {"subject_type": "human"}, "anchors": {"half_body": {"image_path": str(sara)}}},
         }
     }
 
@@ -178,3 +184,68 @@ def test_select_identity_anchor_prefers_canonical_half_body_path(tmp_path: Path)
     )
 
     assert result["identity_anchor_path"] == str(canonical)
+
+
+def test_non_human_subject_type_uses_configured_ip_adapter_scale(tmp_path: Path) -> None:
+    anchor = tmp_path / "anchors" / "Bird" / "half_body.png"
+    anchor.parent.mkdir(parents=True)
+    anchor.write_bytes(b"fake")
+
+    result = select_identity_anchor(
+        scene=_scene(["Bird"]),
+        route_hint={},
+        generation_mode="text2img",
+        anchor_bank_summary={
+            "characters": {
+                "Bird": {
+                    "character_spec": {"subject_type": "animal"},
+                    "anchors": {"half_body": {"image_path": str(anchor)}},
+                }
+            }
+        },
+        identity_config=_identity_config(),
+    )
+
+    assert result["ip_adapter_scale"] == 0.1
+    assert result["identity_anchor_subject_type"] == "animal"
+    assert result["ip_adapter_scale_reason"] == "scale_by_subject_type:animal"
+
+
+def test_human_subject_type_keeps_default_ip_adapter_scale(tmp_path: Path) -> None:
+    result = select_identity_anchor(
+        scene=_scene(["Jack"]),
+        route_hint={},
+        generation_mode="text2img",
+        anchor_bank_summary=_anchor_bank(tmp_path),
+        identity_config=_identity_config(),
+    )
+
+    assert result["ip_adapter_scale"] == 0.6
+    assert result["identity_anchor_subject_type"] == "human"
+    assert result["ip_adapter_scale_reason"] == "default_scale"
+
+
+def test_subject_type_scale_can_be_overridden(tmp_path: Path) -> None:
+    anchor = tmp_path / "anchors" / "Robot" / "half_body.png"
+    anchor.parent.mkdir(parents=True)
+    anchor.write_bytes(b"fake")
+    config = _identity_config()
+    config["scale_by_subject_type"]["robot"] = 0.2
+
+    result = select_identity_anchor(
+        scene=_scene(["Robot"]),
+        route_hint={},
+        generation_mode="text2img",
+        anchor_bank_summary={
+            "characters": {
+                "Robot": {
+                    "character_spec": {"subject_type": "robot"},
+                    "anchors": {"half_body": {"image_path": str(anchor)}},
+                }
+            }
+        },
+        identity_config=config,
+    )
+
+    assert result["ip_adapter_scale"] == 0.2
+    assert result["ip_adapter_scale_reason"] == "scale_by_subject_type:robot"

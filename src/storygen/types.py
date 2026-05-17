@@ -226,6 +226,7 @@ class RunSummary:
     candidate_count: int
     resolved_config: dict[str, Any]
     scene_results: list[SceneSelectionResult]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

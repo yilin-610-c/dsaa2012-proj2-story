@@ -159,7 +159,7 @@ for story in 02 04 05 17; do
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
-    --set 'prompt.llm_direct.targets=["anchor"]' \
+    --set 'prompt.llm_direct.targets=["anchor","storydiffusion"]' \
     --set prompt.llm.max_output_tokens=6000 \
     --set model.model_id=stabilityai/sdxl-turbo \
     --set model.anchor_bank_model_id=stabilityai/sdxl-turbo \
@@ -188,7 +188,7 @@ for story in 02 04 05 17; do
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
-    --set 'prompt.llm_direct.targets=["anchor"]' \
+    --set 'prompt.llm_direct.targets=["anchor","storydiffusion"]' \
     --set prompt.llm.max_output_tokens=6000 \
     --set model.model_id=stabilityai/sdxl-turbo \
     --set model.anchor_bank_model_id=stabilityai/sdxl-turbo \
@@ -235,7 +235,7 @@ for story in 02 04 05 17; do
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
-    --set 'prompt.llm_direct.targets=["anchor"]' \
+    --set 'prompt.llm_direct.targets=["anchor","storydiffusion"]' \
     --set prompt.llm.max_output_tokens=6000 \
     --set model.model_id=stabilityai/stable-diffusion-xl-base-1.0 \
     --set model.anchor_bank_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
@@ -264,7 +264,7 @@ for story in 02 04 05 17; do
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
-    --set 'prompt.llm_direct.targets=["anchor"]' \
+    --set 'prompt.llm_direct.targets=["anchor","storydiffusion"]' \
     --set prompt.llm.max_output_tokens=6000 \
     --set model.model_id=stabilityai/stable-diffusion-xl-base-1.0 \
     --set model.anchor_bank_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
@@ -312,9 +312,10 @@ If any run fails, send:
 ## Notes
 
 - Native StoryDiffusion uses `--storydiffusion-prompt-mode llm_direct`, so prompt generation uses the new best-effort `llm_direct` pipeline.
-- Anchor + IP-Adapter commands use `prompt.pipeline=llm_direct` with `prompt.llm_direct.targets=["anchor"]`; this generates only anchor-compatible prompts.
+- Anchor + IP-Adapter commands use `prompt.pipeline=llm_direct` with `prompt.llm_direct.targets=["anchor","storydiffusion"]`; the Anchor adapter consumes the Anchor fields, and the same payload also records StoryDiffusion-ready prompts for comparison/debug.
 - For manual prompt search, use `prompt.pipeline=manual_payload` with `prompt.manual_payload.path=<json>`. This bypasses the LLM and copies final executable prompts from the JSON payload into the same Anchor Bank + IP-Adapter scene pipeline.
 - Batch B and Batch C use the scene-level `cloud_anchor_ipadapter_scene` profile. Do not use the older `cloud_anchor_ipadapter_story` profile for final Anchor + IP-Adapter runs; that legacy story wrapper bypasses scene multi-candidate CLIP selection.
+- DiT/PixArt profiles are optional comparison backends only. They are not part of the default teammate native StoryDiffusion or Anchor + IP-Adapter batches.
 - Batch B and Batch C intentionally use separate output roots so distilled and non-distilled outputs never collide.
 - `generation.candidate_count=3` is intentional and should not be lowered unless the run fails from memory.
 - For non-distilled SDXL, use `35` steps and `guidance_scale=5.0`; for SDXL-Turbo, use `4` steps and `guidance_scale=0.0`.

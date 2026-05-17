@@ -45,6 +45,30 @@ def _resolve_anchor_image_path(anchor_payload: dict[str, Any] | None) -> str:
     return str(anchor_payload.get("image_path") or "").strip()
 
 
+def _subject_type_for_anchor(character_payload: dict[str, Any]) -> str:
+    raw_subject_type = character_payload.get("subject_type")
+    if not raw_subject_type:
+        character_spec = character_payload.get("character_spec")
+        if isinstance(character_spec, dict):
+            raw_subject_type = character_spec.get("subject_type")
+    return str(raw_subject_type or "").strip().lower()
+
+
+def _scale_for_subject_type(
+    *,
+    identity_config: dict[str, Any],
+    character_payload: dict[str, Any],
+) -> tuple[float, str, str | None]:
+    default_scale = float(identity_config.get("scale", 0.6))
+    subject_type = _subject_type_for_anchor(character_payload)
+    scale_by_subject_type = identity_config.get("scale_by_subject_type", {})
+    if isinstance(scale_by_subject_type, dict) and subject_type:
+        raw_scale = scale_by_subject_type.get(subject_type)
+        if raw_scale is not None:
+            return float(raw_scale), f"scale_by_subject_type:{subject_type}", subject_type
+    return default_scale, "default_scale", subject_type or None
+
+
 def select_identity_anchor(
     *,
     scene: Scene,
@@ -102,13 +126,20 @@ def select_identity_anchor(
     if not Path(anchor_path).exists():
         return _missing_anchor_result(identity_config, f"missing_anchor_file:{anchor_path}")
 
+    ip_adapter_scale, ip_adapter_scale_reason, subject_type = _scale_for_subject_type(
+        identity_config=identity_config,
+        character_payload=character_payload,
+    )
+
     return {
         "identity_conditioning_enabled": True,
         "identity_anchor_character_id": selected_character_id,
         "identity_anchor_type": anchor_type,
         "identity_anchor_path": anchor_path,
         "identity_conditioning_reason": reason,
-        "ip_adapter_scale": float(identity_config.get("scale", 0.6)),
+        "ip_adapter_scale": ip_adapter_scale,
+        "ip_adapter_scale_reason": ip_adapter_scale_reason,
+        "identity_anchor_subject_type": subject_type,
         "ip_adapter_model_id": identity_config.get("adapter_model_id"),
         "ip_adapter_subfolder": identity_config.get("adapter_subfolder"),
         "ip_adapter_weight_name": identity_config.get("adapter_weight_name"),

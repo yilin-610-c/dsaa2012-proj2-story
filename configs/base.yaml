@@ -15,6 +15,14 @@ model:
   guidance_scale: 0.0
   num_inference_steps: 4
   enable_attention_slicing: true
+  # DiT/PixArt optional backend settings. These are ignored by SDXL backends.
+  max_sequence_length: 120
+  enable_vae_slicing: false
+  enable_vae_tiling: false
+  story_attention:
+    enabled: false
+    cross_scene_layers: []
+    scene_position_embedding: learned
   consistent_attention:
     enabled: false
     id_length: 4
@@ -53,12 +61,13 @@ prompt:
     builder_version: llm_direct_v1
     targets:
       - anchor
+      - storydiffusion
     repair_attempts: 1
     validation_policy: best_effort
     on_hard_error: fail
     allow_generation_with_boundary_errors: true
-    max_scene_prompt_words: 40
-    max_scene_prompt_chars: 320
+    max_scene_prompt_words: 70
+    max_scene_prompt_chars: 520
     max_identity_prompt_words: 60
     max_identity_prompt_chars: 420
     min_unknown_identity_words: 4
@@ -140,6 +149,11 @@ generation:
     apply_to_modes:
       - text2img
     scale: 0.6
+    scale_by_subject_type:
+      animal: 0.1
+      robot: 0.1
+      object: 0.1
+      vehicle: 0.1
     adapter_model_id: h94/IP-Adapter
     adapter_subfolder: sdxl_models
     adapter_weight_name: ip-adapter_sdxl.bin
@@ -317,6 +331,7 @@ runtime_profiles:
       llm_direct:
         targets:
           - anchor
+          - storydiffusion
     model:
       backend: diffusers_text2img
       granularity: scene
@@ -531,3 +546,75 @@ runtime_profiles:
         generate: true
       identity_conditioning:
         enabled: true
+  dit_smoke_test:
+    runtime:
+      run_name_prefix: dit_smoke
+    model:
+      backend: dit_text2img
+      granularity: scene
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      enable_attention_slicing: true
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      max_sequence_length: 120
+    generation:
+      candidate_count: 2
+      base_seed: 1234
+      anchor_bank:
+        enabled: false
+      identity_conditioning:
+        enabled: false
+  dit_full_quality:
+    runtime:
+      run_name_prefix: dit_full
+    model:
+      backend: dit_text2img
+      granularity: scene
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 1024
+      height: 1024
+      guidance_scale: 4.5
+      num_inference_steps: 20
+      enable_attention_slicing: false
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      max_sequence_length: 120
+    generation:
+      candidate_count: 4
+      base_seed: 2026
+      anchor_bank:
+        enabled: false
+      identity_conditioning:
+        enabled: false
+  dit_story_joint_smoke:
+    runtime:
+      run_name_prefix: dit_story_joint
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      story_attention:
+        enabled: true
+        cross_scene_layers:
+          - 12
+          - 24
+        blend_strength: 0.15
+        scene_position_embedding: learned
+    generation:
+      candidate_count: 2
+      base_seed: 1234
+      anchor_bank:
+        enabled: false
+      identity_conditioning:
+        enabled: false
