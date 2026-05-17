@@ -1,0 +1,25 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Text-to-image diffusion.}
+Latent diffusion models such as SDXL~\cite{podell2023sdxl} achieve high-quality single-image synthesis from text prompts.
+SDXL-Turbo~\cite{sauer2023turbo} distills the model for few-step inference, which we use for efficient panel generation.
+These U-Net backends excel at local prompt following but do not inherently preserve identity across independently sampled panels.
+
+\paragraph{Image-conditioned identity.}
+IP-Adapter~\cite{ipadapter2023} injects reference-image features into diffusion cross-attention, enabling lightweight identity control without full model fine-tuning.
+We use IP-Adapter with run-local \emph{anchor banks}: automatically generated portrait and half-body candidates per character, from which a canonical half-body anchor is selected for conditioning.
+This explicit visual anchoring is effective for single clear subjects but unsafe when two characters share a panel with equal importance.
+
+\paragraph{Story-level consistent generation.}
+StoryDiffusion~\cite{storydiffusion2024} proposes consistent self-attention to share identity information across a batch of related prompts, improving multi-panel coherence.
+We integrate the official StoryDiffusion engine for multi-character stories via a natural prompt adapter that separates stable identity descriptions from concise storyboard-style scene prompts.
+Our single-character path uses a story-level \emph{orchestration} interface that consumes full-story plans and anchor metadata but delegates panel rendering to SDXL with IP-Adapter; paper-faithful consistent self-attention remains disabled in the verified submitted configuration.
+
+\paragraph{Diffusion transformers and LoRA.}
+Diffusion Transformers (DiT)~\cite{peebles2023dit} replace the U-Net with a transformer backbone.
+PixArt-$\alpha$~\cite{chen2023pixart} extends DiT with T5 text encoding and cross-attention for text-to-image synthesis, with a mature DreamBooth LoRA ecosystem~\cite{ruiz2023dreambooth}.
+We explore PixArt as an instructor-suggested alternative, implementing scene-level generation, story-level cross-scene attention blending, and per-character LoRA training because PixArt lacks a drop-in IP-Adapter equivalent.
+
+\paragraph{Automatic panel selection.}
+CLIP~\cite{radford2021clip} provides joint image--text embeddings; we use a ViT-B/32 variant to score candidate panels against generation, action, and previous-panel consistency prompts when multiple candidates are generated per scene.

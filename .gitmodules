@@ -1,0 +1,3 @@
+[submodule "third_party/facebookresearch-DiT"]
+	path = third_party/facebookresearch-DiT
+	url = https://github.com/facebookresearch/DiT

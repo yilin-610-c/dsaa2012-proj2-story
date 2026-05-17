@@ -1,0 +1,85 @@
+<mxfile host="app.diagrams.net" modified="2026-05-16" agent="StoryDiffusion-helper" version="22.1.0">
+  <diagram id="pipeline-main" name="Auto Story Pipeline">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="panel-blue" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#deebfd;strokeColor=#6495dc;fontSize=11;opacity=85;" vertex="1" value="Single-character path (submitted primary)">
+          <mxGeometry x="35" y="240" width="720" height="520" as="geometry"/>
+        </mxCell>
+        <mxCell id="panel-green" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbf0db;strokeColor=#71b971;fontSize=11;opacity=85;" vertex="1" value="Multi-character path (StoryDiffusion)">
+          <mxGeometry x="800" y="240" width="720" height="520" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="in-text" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=12;" vertex="1" value="Scene-marked story text&#xa;• [SCENE-n], [SEP]&#xa;• &lt;Entity&gt; tags">
+          <mxGeometry x="40" y="60" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="parser" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9673a6;fontSize=12;" vertex="1" value="Parser&#xa;• scenes&#xa;• distinct |E|&#xa;">
+          <mxGeometry x="310" y="60" width="260" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="router" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#9673a6;fontSize=12;" vertex="1" value="Entity-count Router&#xa;|E|=1 vs |E|≥2">
+          <mxGeometry x="610" y="55" width="160" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="in-text" target="parser"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="parser" target="router"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+
+
+        <!-- Left stack -->
+        <mxCell id="llm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f0ff;strokeColor=#6284b9;fontSize=11;" vertex="1" value="LLM structured planner&#xa;(text-only JSON)">
+          <mxGeometry x="65" y="320" width="640" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="norm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f0ff;strokeColor=#6284b9;fontSize=11;" vertex="1" value="Subject-type normalization&#xa;+ scene-consistency phrases">
+          <mxGeometry x="65" y="410" width="640" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="anchor" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f0ff;strokeColor=#6284b9;fontSize=11;" vertex="1" value="Anchor bank → canonical half-body">
+          <mxGeometry x="65" y="500" width="640" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="gate" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f0ff;strokeColor=#6284b9;fontSize=11;" vertex="1" value="Identity gate">
+          <mxGeometry x="65" y="600" width="640" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="sdxl" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f0ff;strokeColor=#6284b9;fontSize=11;" vertex="1" value="SDXL-Turbo + IP-Adapter&#xa;(λ ≈ 0.3 default)">
+          <mxGeometry x="65" y="670" width="640" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="clip" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f0ff;strokeColor=#6284b9;fontSize=11;" vertex="1" value="Optional CLIP panel selection">
+          <mxGeometry x="65" y="758" width="640" height="55" as="geometry"/>
+        </mxCell>
+
+        <!-- Right stack -->
+        <mxCell id="adapt" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf7ea;strokeColor=#659c65;fontSize=11;" vertex="1" value="Planner + StoryDiffusion prompt adapter">
+          <mxGeometry x="840" y="320" width="640" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="idbank" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf7ea;strokeColor=#659c65;fontSize=11;" vertex="1" value="Identity bank inputs&#xa;(refs + scene prompts)">
+          <mxGeometry x="840" y="415" width="640" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="nat" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaf7ea;strokeColor=#659c65;fontSize=11;" vertex="1" value="Native StoryDiffusion&#xa;(no single-anchor contamination)">
+          <mxGeometry x="840" y="525" width="640" height="90" as="geometry"/>
+        </mxCell>
+
+        <!-- Output -->
+        <mxCell id="out" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4cc;strokeColor=#bf9000;fontSize=13;fontStyle=1" vertex="1" value="Output: N story panels (fully automated, no manual per-story edits after run)">
+          <mxGeometry x="40" y="820" width="1480" height="56" as="geometry"/>
+        </mxCell>
+
+        <!-- Router branches -->
+        <mxCell id="br1" value="|E|=1" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;fontSize=10;fontColor=#1f4e79;" edge="1" parent="1" source="router" target="llm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="br2" value="|E|≥2" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;fontSize=10;fontColor=#38761d;" edge="1" parent="1" source="router" target="adapt"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Vertical chains -->
+        <mxCell id="v1" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="llm" target="norm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="v2" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="norm" target="anchor"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="v3" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="anchor" target="gate"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="v4" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="gate" target="sdxl"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="v5" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="sdxl" target="clip"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="w1" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="adapt" target="idbank"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="w2" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;" edge="1" parent="1" source="idbank" target="nat"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="toout1" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;dashed=1;" edge="1" parent="1" source="clip" target="out"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="toout2" style="edgeStyle=orthogonalEdgeStyle;endArrow=classic;html=1;dashed=1;" edge="1" parent="1" source="nat" target="out"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

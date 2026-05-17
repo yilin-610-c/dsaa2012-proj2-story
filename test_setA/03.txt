@@ -1,0 +1,9 @@
+[SCENE-1] <Cat> hides in a corner and watches.
+
+[SEP]
+
+[SCENE-2] It looks at <Dog>.
+
+[SEP]
+
+[SCENE-3] They move forward together.

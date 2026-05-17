@@ -1,0 +1,9 @@
+[SCENE-1] <Woman> waters plants.
+
+[SEP]
+
+[SCENE-2] She checks the leaves.
+
+[SEP]
+
+[SCENE-3] She smiles at the garden.

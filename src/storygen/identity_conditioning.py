@@ -102,13 +102,22 @@ def select_identity_anchor(
     if not Path(anchor_path).exists():
         return _missing_anchor_result(identity_config, f"missing_anchor_file:{anchor_path}")
 
+    ip_adapter_scale = float(identity_config.get("scale", 0.6))
+    subject_type = str(character_payload.get("subject_type", "") or "").strip().lower()
+    # Non-human subjects (animals, robots, etc.): use a minimal scale to retain
+    # species/type identity cues without over-constraining pose or action.
+    # Humans use the caller-configured scale (typically 0.3 for SDXL-Turbo,
+    # 0.7 for SDXL-Base at CFG=5).
+    if subject_type and subject_type != "human":
+        ip_adapter_scale = 0.1
+
     return {
         "identity_conditioning_enabled": True,
         "identity_anchor_character_id": selected_character_id,
         "identity_anchor_type": anchor_type,
         "identity_anchor_path": anchor_path,
         "identity_conditioning_reason": reason,
-        "ip_adapter_scale": float(identity_config.get("scale", 0.6)),
+        "ip_adapter_scale": ip_adapter_scale,
         "ip_adapter_model_id": identity_config.get("adapter_model_id"),
         "ip_adapter_subfolder": identity_config.get("adapter_subfolder"),
         "ip_adapter_weight_name": identity_config.get("adapter_weight_name"),

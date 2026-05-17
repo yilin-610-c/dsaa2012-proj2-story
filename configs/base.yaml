@@ -15,6 +15,15 @@ model:
   guidance_scale: 0.0
   num_inference_steps: 4
   enable_attention_slicing: true
+  # DiT (PixArt-α) specific settings
+  max_sequence_length: 120
+  enable_vae_slicing: false
+  enable_vae_tiling: false
+  # Story-level joint attention (dit_story_joint backend)
+  story_attention:
+    enabled: false
+    cross_scene_layers: []
+    scene_position_embedding: learned
   consistent_attention:
     enabled: false
     id_length: 4
@@ -23,16 +32,21 @@ model:
       - text2img
 
 prompt:
+  # rule prompt assembly: `legacy` uses PromptBuilder directly; `modular` uses prompt_stack (same SDXL strings, optional StoryDiffusion sanitizer).
+  builder: legacy
+  modular:
+    backend: sdxl
+    template_pack: default
   pipeline: rule_based
   rewriter:
     type: rule_based
   cache:
-    enabled: true
+    enabled: false
     cache_dir: .cache/prompt_builder
   artifact:
     path: null
     export_enabled: false
-    export_dir: prompt_artifacts/llm_assisted_v7
+    export_dir: prompt_artifacts/llm_assisted_v9
   llm:
     provider: openai
     model: gpt-4o-2024-08-06
@@ -41,8 +55,22 @@ prompt:
     max_output_tokens: 800
     timeout_seconds: 30
     schema_version: v1
-    builder_version: llm_assisted_v7
+    builder_version: llm_assisted_v9
     fallback_to_rule_based: true
+  llm_direct:
+    schema_version: llm_direct_v1
+    builder_version: llm_direct_v1
+    targets:
+      - anchor
+    repair_attempts: 1
+    validation_policy: best_effort
+    on_hard_error: fail
+    allow_generation_with_boundary_errors: true
+    max_scene_prompt_words: 40
+    max_scene_prompt_chars: 320
+    max_identity_prompt_words: 60
+    max_identity_prompt_chars: 420
+    min_unknown_identity_words: 4
   style_prompt: cinematic story illustration, coherent visual style
   subject_prefix: "main subject:"
   global_context_prefix: "shared story context:"
@@ -61,13 +89,20 @@ prompt:
   generation_include_quality_suffix: false
   generation_include_scene_composition: false
   generation_max_words: 28
-  generation_max_chars: 220
+  generation_max_chars: 280
+  # Drop incomplete trailing fragments after length limits (e.g. "same vehicle context:").
+  generation_trim_truncation_artifacts: true
+  dual_primary_generation_max_words: 70
+  dual_primary_generation_max_chars: 420
   generation_template: "{subject}, {action}{setting_clause}{style_clause}"
   scoring_template: "{subject}, {action}{setting_clause}"
   scoring_include_style: false
   scoring_include_global_context: false
   scoring_max_words: 20
   scoring_max_chars: 160
+  # Budget for the scene-consistency fragment inside generation_prompt (vehicle scenes need more room).
+  generation_scene_consistency_max_words: 18
+  generation_scene_consistency_max_chars: 160
   action_emphasis_map:
     makes breakfast: preparing breakfast with food and kitchen tools visible
     looks out: looking out through the window, gaze directed outside, quiet contemplative pose
@@ -82,6 +117,34 @@ prompt:
     paints: painting action clearly shown with canvas and tools visible
   quality_suffix: clean composition, readable action, consistent framing
   negative_prompt: blurry, distorted, low detail, bad anatomy, extra limbs, duplicate subjects
+  # Optional rule-based "cinematography" clause appended to generation_prompt (off by default).
+  cinematography:
+    enabled: false
+    night_keywords:
+      - night
+      - midnight
+      - alley
+      - moonlight
+      - "in the dark"
+    night_phrase: cinematic lighting, high contrast, subtle rim light, readable silhouette
+    cozy_indoor_keywords:
+      - bedroom
+      - cozy
+      - blanket
+      - warm lamp
+    cozy_phrase: soft ambient fill light, warm color palette, eye-level medium shot
+    default_phrase: ""
+  # Optional extra negative tokens from simple scene heuristics (off by default).
+  dynamic_negative:
+    enabled: false
+    night_substrings:
+      - night
+      - midnight
+      - evening
+      - moon
+      - alley
+    night_extra: harsh midday sun, bright daylight sky, overexposed, sunny afternoon
+    single_subject_extra: multiple people, crowd, group shot, duplicate faces
 
 generation:
   candidate_count: 3
@@ -113,6 +176,7 @@ generation:
     adapter_type: ip_adapter
     anchor_source: character_anchor_bank
     anchor_type: half_body
+    max_primary_visible_characters_for_ip_adapter: 1
     apply_to_modes:
       - text2img
     scale: 0.6
@@ -256,6 +320,38 @@ runtime_profiles:
         enabled: true
         scale: 0.3
         fail_on_missing_anchor: false
+  cloud_anchor_ipadapter_story:
+    runtime:
+      run_name_prefix: cloud_anchor_ipadapter_story
+    prompt:
+      pipeline: llm_assisted
+    model:
+      backend: storydiffusion_direct
+      granularity: story
+      model_id: storydiffusion_direct_placeholder
+      scene_model_id: stabilityai/sdxl-turbo
+      width: 768
+      height: 768
+      num_inference_steps: 4
+      guidance_scale: 0.0
+      num_identity_panels: 3
+      consistent_attention:
+        enabled: false
+        id_length: 4
+        write_mode: false
+        total_count: 0
+    generation:
+      candidate_count: 1
+      base_seed: 2026
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: true
+        fail_on_missing_anchor: false
+  # Backward-compatible alias for older commands. Despite the historical name,
+  # this route is a story-level wrapper over diffusers text2img with Anchor Bank
+  # and IP-Adapter identity conditioning; it is not native StoryDiffusion.
   cloud_storydiffusion_debug:
     runtime:
       run_name_prefix: cloud_storydiffusion_debug
@@ -421,3 +517,215 @@ runtime_profiles:
         enabled: false
       identity_conditioning:
         enabled: false
+  llm_prompt_two_character_text2img:
+    runtime:
+      run_name_prefix: llm_two_character
+    model:
+      enable_attention_slicing: false
+    prompt:
+      pipeline: llm_assisted
+    generation:
+      routing:
+        img2img_enabled: false
+        route_policy: disabled
+      anchor_bank:
+        enabled: true
+        generate: true
+      identity_conditioning:
+        enabled: true
+  dit_smoke_test:
+    runtime:
+      run_name_prefix: dit_smoke
+    model:
+      backend: dit_text2img
+      granularity: scene
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      enable_attention_slicing: true
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      max_sequence_length: 120
+    generation:
+      candidate_count: 2
+      base_seed: 1234
+  dit_full_quality:
+    runtime:
+      run_name_prefix: dit_full
+    model:
+      backend: dit_text2img
+      granularity: scene
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 1024
+      height: 1024
+      guidance_scale: 4.5
+      num_inference_steps: 20
+      enable_attention_slicing: false
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      max_sequence_length: 120
+    generation:
+      candidate_count: 4
+      base_seed: 2026
+  dit_story_joint_smoke:
+    runtime:
+      run_name_prefix: dit_story_joint
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [12, 24]
+        blend_strength: 0.15
+        scene_position_embedding: learned
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  dit_story_joint_full:
+    runtime:
+      run_name_prefix: dit_story_joint_full
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 768
+      height: 768
+      guidance_scale: 4.5
+      num_inference_steps: 20
+      max_sequence_length: 120
+      enable_vae_slicing: true
+      enable_vae_tiling: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [6, 12, 18, 24]
+        scene_position_embedding: learned
+    generation:
+      candidate_count: 1
+      base_seed: 2026
+  # --- DiT Story-Joint tuning presets ---
+  dit_story_joint_light:
+    runtime:
+      run_name_prefix: dit_story_joint_light
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_model_cpu_offload: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [12, 24]
+        blend_strength: 0.05
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  dit_story_joint_medium:
+    runtime:
+      run_name_prefix: dit_story_joint_medium
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_model_cpu_offload: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [6, 12, 18, 24]
+        blend_strength: 0.15
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  dit_story_joint_strong:
+    runtime:
+      run_name_prefix: dit_story_joint_strong
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 512
+      height: 512
+      guidance_scale: 4.5
+      num_inference_steps: 8
+      max_sequence_length: 120
+      enable_model_cpu_offload: true
+      story_attention:
+        enabled: true
+        cross_scene_layers: [4, 8, 12, 16, 20, 24]
+        # Use per-layer blend: shallow strong, deep off to protect identity
+        blend_strength_per_layer:
+          4: 0.35
+          8: 0.30
+          12: 0.20
+          16: 0.15
+          20: 0.05
+          24: 0.0
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+  # --- DiT + DreamBooth LoRA presets (requires trained LoRA checkpoint) ---
+  dit_lora_smoke:
+    runtime:
+      run_name_prefix: dit_lora
+    model:
+      backend: dit_text2img
+      granularity: scene
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 768
+      height: 768
+      guidance_scale: 4.5
+      num_inference_steps: 20
+      enable_attention_slicing: true
+      enable_model_cpu_offload: true
+      max_sequence_length: 120
+      lora_path: null  # Set to your trained LoRA checkpoint path
+      lora_trigger: null  # e.g. "sks " — trigger word from DreamBooth training
+      # simple = scoring_prompt (+ style); matches training captions. full = long generation_prompt (legacy).
+      prompt_mode: simple
+    prompt:
+      style_prompt: professional photograph, Canon EOS 5D, photorealistic skin texture, sharp face focus, natural imperfections, realistic human, 8K detail
+    generation:
+      candidate_count: 1
+      base_seed: 1234
+      shared_scene_seed: true
+  dit_story_joint_lora:
+    runtime:
+      run_name_prefix: dit_story_joint_lora
+    model:
+      backend: dit_story_joint
+      granularity: story
+      model_id: PixArt-alpha/PixArt-XL-2-1024-MS
+      width: 768
+      height: 768
+      guidance_scale: 4.5
+      num_inference_steps: 20
+      max_sequence_length: 120
+      enable_model_cpu_offload: true
+      lora_path: null  # Set to your trained LoRA checkpoint path
+      lora_trigger: null  # e.g. "sks " — trigger word from DreamBooth training
+      story_attention:
+        enabled: true
+        cross_scene_layers: [12, 24]
+        blend_strength: 0.15
+    prompt:
+      style_prompt: photorealistic portrait, natural skin texture, soft natural light, sharp facial detail, coherent identity
+    generation:
+      candidate_count: 1
+      base_seed: 2026

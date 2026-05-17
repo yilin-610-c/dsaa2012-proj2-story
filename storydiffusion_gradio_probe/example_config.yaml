@@ -1,0 +1,45 @@
+# This file is intentionally small: edit the prompts and reference_images, then rerun run_probe.py.
+storydiffusion_root: /home/xyz/Desktop/xluo/StoryDiffusion
+output_dir: outputs/storydiffusion_gradio_probe/example
+
+# Set this to true after filling reference_images to test character-image conditioning.
+use_reference_images: false
+
+# In the low-VRAM Gradio script, use one image path per character.
+reference_images: []
+
+prompts:
+  # In reference-image mode, keep "img" after the class word, e.g. "woman img".
+  general_prompt: |
+    [Taylor] a woman, blue loose hair, wearing a white T-shirt
+
+  # The first id_length lines are used by StoryDiffusion as identity prompts.
+  # Add or rewrite lines here for quick testing.
+  prompt_array:
+    - "[Taylor] wakes up in a cozy bedroom, morning light"
+    - "[Taylor] eats breakfast at a small table, relaxed smile"
+    - "[Taylor] walks on a city street, cinematic framing"
+    - "[Taylor] works at a desk in an office, focused expression"
+    - "[Taylor] takes a quiet walk near the company at noon"
+    - "[Taylor] lies in bed at night, soft lamp light"
+
+  negative_prompt: |
+    bad anatomy, bad hands, missing fingers, extra fingers, three hands, three legs,
+    bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face,
+    cloned face, ugly fingers, cartoon, cg, 3d, unreal, amputation, disconnected limbs
+
+generation:
+  sd_type: Unstable
+  style: Japanese Anime
+  seed: 0
+  num_steps: 35
+  guidance_scale: 5.0
+  sa32: 0.5
+  sa64: 0.5
+  id_length: 3
+  height: 768
+  width: 768
+  style_strength_ratio: 20
+  ip_adapter_strength: 0.5
+  comic_type: "No typesetting (default)"
+  font_choice: Inkfree.ttf

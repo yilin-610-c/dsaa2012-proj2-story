@@ -1,0 +1,105 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{System overview}
+Figure~\ref{fig:pipeline} summarizes our pipeline.
+All paths share deterministic story parsing and LLM-assisted structured planning; they diverge only at generation based on the number of distinct tagged entities.
+Table~\ref{tab:pipeline_comparison} contrasts the single-character anchor path, the multi-character StoryDiffusion path, and the exploratory DiT backend.
+
+\begin{table}[!t]
+  \centering
+  \small
+  \caption{Generation backends compared in this report.}
+  \label{tab:pipeline_comparison}
+  \begin{tabular}{p{0.22\columnwidth}p{0.24\columnwidth}p{0.22\columnwidth}p{0.22\columnwidth}}
+    \toprule
+    \textbf{Route} & \textbf{Planning} & \textbf{Identity} & \textbf{Generator} \\
+    \midrule
+    Single-entity (submitted) & LLM structured planner & Anchor bank + IP-Adapter & SDXL-Turbo \\
+    Multi-entity (submitted) & Same planner + native adapter & StoryDiffusion identity bank & Native StoryDiffusion \\
+    DiT (exploratory) & Rule/LLM prompts & DreamBooth LoRA & PixArt-$\alpha$ DiT \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Shared prompt generation}
+\label{sec:prompt}
+
+\paragraph{Parsing.}
+The parser splits the story into ordered scenes, extracts tagged entities, and preserves raw scene text for the planner.
+Scene identifiers provide a deterministic scaffold; semantic interpretation is delegated to the LLM.
+
+\paragraph{LLM-assisted structured planning.}
+The LLM returns strict JSON only---it does not generate images.
+Global fields include recurring \emph{character specifications} (subject type and type-specific identity attributes) and shared style or setting cues.
+Per-scene fields include the primary action, generation and scoring phrases, visible character lists, continuity subjects, framing, setting focus, interaction summaries for multi-character scenes, and optional routing hints.
+A dedicated field marks which single character may receive visual identity injection when unambiguous; for dual-primary scenes this field is forced to empty by local validation so the system never guesses one anchor over two equally important faces.
+
+\paragraph{Subject-type normalization.}
+Tags such as Cat, Dog, or Robot map to animal or robot identity fields with deterministic fallbacks when the LLM omits details, preventing animals from being rendered with human hairstyle or outfit wording.
+The same normalization applies to both generation backends.
+
+\paragraph{Scene-consistency assembly.}
+When enabled, the prompt assembler appends a short scene-consistency phrase derived from per-scene setting-focus metadata and continuity cues (e.g., maintaining ``on the bridge'' or ``under the roof'') so later panels do not drift to unrelated backgrounds.
+This addresses a recurring failure mode where each scene prompt was locally correct but the global setting changed (e.g., a bridge scene followed by a generic city night view).
+
+\subsection{Single-character path: anchor bank and IP-Adapter}
+\label{sec:single}
+
+For $|E|=1$, the pipeline executes the following steps:
+\begin{enumerate}
+  \item Build an \textbf{anchor bank}: generate portrait and half-body identity candidates per character from the structured specification.
+  \item Select a \textbf{canonical half-body anchor} using automatic quality and alignment criteria.
+  \item Apply an \textbf{identity gate} per scene: inject the anchor through IP-Adapter only when exactly one clear subject should be conditioned.
+  \item Generate panels with \textbf{SDXL-Turbo} (few-step, guidance-free distillation settings).
+  \item Optionally score multiple candidates per scene with CLIP and select the best panel (Section~\ref{sec:clip}).
+\end{enumerate}
+
+\paragraph{Identity conditioning strength.}
+IP-Adapter strength $\lambda$ trades identity lock against compositional freedom.
+In our primary single-character evaluation (Story-14, a girl in the rain), we set $\lambda=0.3$: lower than a strong lock ($\lambda\approx 0.7$) to allow natural poses and scene layout while retaining recognizable hair, face, and clothing cues.
+
+\paragraph{Story-level orchestration.}
+The single-character backend consumes a full-story scene plan and anchor metadata before rendering each panel.
+This orchestration layer prepares a consistent interface for future consistent-attention integration; in the submitted configuration, consistent self-attention is \emph{disabled}, and cross-panel identity relies on anchor conditioning and scene-consistency text rather than shared attention kernels.
+
+\subsection{Multi-character path: native StoryDiffusion}
+\label{sec:dual}
+
+For $|E|\geq 2$, single-anchor IP-Adapter would bias both faces toward one reference, so the router invokes \textbf{native StoryDiffusion}.
+
+\paragraph{Prompt structure.}
+A natural prompt adapter converts structured metadata into:
+\begin{itemize}
+  \item a general identity block with stable \texttt{[Character]} tag lines;
+  \item front-loaded \textbf{identity reference prompts} (single-subject, plain background) that initialize the identity bank;
+  \item concise \textbf{scene prompts} focused on action, setting, and framing without repeating full identity text.
+\end{itemize}
+Story frames are saved after the identity reference indices; optional saving of skipped identity frames supports diagnosing whether failures originate in the bank or in later scene generation.
+
+\paragraph{Dual-subject policy.}
+For stories such as Jack and Sara in a park, cafe, and exhibition, both characters appear in every scene.
+The planner sets no single identity-conditioning target; the native engine relies on paired identity references plus interaction-aware scene text.
+
+\subsection{Subject-count hybrid router}
+\label{sec:router}
+
+The hybrid router is the \textbf{submitted entry point}: it classifies the input by counting distinct tagged entity names across all scenes and launches the single- or multi-character path automatically.
+No manual backend selection is required per story.
+Configuration overrides (e.g., $\lambda=0.3$) apply only to the single-character branch; multi-character runs use StoryDiffusion defaults unless explicitly overridden for ablations.
+
+\subsection{CLIP-based panel selection}
+\label{sec:clip}
+
+When multiple candidates are generated per scene, a CLIP ViT-B/32 scorer computes a weighted combination of:
+(1) text--image alignment to the scoring phrase,
+(2) action alignment,
+and (3) consistency with the previously selected panel when continuity applies.
+Route-aware weights can down-weight previous-image similarity when the planner marks a large scene change, reducing img2img-style over-preservation of old composition.
+In the primary story-level single-character profile, one candidate per scene is generated and selection is trivial; CLIP remains important in scene-level ablations with multiple candidates.
+
+\subsection{Exploratory DiT backend (summary)}
+\label{sec:dit_method}
+
+Following presentation feedback, we implemented a PixArt-$\alpha$ backend with (i) scene-level text-to-image, (ii) story-level cross-scene self-attention blending with layer-wise strength (stronger in shallow layers, weaker in deep layers to protect identity), and (iii) DreamBooth LoRA trained on a small set of reference panels with a trigger token.
+Details and failure analysis appear in Sections~\ref{sec:results} and~\ref{sec:discussion}.

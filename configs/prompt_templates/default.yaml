@@ -1,0 +1,26 @@
+# Optional template pack merged into the resolved `prompt` dict before PromptBuilder runs.
+# Edit copy-only fields here so prompt tuning does not require Python changes.
+
+merge_into_prompt_config: {}
+
+storydiffusion_postprocess:
+  # Comma-separated clause filter (splits on ","); drop any clause containing a ban substring (case-insensitive).
+  segment_bans:
+    - "on the left"
+    - "on the right"
+    - "stable dual identities:"
+    - "stable character placement:"
+    - "visually distinct"
+    - "do not swap hairstyles"
+  # Fields to run through the comma-segment filter.
+  comma_filter_fields:
+    - character_prompt
+    - scene_consistency_prompt
+    - local_prompt
+    - full_prompt
+    - scoring_prompt
+    - generation_prompt
+  # Removed from the start of generation_prompt when they appear as leading comma-separated chunks.
+  generation_prompt_strip_prefix_chunks:
+    - "wide environmental two-shot"
+    - "full bodies visible"

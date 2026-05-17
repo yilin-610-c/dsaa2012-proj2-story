@@ -1,0 +1,7 @@
+We study fully automated multi-panel story image generation from short scene-level textual stories.
+The task requires each panel to match its scene description while preserving character identity, resolving pronouns, and supporting humans, animals, and robots without per-case manual editing.
+We implement a \emph{subject-count hybrid pipeline}: single-character stories use LLM-assisted structured planning, run-local anchor generation, and IP-Adapter conditioning on SDXL-Turbo; multi-character stories route to native StoryDiffusion with front-loaded identity reference prompts, because single-anchor injection would contaminate dual-subject panels.
+Scene-consistency phrases derived from structured metadata reduce setting drift across panels.
+Following instructor feedback, we additionally built an exploratory PixArt-$\alpha$ diffusion-transformer backend with cross-scene attention blending and DreamBooth LoRA identity anchoring.
+Controlled qualitative comparisons show the hybrid U-Net route as the submitted system; the DiT extension is reproducible but did not reach comparable identity or scene faithfulness, and we document its failure modes as a rigorous negative result.
+

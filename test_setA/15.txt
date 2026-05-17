@@ -1,0 +1,9 @@
+[SCENE-1] <Boy> plays soccer on a field.
+
+[SEP]
+
+[SCENE-2] He falls down and stands up again.
+
+[SEP]
+
+[SCENE-3] He keeps playing.

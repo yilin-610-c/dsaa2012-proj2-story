@@ -1,0 +1,79 @@
+\section*{Appendix}
+
+\subsection{Compliance and reproducibility}
+
+All submitted panels are produced by fixed automated pipelines without manual pixel editing or per-story prompt rewrites after viewing outputs.
+General rules---subject-type normalization for humans, animals, and robots---apply uniformly and are not story-specific hard coding.
+The LLM is used only for text-side structured planning; image synthesis runs locally on open checkpoints (SDXL-Turbo, IP-Adapter, StoryDiffusion, PixArt-$\alpha$, CLIP).
+The system is not an agent that inspects images and autonomously revises prompts; generation, optional scoring, routing, and logging are predetermined stages.
+
+\subsection{Anchor bank selection}
+
+\begin{figure}[!h]
+  \centering
+  \begin{subfigure}{0.22\columnwidth}
+    \fbox{\parbox[c][0.7in][c]{0.95\linewidth}{\centering\tiny C1}}
+    \caption{Cand.~1}
+  \end{subfigure}
+  \begin{subfigure}{0.22\columnwidth}
+    \fbox{\parbox[c][0.7in][c]{0.95\linewidth}{\centering\tiny C2}}
+    \caption{Cand.~2}
+  \end{subfigure}
+  \begin{subfigure}{0.22\columnwidth}
+    \fbox{\parbox[c][0.7in][c]{0.95\linewidth}{\centering\tiny C3}}
+    \caption{Cand.~3}
+  \end{subfigure}
+  \begin{subfigure}{0.22\columnwidth}
+    \fbox{\parbox[c][0.7in][c]{0.95\linewidth}{\centering\tiny OK}}
+    \caption{Canonical}
+  \end{subfigure}
+  \caption{Anchor bank candidates and selected canonical half-body anchor.}
+  \label{fig:anchor}
+  % USER: fig_anchor_bank_selection.pdf
+\end{figure}
+
+Canonical half-body selection matters because full-body anchors often include distracting pose or background context that IP-Adapter over-copies into story panels.
+
+\subsection{IP-Adapter on versus off}
+
+\begin{figure}[!h]
+  \centering
+  \begin{subfigure}{0.48\columnwidth}
+    \fbox{\parbox[c][0.75in][c]{0.95\linewidth}{\centering\scriptsize without IP-Adapter\\PLACEHOLDER}}
+    \caption{Off}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\columnwidth}
+    \fbox{\parbox[c][0.75in][c]{0.95\linewidth}{\centering\scriptsize with IP-Adapter\\PLACEHOLDER}}
+    \caption{On}
+  \end{subfigure}
+  \caption{Single-character story: identity drift without visual conditioning (left) vs.\ anchor-conditioned generation (right).}
+  % USER: two-panel comparison from ablation run
+\end{figure}
+
+\subsection{Native identity reference failure}
+
+\begin{figure}[!h]
+  \centering
+  \fbox{\parbox[c][0.85in][c]{0.95\columnwidth}{\centering\scriptsize Identity ref frame\\(character sheet / multi-view)\\PLACEHOLDER}}
+  \caption{StoryDiffusion identity reference degenerating into a character sheet, weakening the identity bank.}
+  \label{fig:identity_sheet}
+  % USER: fig_native_identity_ref_sheet.pdf
+\end{figure}
+
+\subsection{DiT supplementary cases}
+
+\begin{figure}[!h]
+  \centering
+  \begin{subfigure}{0.48\columnwidth}
+    \fbox{\parbox[c][0.75in][c]{0.95\linewidth}{\centering\scriptsize DiT best case\\PLACEHOLDER}}
+    \caption{Best}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\columnwidth}
+    \fbox{\parbox[c][0.75in][c]{0.95\linewidth}{\centering\scriptsize DiT failure\\PLACEHOLDER}}
+    \caption{Failure}
+  \end{subfigure}
+  \caption{Exploratory PixArt-$\alpha$ runs: occasional coherent panel (left) vs.\ identity or artifact failure (right).}
+  % USER: optional extra DiT figures
+\end{figure}

@@ -51,7 +51,7 @@ def _build_cli_command(run_root: Path, scene_result_path: Path) -> list[str]:
         "-m",
         "storygen.cli",
         "--profile",
-        "cloud_storydiffusion_debug",
+        "cloud_anchor_ipadapter_story",
         "--input",
         str(input_story),
         "--run-name",

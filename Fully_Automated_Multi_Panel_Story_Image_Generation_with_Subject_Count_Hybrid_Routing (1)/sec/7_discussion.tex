@@ -1,0 +1,66 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why the hybrid router works}
+Independent text-to-image per scene fails when identity must persist: prompts alone cannot lock appearance, and weak human wording can even substitute non-human subjects.
+The hybrid design assigns mechanisms to the regime where they are sound: IP-Adapter with a canonical half-body anchor when exactly one entity owns the story, and StoryDiffusion's multi-prompt identity bank when two or more entities co-occur.
+Scene-consistency phrases address a complementary failure---local prompt correctness with global setting drift---without requiring image-to-image chaining that would over-preserve composition on large scene changes.
+
+\subsection{Failure modes on the submitted path}
+
+\paragraph{Dual-character pronoun resolution failure.}
+In two-character stories where the text uses ``they'' or ``them'' to refer to both characters collectively (e.g., ``Jack and Sara sit down; they order coffee''), the prompt planner cannot deterministically bind the pronoun to both individuals. The resulting scene prompt may reference only one character, or describe an ambiguous action without specifying who performs it. In generated panels, one character can disappear entirely from later scenes because the prompt lacks an explicit reference to their presence. Our hybrid router mitigates this for $|E|\geq 2$ by routing to native StoryDiffusion, which maintains per-character identity banks initialized from front-loaded reference prompts. However, pronoun-induced omission remains a failure mode when the LLM-generated scene text is imprecise; adding explicit per-character presence checks in the prompt validator would close this gap.
+
+\paragraph{Non-human subjects: identity scale vs.\ action freedom.}
+For animal and robot stories, IP-Adapter conditioning presents a trade-off between identity consistency and natural pose variation. Consider a story about a bird: the anchor bank generates a canonical half-body portrait of the bird perched on a branch. When the scene prompt describes the bird \emph{flying} away, IP-Adapter at moderate scales ($\lambda \geq 0.3$) pulls the generated image toward the anchor's perched pose---the bird's wings remain folded, or the body stays oriented as if sitting, because the conditioning signal from the static anchor conflicts with the dynamic action described in the prompt. At very low scales ($\lambda \approx 0.1$), the bird can fly but its species-identifying features (beak shape, feather color pattern, size) drift across panels, producing three different birds rather than one consistent character. Our code-based fix---automatically setting $\lambda=0.0$ for non-human subject types---disables IP-Adapter entirely for animals and robots, accepting some identity drift in exchange for physically plausible actions. A better solution would require anchor images that include action-relevant poses (e.g., wings-spread reference), which the current single-pose anchor bank does not generate.
+
+\paragraph{Native identity references as character sheets.}
+StoryDiffusion identity reference prompts sometimes produce multi-view turnarounds or character sheets despite negative prompts requesting a single subject. Because the identity bank is initialized from these frames, downstream panels can inherit polluted identity features. Saving identity reference frames separately is essential for diagnosis; this behavior is a limitation of the native engine, not of parsing.
+
+\paragraph{Scene-following errors.}
+Even with natural scene prompts, cafe versus exhibition confusion can occur depending on seed and step count. CLIP reranking and scene-consistency text reduce but do not eliminate these errors.
+
+\subsection{Exploratory transformer backend (PixArt-$\alpha$): why DreamBooth fails on generated data}
+\label{sec:dit_discussion}
+
+After the first presentation, we implemented a full PixArt-$\alpha$ diffusion-transformer backend to test whether the transformer architecture improves cross-panel consistency, as suggested in feedback. The implementation was completed---a scene-level DiT text-to-image generator, story-joint cross-scene self-attention blending with layer-wise strength, and a DreamBooth LoRA pipeline trained on augmented character portraits with a trigger token. However, qualitative results consistently lagged the SDXL hybrid baseline. Rather than treating this as a generic failure, we present a structured analysis of \emph{why} the DreamBooth-on-generated-data approach is fundamentally constrained for our task.
+
+\paragraph{The core contradiction: training data does not form a stable identity manifold.}
+
+DreamBooth's foundational assumption is that a small set of images approximates a single low-variance concept distribution: $p(x \mid \text{concept}) \approx \text{low-variance distribution}$. This holds for real photographs of a specific subject taken under varied but physically consistent conditions---the shared identity manifold emerges from consistent facial geometry, skin texture, and structural landmarks that persist across poses and lighting.
+
+Our training images violate this assumption. The canonical portrait is generated by SDXL-Turbo with IP-Adapter conditioning; each augmentation inherits the generator's artifacts. More critically, when we attempted to use PixArt itself to produce diverse training images with varied prompts (``park,'' ``kitchen,'' ``library''), each independently generated image depicted a \emph{different person}---PixArt exhibits strong prompt adherence but weak identity binding, producing high semantic diversity without a shared identity latent. The resulting dataset forms a \emph{mixture of weak identities} rather than samples from one identity. DreamBooth, attempting to compress this multi-modal distribution into a single token embedding, inevitably produces concept collapse: the learned representation converges to a blurred average that matches none of the training instances and generalizes to none of the inference scenes.
+
+\paragraph{IP-Adapter provides soft conditioning, not a disentangled identity vector.}
+
+IP-Adapter operates through cross-attention conditioning: it injects reference image features into the U-Net's cross-attention layers, providing a style-level constraint that encourages facial similarity rather than enforcing exact identity. It delivers \emph{partial facial alignment} and \emph{style consistency}, not a true disentangled identity embedding. When we use IP-Adapter-conditioned outputs as DreamBooth training data, we are effectively asking the LoRA to learn a \emph{soft constraint function's output} as if it were ground-truth identity. The IP-Adapter's residual identity drift---subtle variations in face shape, eye structure, and skin tone across generated samples---becomes baked into the LoRA as contradictory training signals.
+
+\paragraph{Generated images lack shared invariant features.}
+
+Real photographs of the same person share invariant features: bone structure, inter-pupillary distance, facial proportions, and skin texture patterns that persist regardless of pose or lighting. Generated images, even from the same prompt and seed neighborhood, exhibit \emph{no guaranteed invariant features}. Face shape can subtly shift from oval to round; eye structure can vary in lid shape and spacing; lighting changes can produce completely different CLIP embeddings for regions that should be identity-stable. The training set becomes internally inconsistent not because of a domain gap between real and generated images---though that exists---but because the generated samples do not mutually agree on what the identity \emph{is}.
+
+\paragraph{Quantitative evidence: prompt format controls trigger efficacy.}
+
+We obtained direct evidence for the prompt-dilution mechanism through controlled comparison. When inference used the full LLM-generated generation prompt (35+ tokens with structural phrases such as ``maintain the same location identity''), the trigger token ``sks'' occupied under 5\% of the T5 input sequence; cross-scene RGB variance reached 2781, indicating three essentially different characters. When we switched to concise scoring prompts matching the training caption distribution (``sks Lily, makes breakfast, in the kitchen''), where the trigger token constituted roughly 10\% of tokens, cross-scene color consistency improved by $19\times$ (RGB variance: 2781 $\to$ 145). This confirms that even moderate token dilution in the T5 encoder's attention distribution can suppress LoRA activation below a functional threshold.
+
+\paragraph{Structural ecosystem gap.}
+
+The SDXL ecosystem benefits from IP-Adapter injecting identity through a dedicated cross-attention pathway architecturally separated from the text-conditioning path. PixArt-$\alpha$ lacks this separation: all conditioning---text, timestep, resolution---flows through the same adaLN-single mechanism. Without a purpose-built identity injection architecture, the LoRA adapter must compete with text-driven features for influence over the final latent representation, and the text side---with its rich semantic vocabulary---typically dominates.
+
+\paragraph{Interpretation.}
+
+This negative result is not merely an implementation shortfall. It reveals a structural constraint: DreamBooth fine-tuning on diffusion-generated images cannot produce stable identity learning when (i) the training images are themselves outputs of soft identity constraints, (ii) the samples lack mutually consistent invariant features, and (iii) the backbone architecture provides no dedicated identity-conditioning pathway. These conditions are not unique to our pipeline---they would apply to any approach that attempts to bootstrap identity learning from generated data without a grounded photographic source.
+
+\begin{figure}[!t]
+  \centering
+  \fbox{\parbox[c][0.95in][c]{0.95\columnwidth}{\centering\scriptsize PixArt+LoRA three panels\\PLACEHOLDER}}
+  \caption{Exploratory DiT output (scene-level LoRA path, Story-01). Identity degrades across panels despite consistent trigger token usage.}
+  \label{fig:dit_panels}
+  % USER: replace with three PixArt+LoRA panels from the same story, showing identity drift
+\end{figure}
+
+\subsection{Limitations and future work}
+Consistent self-attention from the StoryDiffusion paper is integrated as an experimental module but disabled in submitted runs; enabling it is the most direct path to improve multi-character consistency without single-anchor injection.
+Multi-anchor or regional conditioning could extend the single-character path safely.
+LLM-guided img2img routing helps small continuity changes but can hurt large composition changes; conservative routing and route-aware CLIP scoring mitigate this trade-off.
+Automated metrics (e.g., face embedding distance) were not used for final grading but would complement human review in future iterations.

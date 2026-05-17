@@ -1,0 +1,9 @@
+[SCENE-1] <Clara> stands in a shop.
+
+[SEP]
+
+[SCENE-2] She looks at items on a shelf.
+
+[SEP]
+
+[SCENE-3] She picks one and walks to the counter.

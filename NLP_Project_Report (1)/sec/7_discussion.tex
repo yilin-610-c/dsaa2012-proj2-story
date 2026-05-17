@@ -1,0 +1,65 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why the hybrid router works}
+Independent text-to-image per scene fails when identity must persist: prompts alone cannot lock appearance, and weak human wording can even substitute non-human subjects.
+The hybrid design assigns mechanisms to the regime where they are sound: IP-Adapter with a canonical half-body anchor when exactly one entity owns the story, and StoryDiffusion's multi-prompt identity bank when two or more entities co-occur.
+Scene-consistency phrases address a complementary failure---local prompt correctness with global setting drift---without requiring image-to-image chaining that would over-preserve composition on large scene changes.
+
+\subsection{Failure modes on the submitted path}
+
+\paragraph{Native identity references as character sheets.}
+StoryDiffusion identity reference prompts sometimes produce multi-view turnarounds or character sheets despite negative prompts requesting a single subject.
+Because the identity bank is initialized from these frames, downstream panels can inherit polluted identity features.
+Saving identity reference frames separately is essential for diagnosis; this behavior is a limitation of the native engine, not of parsing.
+
+\paragraph{Dual-subject IP-Adapter contamination.}
+When the single-character path is mistakenly applied to two-human stories, forcing one anchor yields swapped faces, merged subjects, or missing characters.
+Our router avoids this by construction for $|E|\geq 2$; ablations that disable routing confirm the failure mode (Table~\ref{tab:results}).
+
+\paragraph{Case and subject-type robustness.}
+Earlier bugs mapped \texttt{[Student]} tags to empty specs when JSON keys were lowercase; case-insensitive lookup now preserves display tags while resolving attributes.
+Animal and robot stories no longer fall back to ``human person'' identity wording when LLM fields are empty.
+
+\paragraph{Scene-following errors.}
+Even with natural scene prompts, cafe versus exhibition confusion can occur depending on seed and step count.
+CLIP reranking and scene-consistency text reduce but do not eliminate these errors.
+
+\subsection{Exploratory transformer backend (PixArt-$\alpha$)}
+\label{sec:dit_discussion}
+
+After the first presentation, we implemented a full PixArt-$\alpha$ line to test whether a diffusion transformer improves long-range consistency, as suggested for transformer-based models.
+
+\paragraph{Scope of implementation.}
+We delivered three coupled components:
+\begin{enumerate}
+  \item \textbf{Scene-level DiT generator} using the public PixArt-$\alpha$ checkpoint with standard pipeline inference (avoiding a fragile hand-written denoising loop that initially produced corrupted outputs).
+  \item \textbf{Story-joint cross-scene blending} that adds a global context bias before selected self-attention layers, with stronger blending in shallow layers (texture/color) and weaker blending in deep layers (semantics/identity).
+  \item \textbf{DreamBooth LoRA} trained on a small anchor-derived dataset with a trigger token, intended to replace IP-Adapter because PixArt lacks a mature reference-image adapter in our stack.
+\end{enumerate}
+
+\paragraph{Why results lagged the hybrid baseline.}
+\textbf{Limited training data.} LoRA was trained on only four to eight reference images per character; identity generalizes poorly to new poses and lighting.
+\textbf{Story-joint vs.\ LoRA conflict.} Deep-layer cross-scene blending partially overwrites LoRA identity activations; empirically, story-joint runs scored lower on identity than scene-level LoRA-only runs on the same story.
+\textbf{Resolution and schedule mismatch.} Training at $512^2$ with inference at higher resolution and more denoising steps amplifies small identity errors.
+\textbf{No direct anchor reuse.} The anchor bank workflow built for IP-Adapter cannot be plugged into PixArt without retraining; identity must be re-encoded into LoRA weights and trigger tokens, increasing failure modes when the trigger is omitted from prompts.
+\textbf{Ecosystem gap.} SDXL benefits from mature IP-Adapter weights and few-step Turbo distillation; PixArt's tooling is improving but was less battle-tested in our timeline.
+
+\paragraph{Interpretation as a negative result.}
+Reporting this branch honestly strengthens the report: we did not stop at a suggestion---we migrated backends, debugged dtype and offload interactions, fixed dataset metadata for training, and ran A/B comparisons against the same stories.
+The conclusion is negative but informative: \emph{for our task and compute budget, U-Net SDXL with IP-Adapter plus native StoryDiffusion for multi-character scenes outperforms PixArt-$\alpha$ with LoRA and heuristic cross-scene blending.}
+Future work could revisit DiT with more reference data, PixArt IP-Adapter weights if available, or verified consistent self-attention shared with the story-level orchestration interface.
+
+\begin{figure}[!t]
+  \centering
+  \fbox{\parbox[c][0.95in][c]{0.95\columnwidth}{\centering\scriptsize PixArt+LoRA three panels\\PLACEHOLDER}}
+  \caption{Exploratory DiT output (story-level LoRA path). Identity and scene scores below hybrid baseline.}
+  \label{fig:dit_panels}
+  % USER: fig_dit_lora_panels.pdf from dit_lora_smoke_full run
+\end{figure}
+
+\subsection{Limitations and future work}
+Consistent self-attention from the StoryDiffusion paper is integrated as an experimental module but disabled in submitted runs; enabling it is the most direct path to improve multi-character consistency without single-anchor injection.
+Multi-anchor or regional conditioning could extend the single-character path safely.
+LLM-guided img2img routing helps small continuity changes but can hurt large composition changes; conservative routing and route-aware CLIP scoring mitigate this trade-off.
+Automated metrics (e.g., face embedding distance) were not used for final grading but would complement human review in future iterations.

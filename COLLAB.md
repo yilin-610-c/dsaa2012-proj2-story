@@ -23,6 +23,7 @@ Non-goals for the current repo stage:
 - large custom training stack first
 - paper-faithful reimplementation at the cost of engineering stability
 - large academic ablation infrastructure
+- replacing the SDXL + diffusers story pipeline with ImageNet-class DiT sampling as a default backend (DiT may live under `third_party/` for **optional** comparison docs and smoke tests only)
 
 ## Team Split
 
@@ -57,9 +58,12 @@ Rules:
 ## Current Code Map
 
 Current working layout:
+- `third_party/`: optional git submodules (e.g. DiT for **standalone** research demos). Not imported by the baseline pipeline; no default runtime dependency. Submodule init/update commands live in `docs/dit_smoke.md`.
 - `src/storygen/parser.py`: scene text parsing
 - `src/storygen/types.py`: active internal contracts
-- `src/storygen/prompt_builder.py`: rule-based prompt construction
+- `src/storygen/prompt_builder.py`: rule-based prompt construction (default `prompt.builder: legacy`). Optional `prompt.cinematography` and `prompt.dynamic_negative` blocks in `configs/base.yaml` append lighting phrases / extra negatives when enabled. Vehicle + “at the door” scenes suppress false `new_scene_setting` extractions; `generation_trim_truncation_artifacts` cleans truncated tails on `generation_prompt`.
+- `src/storygen/prompt_stack/`: opt-in modular rule prompt assembly (`prompt.builder: modular` in `configs/base.yaml`). `prompt.modular.backend: sdxl` matches legacy strings; `storydiffusion` applies YAML-driven post-filter for the Gradio probe. Templates under `configs/prompt_templates/`.
+- `scripts/run_auto_story_pipeline_modular.py`: same routing as `scripts/run_auto_story_pipeline.py`, but enables the modular stack (single path via `--set`, double path via `run_test_set.py --prompt-builder modular --prompt-modular-backend storydiffusion`).
 - `src/storygen/prompt_pipelines.py`: prompt pipeline selector and placeholders
 - `src/storygen/generators/`: generation backends and wrappers
 - `src/storygen/scoring/`: scoring and reranking backends
@@ -673,6 +677,31 @@ Real-run validation on `test_set/06.txt`:
 - next optional debug step would be a config-gated forced-subject override for ablation only, not a default method
 
 ## Shared Code Rules
+
+## 2026-04-26 Prompt Audit Integration
+
+Integrated the prompt-audit optimization path into `0425_luo` without replacing the story backend path.
+
+Preserved story-level contracts:
+- `StoryScenePlan`
+- `StoryGenerationRequest.scene_plans`
+- `anchor_bank_summary`
+- `dual_face_refs`
+- `previous_style_reference_path`
+- `storydiffusion_direct`
+- `diffusers_text2img_consistent`
+
+Prompt updates:
+- LLM-assisted builder namespace is now `llm_assisted_v9`
+- optimized `generation_prompt` remains inside the existing `PromptSpec`, including `scene_consistency_prompt`
+- `PromptBundle.metadata["scene_route_hints"]` carries normalized route hints, including `route_hint_adjustment_reason`
+- `PromptBundle.metadata["scene_plans"]` carries audit-oriented scene-plan details for prompt review and export
+- `_build_story_scene_plans` consumes optimized `PromptSpec.generation_prompt` and `scene_route_hints` when constructing story backend scene plans
+
+Experiment/audit commands:
+- prompt audit export: `PYTHONPATH=src python3 scripts/export_prompts.py --inputs 'test_set/*.txt' --pipelines both --output-dir outputs/prompt_audit`
+- remote matrix dry run: `PYTHONPATH=src python3 scripts/run_experiment_matrix.py --experiment-id prompt_audit_check --profiles llm_prompt_text2img --stories 'test_set/*.txt' --dry-run`
+- storygen Anchor/IP-Adapter smoke profile: `PYTHONPATH=src python3 -m storygen.cli --profile cloud_anchor_ipadapter_story --input test_set/01.txt --run-name smoke_anchor_ipadapter_prompt_audit`
 
 When modifying shared code:
 - prefer additive and modular changes

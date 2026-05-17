@@ -8,10 +8,12 @@ The prompt builder is rule-based and continuity-oriented: it keeps a stable main
 
 ```text
 configs/        YAML config and runtime profiles
+docs/           optional deep dives and report notes
 scripts/        demo entrypoint
-src/storygen/   package code
+src/storygen/   package code (includes optional `prompt_stack/` modular rule prompts)
 test_set/       sample scene files
 outputs/        generated runs
+third_party/    optional vendored research code (git submodules)
 ```
 
 ## Setup
@@ -63,7 +65,7 @@ Available profiles in the base config:
 - `smoke_test`: cheap local baseline run.
 - `demo_run`: fuller local baseline run.
 - `cloud_strong_backbone`: scene-level `diffusers_text2img` profile reserved for stronger cloud models; override `--model-id` or edit the profile for the target machine.
-- `cloud_storydiffusion`: story-level `storydiffusion_direct` placeholder for future StoryDiffusion integration. It is intentionally not implemented yet.
+- `cloud_storydiffusion`: story-level `storydiffusion_direct` path that builds story scene plans, anchor metadata, dual-face references, and delegates panel rendering through the scene diffusers backend.
 - `llm_prompt_smoke`: optional LLM-assisted prompt planning profile. It calls the configured LLM only when there is no prompt artifact or local cache hit.
 - `llm_prompt_text2img`: LLM-assisted prompts with text-to-image generation only.
 - `rule_prompt_img2img`: rule-based prompts with conservative img2img continuity routing.
@@ -82,7 +84,7 @@ prompt:
   pipeline: llm_assisted
 ```
 
-The LLM-assisted path asks the model for strict JSON containing shared identity, setting, and short per-scene prompts. It does not generate images, score candidates, or write long freeform artistic prompts. The final downstream contract is still `PromptSpec`, so generators use `generation_prompt` and scorers use `scoring_prompt` / `action_prompt` exactly as before.
+The LLM-assisted path asks the model for strict JSON containing shared identity, setting, route hints, and short per-scene prompts. It does not generate images, score candidates, or write long freeform artistic prompts. The final downstream contract is still `PromptSpec`, so generators use the optimized `generation_prompt` and scorers use `scoring_prompt` / `action_prompt` exactly as before. Story-level backends consume the same optimized prompts through `StoryScenePlan`.
 
 The prompt pipeline also writes `character_specs` into `logs/prompt_bundle.json`. The contract is:
 
@@ -112,7 +114,13 @@ To reuse a shared artifact without calling the API:
 prompt:
   pipeline: llm_assisted
   artifact:
-    path: prompt_artifacts/llm_assisted_v7/example.json
+    path: prompt_artifacts/llm_assisted_v9/example.json
+```
+
+Prompt audit exports can be generated without image generation:
+
+```bash
+PYTHONPATH=src python3 scripts/export_prompts.py --inputs 'test_set/*.txt' --pipelines both --output-dir outputs/prompt_audit
 ```
 
 ## Anchor Bank v1
@@ -161,6 +169,31 @@ PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_ip_adapter_text2img 
 PYTHONPATH=src python3 -m storygen.cli --profile llm_prompt_hybrid_identity --input test_set/01.txt
 ```
 
+## Original StoryDiffusion Gradio Probe
+
+For a direct comparison against the upstream StoryDiffusion Gradio implementation, use the isolated adapter in `storydiffusion_gradio_probe/`. It imports the original repo at `/home/xyz/Desktop/xluo/StoryDiffusion`, disables Gradio launch, calls the same `process_generation(...)` function as the UI, and saves images under `outputs/storydiffusion_gradio_probe/`.
+
+```bash
+conda activate "story diffusion"
+python storydiffusion_gradio_probe/run_probe.py \
+  --config storydiffusion_gradio_probe/example_config.yaml
+```
+
+Edit `storydiffusion_gradio_probe/example_config.yaml` to change character reference images, `general_prompt`, frame prompts, and StoryDiffusion settings such as `id_length`, `sa32`, and `sa64`.
+
+To run the project `test_set/*.txt` stories through the same upstream Gradio path, first convert them into StoryDiffusion prompt configs, then optionally execute generation:
+
+```bash
+python storydiffusion_gradio_probe/run_test_set.py
+python storydiffusion_gradio_probe/run_test_set.py --run
+```
+
+The batch script rewrites leading pronouns back to the detected story subject, formats scene lines as `[Character] prompt`, and adds temporary per-character identity prompts for multi-character stories while saving only the original story-scene images.
+
+Optional **modular prompt stack** for the probe (strips SDXL-only spatial hacks before StoryDiffusion): `python storydiffusion_gradio_probe/run_test_set.py --prompt-builder modular --prompt-modular-backend storydiffusion ...`. Rule-based `storygen.cli` can set `prompt.builder: modular` in a profile or via `--set` (see `configs/base.yaml` and `src/storygen/prompt_stack/`). A convenience router is `scripts/run_auto_story_pipeline_modular.py`.
+
+Rule-based **cinematography** and **dynamic negative** clauses are opt-in under `prompt.cinematography.enabled` and `prompt.dynamic_negative.enabled` in `configs/base.yaml` (off by default).
+
 Multi-character safety validation:
 
 ```bash
@@ -179,6 +212,32 @@ adapter_model_id: h94/IP-Adapter
 adapter_subfolder: sdxl_models
 adapter_weight_name: ip-adapter_sdxl.bin
 ```
+
+## Story Identity Memory
+
+Story identity memory is off in the base config and all normal profiles. Use the separate `cloud_storydiffusion_debug_story_identity_memory` profile for A/B debugging of the existing `storydiffusion_direct` path.
+
+```bash
+PYTHONPATH=src python3 -m storygen.cli --profile cloud_storydiffusion_debug_story_identity_memory --input test_set/01.txt
+```
+
+The state protocol is per story run:
+
+- `write`: the first eligible single-character scene initializes that character's attention feature bank.
+- `read`: later eligible scenes for the same character read from the bank.
+- `disabled`: ambiguous, multi-character, non-recurring, or globally disabled scenes skip the memory path.
+
+The feature reuses `GenerationRequest.extra_options` for runtime control and writes audit metadata to `logs/story_identity_memory.json`, `logs/events.jsonl`, `logs/generation_backend.json`, `scenes/scene_XXX/prompt.json`, and `scenes/scene_XXX/scene_result.json`.
+
+For two-person stories, keep single-reference IP-Adapter and story identity memory disabled unless a scene has exactly one explicit primary identity. Multi-character continuity should rely on prompt continuity, `scene_consistency_prompt`, Anchor Bank metadata, and routing/scoring until a multi-subject conditioning strategy is added.
+
+## DiT exploration (optional submodule)
+
+The upstream [facebookresearch/DiT](https://github.com/facebookresearch/DiT) repository is **archived (read-only)** and ships **ImageNet class-conditional** diffusion with a **Transformer (DiT) backbone**, not open-vocabulary text-to-image story generation. It is **not** wired into `storygen.cli`, `requirements.txt`, or CI. Use it only for **optional** architecture comparison or a standalone sampling smoke test.
+
+- **License**: the DiT code and weights are **CC-BY-NC**; cite and respect non-commercial terms in course reports.
+- **Submodule path**: `third_party/facebookresearch-DiT`. After cloning this repo, fetch it explicitly: `git submodule update --init --recursive third_party/facebookresearch-DiT` (details in [docs/dit_smoke.md](docs/dit_smoke.md)).
+- **Report framing**: see [docs/dit_report_framing.md](docs/dit_report_framing.md) for how to compare DiT against this pipeline without unfair metrics.
 
 ## Ablation Runs
 
@@ -238,7 +297,7 @@ The run metadata includes the resolved config, runtime profile, model id, timest
 - `prompt.pipeline=rule_based` is implemented and preserves the baseline prompt behavior.
 - `prompt.pipeline=llm_assisted` uses structured OpenAI prompt planning with validation, cache, artifacts, and rule-based fallback.
 - `prompt.pipeline=api` is kept as a compatibility alias for `llm_assisted`.
-- `model.backend=storydiffusion_direct` is a story-level placeholder and raises `NotImplementedError` until the StoryDiffusion backend is implemented.
+- `model.backend=storydiffusion_direct` is a story-level backend entrypoint that preserves story scene plans and delegates current panel rendering to scene-level diffusers generation.
 - `previous_selected_image_path` is used by the optional img2img continuity route when enabled.
 - `character_specs` are written as prompt-bundle metadata for future anchor/IP-Adapter conditioning.
 - `generation.anchor_bank` can generate run-local identity anchors from `character_specs`, but v1 does not feed them back into scene generation.

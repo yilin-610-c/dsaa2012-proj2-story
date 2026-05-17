@@ -1,0 +1,9 @@
+[SCENE-1] <Lucy> walks into a room.
+
+[SEP]
+
+[SCENE-2] She turns on the light.
+
+[SEP]
+
+[SCENE-3] She sits on a chair.

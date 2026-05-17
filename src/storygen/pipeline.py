@@ -85,6 +85,7 @@ def _build_story_generation_request(
     *,
     scene_plans: list[StoryScenePlan] | None = None,
     anchor_bank_summary: dict[str, Any] | None = None,
+    seed_override: int | None = None,
 ) -> StoryGenerationRequest:
     story_prompt = prompt_bundle.story_prompt
     if story_prompt is not None:
@@ -103,9 +104,10 @@ def _build_story_generation_request(
         style_name = config["prompt"].get("style_name")
         negative_prompt = config["prompt"].get("negative_prompt", "")
 
+    seed = seed_override if seed_override is not None else int(config["generation"]["base_seed"])
     return StoryGenerationRequest(
         story_id=Path(story.source_path).stem,
-        seed=int(config["generation"]["base_seed"]),
+        seed=seed,
         character_description=character_description,
         panel_prompts=panel_prompts,
         num_identity_panels=num_identity_panels,
@@ -210,6 +212,7 @@ def _run_story_backend_placeholder(
     *,
     scene_plans: list[StoryScenePlan],
     anchor_bank_summary: dict[str, Any],
+    seed_override: int | None = None,
 ) -> StoryGenerationResult:
     append_event(
         run_context,
@@ -226,6 +229,7 @@ def _run_story_backend_placeholder(
         config,
         scene_plans=scene_plans,
         anchor_bank_summary=anchor_bank_summary,
+        seed_override=seed_override,
     )
     save_json(
         run_context.logs_directory / "story_backend_request.json",
@@ -259,8 +263,16 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         prompt_pipeline=prompt_pipeline.metadata().get("pipeline"),
     )
     prompt_bundle = prompt_pipeline.build(story)
-    save_json(run_context.logs_directory / "prompt_pipeline.json", prompt_pipeline.metadata())
-    save_json(run_context.logs_directory / "prompt_bundle.json", prompt_bundle.metadata)
+    prompt_pipeline_metadata = dict(prompt_pipeline.metadata())
+    prompt_bundle_metadata = dict(prompt_bundle.metadata)
+    pipeline_llm_response_record = prompt_pipeline_metadata.pop("_llm_response_record", None)
+    bundle_llm_response_record = prompt_bundle_metadata.pop("_llm_response_record", None)
+    llm_response_record = pipeline_llm_response_record or bundle_llm_response_record
+    prompt_bundle.metadata.pop("_llm_response_record", None)
+    if llm_response_record:
+        save_json(run_context.logs_directory / "llm_prompt_response.json", llm_response_record)
+    save_json(run_context.logs_directory / "prompt_pipeline.json", prompt_pipeline_metadata)
+    save_json(run_context.logs_directory / "prompt_bundle.json", prompt_bundle_metadata)
     prompt_specs = prompt_bundle.scene_prompts
     scene_route_hints = prompt_bundle.metadata.get("scene_route_hints", {})
     generator = build_generation_backend(config["model"], config["runtime"])
@@ -338,47 +350,67 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
         if scene_plans:
             prompt_bundle.metadata["previous_style_reference_path"] = next(iter(dual_face_refs.values()), {}).get("group_style_reference_path") if dual_face_refs else None
         save_json(run_context.logs_directory / "story_scene_plans.json", scene_plans)
-        story_result = _run_story_backend_placeholder(
-            story,
-            prompt_bundle,
-            generator,
-            run_context,
-            config,
-            scene_plans=scene_plans,
-            anchor_bank_summary=anchor_bank_summary,
-        )
+        candidate_count = int(config["generation"]["candidate_count"])
+        base_seed = int(config["generation"]["base_seed"])
+        all_story_results: list[StoryGenerationResult] = []
+        for cand_idx in range(candidate_count):
+            cand_seed = _seed_for_candidate(base_seed, 0, cand_idx)
+            story_result = _run_story_backend_placeholder(
+                story,
+                prompt_bundle,
+                generator,
+                run_context,
+                config,
+                scene_plans=scene_plans,
+                anchor_bank_summary=anchor_bank_summary,
+                seed_override=cand_seed,
+            )
+            all_story_results.append(story_result)
+            # Save each candidate panel
+            for panel_output, scene in zip(story_result.panel_outputs, story.scenes):
+                if panel_output.image is not None:
+                    save_candidate_image(panel_output.image, run_context, scene.index, cand_idx, cand_seed)
+                    panel_output.image = None
+        # Select first candidate as default, save selected image
         scene_results = []
-        for panel_output, scene in zip(story_result.panel_outputs, story.scenes):
+        for scene_idx, scene in enumerate(story.scenes):
             scene_dir = scene_directory(run_context, scene.index)
             scene_dir.mkdir(parents=True, exist_ok=True)
             save_json(scene_dir / "prompt.json", prompt_specs[scene.scene_id])
-            if panel_output.image_path:
-                selected_path = save_selected_image(panel_output.image_path, run_context, scene.index)
-            elif panel_output.image is not None:
-                candidate_path = save_candidate_image(panel_output.image, run_context, scene.index, 0, int(config["generation"]["base_seed"]) + scene.index)
-                selected_path = save_selected_image(candidate_path, run_context, scene.index)
+            # Use first candidate as selected by default
+            first_panel = all_story_results[0].panel_outputs[scene_idx]
+            if first_panel.image_path:
+                selected_path = save_selected_image(first_panel.image_path, run_context, scene.index)
             else:
-                selected_path = ""
-            panel_output.image = None
-            panel_output.image_path = selected_path
+                candidate_path = save_candidate_image(None, run_context, scene.index, 0, _seed_for_candidate(base_seed, scene.index, 0))
+                selected_path = save_selected_image(candidate_path, run_context, scene.index)
+                for cand_idx in range(1, candidate_count):
+                    pass  # already saved above
+            # Re-save first candidate as selected
+            first_seed = _seed_for_candidate(base_seed, 0, 0)
+            cand_path = scene_dir / "candidates" / f"cand_000_seed_{first_seed}.png"
+            if cand_path.exists():
+                selected_path = save_selected_image(str(cand_path), run_context, scene.index)
+            first_panel.image = None
+            first_panel.image_path = selected_path
             save_json(
                 scene_dir / "scene_result.json",
                 {
                     "scene": scene,
-                    "selection": panel_output,
-                    "candidates": [panel_output],
+                    "selection": first_panel,
+                    "candidates": [first_panel],
                 },
             )
             scene_results.append(
                 SceneSelectionResult(
                     scene_id=scene.scene_id,
                     selected_candidate_index=0,
-                    selected_seed=int(config["generation"]["base_seed"]) + scene.index,
+                    selected_seed=first_seed,
                     selected_image_path=selected_path,
                     selected_score=CandidateScore(
                         scene_id=scene.scene_id,
                         candidate_index=0,
-                        seed=int(config["generation"]["base_seed"]) + scene.index,
+                        seed=first_seed,
                         score=0.0,
                         scorer_name="storydiffusion_direct",
                     ),
@@ -470,14 +502,16 @@ def run_pipeline(config: dict[str, Any]) -> RunSummary:
                 "route_reason": route_decision.route_reason,
                 "init_image_path": route_decision.init_image_path,
                 "img2img_strength": route_decision.img2img_strength,
-                "route_change_level": route_decision.route_change_level,
+                "route_change_level": route_decision.route_change_level or (route_hint or {}).get("route_change_level"),
                 "continuity_subject_ids": route_decision.continuity_subject_ids,
                 "continuity_route_hint": route_decision.continuity_route_hint,
-                "llm_route_change_level": route_decision.llm_route_change_level,
+                "llm_route_change_level": route_decision.llm_route_change_level or (route_hint or {}).get("llm_route_change_level"),
                 "route_level_adjustment_reason": route_decision.route_level_adjustment_reason,
                 "route_factors": route_decision.route_factors,
                 "identity_conditioning_subject_id": (route_hint or {}).get("identity_conditioning_subject_id"),
                 "primary_visible_character_ids": list((route_hint or {}).get("primary_visible_character_ids", [])),
+                "action_critical": bool((route_hint or {}).get("action_critical", False)),
+                "scene_visual_plan": dict((route_hint or {}).get("scene_visual_plan", {})),
             }
             reference_image_path = None
             identity_config = config.get("generation", {}).get("identity_conditioning", {})

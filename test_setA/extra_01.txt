@@ -1,0 +1,9 @@
+[SCENE-1] <Anna> opens a book at her desk.
+
+[SEP]
+
+[SCENE-2] She reads quietly.
+
+[SEP]
+
+[SCENE-3] She closes the book and smiles.

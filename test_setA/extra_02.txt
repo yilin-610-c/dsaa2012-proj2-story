@@ -1,0 +1,9 @@
+[SCENE-1] <Mark> rides a bike down the street.
+
+[SEP]
+
+[SCENE-2] He slows near a park.
+
+[SEP]
+
+[SCENE-3] He stops and looks around.

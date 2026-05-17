@@ -30,13 +30,13 @@ class PromptSpec:
     style_prompt: str
     character_prompt: str
     global_context_prompt: str
-    scene_consistency_prompt: str
-    local_prompt: str
-    action_prompt: str
-    generation_prompt: str
-    scoring_prompt: str
-    full_prompt: str
-    negative_prompt: str
+    scene_consistency_prompt: str = ""
+    local_prompt: str = ""
+    action_prompt: str = ""
+    generation_prompt: str = ""
+    scoring_prompt: str = ""
+    full_prompt: str = ""
+    negative_prompt: str = ""
 
 
 @dataclass(slots=True)
@@ -75,6 +75,7 @@ class GenerationRequest:
 @dataclass(slots=True)
 class CharacterSpec:
     character_id: str
+    subject_type: str | None = None
     age_band: str | None = None
     gender_presentation: str | None = None
     hair_color: str | None = None
@@ -84,6 +85,15 @@ class CharacterSpec:
     signature_outfit: str | None = None
     signature_accessory: str | None = None
     profession_marker: str | None = None
+    species: str | None = None
+    fur_color: str | None = None
+    fur_pattern: str | None = None
+    markings: str | None = None
+    body_size: str | None = None
+    material: str | None = None
+    color_scheme: str | None = None
+    shape_features: str | None = None
+    signature_parts: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
