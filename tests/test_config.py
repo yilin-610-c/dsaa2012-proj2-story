@@ -30,6 +30,14 @@ def test_prompt_cache_can_be_explicitly_enabled() -> None:
     assert config["prompt"]["cache"]["enabled"] is True
 
 
+def test_cloud_anchor_ipadapter_scene_enables_route_aware_scoring() -> None:
+    config = resolve_config("configs/base.yaml", "cloud_anchor_ipadapter_scene")
+
+    assert config["prompt"]["pipeline"] == "llm_direct"
+    assert config["scoring"]["route_aware"]["enabled"] is True
+    assert config["scoring"]["route_aware"]["consistency_weight_by_change_level"]["large"] == 0.0
+
+
 def test_resolve_config_supports_extension_profiles() -> None:
     strong = resolve_config("configs/base.yaml", "cloud_strong_backbone")
     story = resolve_config("configs/base.yaml", "cloud_storydiffusion")

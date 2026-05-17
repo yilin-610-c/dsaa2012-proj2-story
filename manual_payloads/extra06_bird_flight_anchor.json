@@ -1,0 +1,69 @@
+{
+  "target_backends": [
+    "anchor"
+  ],
+  "characters": [
+    {
+      "character_id": "Bird",
+      "subject_type": "animal",
+      "stable_identity": "a small colorful bird with blue, orange, yellow, and green feathers",
+      "anchor_reference_prompt": "a single small colorful bird with blue, orange, yellow, and green feathers, full-body identity reference, standing alone, centered, simple plain background, one bird only"
+    }
+  ],
+  "scenes": [
+    {
+      "scene_id": "SCENE-1",
+      "visible_character_ids": [
+        "Bird"
+      ],
+      "identity_conditioning_subject_id": "Bird",
+      "anchor_generation_prompt": "a small colorful bird with blue, orange, yellow, and green feathers perched on a tree branch in a natural setting, full bird visible",
+      "scene_visual_plan": {
+        "visual_action": "the bird is perched on a tree branch",
+        "action_visibility_cue": "both feet gripping the branch, full bird visible",
+        "camera_framing": "medium shot"
+      },
+      "scene_change_level": "small",
+      "action_critical": false,
+      "action_prompt": "bird perched on branch with feet gripping branch",
+      "scoring_prompt": "colorful bird perched on a branch with feet gripping it"
+    },
+    {
+      "scene_id": "SCENE-2",
+      "visible_character_ids": [
+        "Bird"
+      ],
+      "identity_conditioning_subject_id": "Bird",
+      "anchor_generation_prompt": "a small colorful bird with blue, orange, yellow, and green feathers perched on a tree branch, head turned as it looks around, full bird visible",
+      "scene_visual_plan": {
+        "visual_action": "the bird looks around while perched on the same branch",
+        "action_visibility_cue": "head turned to the side, feet still gripping the branch",
+        "camera_framing": "medium shot"
+      },
+      "scene_change_level": "small",
+      "action_critical": true,
+      "action_prompt": "bird perched on branch with head turned to look around",
+      "scoring_prompt": "colorful bird looking around on a branch with head turned"
+    },
+    {
+      "scene_id": "SCENE-3",
+      "visible_character_ids": [
+        "Bird"
+      ],
+      "identity_conditioning_subject_id": "Bird",
+      "anchor_generation_prompt": "a small colorful bird with blue, orange, yellow, and green feathers fully airborne above a tree branch, wings fully spread upward and outward, both feet lifted clear of the branch, open sky behind it, dynamic flight pose",
+      "scene_visual_plan": {
+        "visual_action": "the bird is fully airborne and flying away from the branch",
+        "action_visibility_cue": "wings fully spread, both feet lifted clear of the branch, branch below or behind the bird",
+        "camera_framing": "medium-wide shot"
+      },
+      "scene_change_level": "large",
+      "action_critical": true,
+      "action_prompt": "bird airborne in mid-flight, wings fully spread, feet not touching the branch",
+      "scoring_prompt": "small colorful bird flying in open sky, wings spread, feet off the branch"
+    }
+  ],
+  "notes": {
+    "purpose": "manual prompt search for stronger flight pose"
+  }
+}

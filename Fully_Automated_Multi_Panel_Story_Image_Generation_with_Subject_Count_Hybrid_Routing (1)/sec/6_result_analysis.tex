@@ -1,0 +1,140 @@
+\section{Results and Analysis}
+\label{sec:results}
+
+\subsection{Submitted hybrid system}
+
+\paragraph{Story-14 (single character, $\lambda=0.3$).}
+The hybrid router selects the single-character path.
+With scene-consistency enabled, the girl remains recognizable across three panels: running in rain, sheltering under a roof, and watching the rain slow---settings stay tied to rain and shelter rather than unrelated backgrounds.
+Identity at $\lambda=0.3$ balances recognizable hair and clothing against natural pose variation; $\lambda=0.7$ often over-locks composition, while $\lambda=0.1$ drifts in face detail.
+
+\begin{figure*}[!t]
+  \centering
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \fbox{\parbox[c][1.35in][c]{0.95\linewidth}{\centering\scriptsize Scene 1\\PLACEHOLDER}}
+    \caption{Runs in rain}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \fbox{\parbox[c][1.35in][c]{0.95\linewidth}{\centering\scriptsize Scene 2\\PLACEHOLDER}}
+    \caption{Under roof}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.31\textwidth}
+    \centering
+    \fbox{\parbox[c][1.35in][c]{0.95\linewidth}{\centering\scriptsize Scene 3\\PLACEHOLDER}}
+    \caption{Rain slows}
+  \end{subfigure}
+  \caption{Story-14 final panels from the submitted hybrid single-character path with scene-consistency and $\lambda=0.3$.}
+  \label{fig:story14}
+  % USER: replace subfigures with fig_story14_panels.pdf
+  % Three selected panels from run compare_14_with_scene_consistency_v4
+\end{figure*}
+
+\paragraph{Story-06 (Jack and Sara).}
+The router selects native StoryDiffusion.
+Identity reference prompts initialize separate banks for Jack and Sara; natural scene prompts describe park, cafe, and exhibition interactions.
+Subject count remains correct in the best runs (both characters visible without merging), though clothing colors can drift across panels---a known limitation of text-only identity banks when IP-Adapter is intentionally skipped.
+
+\begin{figure}[!t]
+  \centering
+  \fbox{\parbox[c][1.2in][c]{0.95\columnwidth}{\centering\scriptsize Jack/Sara three-panel strip\\PLACEHOLDER}}
+  \caption{Story-06 multi-character path (native StoryDiffusion).}
+  \label{fig:story06}
+  % USER: fig_story06_dual_storydiffusion.pdf
+\end{figure}
+
+\subsection{Qualitative summary table}
+Table~\ref{tab:results} summarizes ratings for the submitted routes on representative stories.
+Scores reflect our internal qualitative review; DiT rows are exploratory only.
+
+\begin{table*}[!t]
+  \centering
+  \small
+  \caption{Qualitative scores (1--5) for selected stories and methods. ID=identity; Sc=scene; Cnt=subject count; Qual=visual quality.}
+  \label{tab:results}
+  \begin{tabular}{llccccc p{0.18\textwidth}}
+    \toprule
+    Story & Method & ID & Sc & Cnt & Qual & Notes \\
+    \midrule
+    14 & Hybrid single ($\lambda{=}0.3$) & 4 & 4 & 5 & 4 & Primary submitted run \\
+    14 & w/o scene-consistency & 4 & 2 & 5 & 4 & Setting drift on panel 2--3 \\
+    06 & Hybrid multi (StoryDiff.) & 3 & 4 & 4 & 4 & No single-anchor injection \\
+    06 & Single-path IP-Adapter (wrong route) & 2 & 3 & 2 & 3 & Face contamination \\
+    19 & Hybrid single & 4 & 4 & 5 & 4 & Student identity stable \\
+    03 & Hybrid single & 3 & 3 & 4 & 3 & Animal prompts robust \\
+    01 & DiT LoRA (exploratory) & 2 & 3 & 4 & 3 & Trigger-sensitive \\
+    01 & DiT story-joint & 2 & 3 & 3 & 2 & Blending dilutes LoRA \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\subsection{Ablation: scene consistency}
+Figure~\ref{fig:scene_ablation} contrasts Story-14 with and without scene-consistency phrases.
+Without them, panel~2 often loses the ``under a roof'' constraint; with them, shelter and rain context persist.
+
+\begin{figure}[!t]
+  \centering
+  \begin{subfigure}{0.48\columnwidth}
+    \centering
+    \fbox{\parbox[c][0.95in][c]{0.95\linewidth}{\centering\scriptsize w/o consistency\\PLACEHOLDER}}
+    \caption{Without}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.48\columnwidth}
+    \centering
+    \fbox{\parbox[c][0.95in][c]{0.95\linewidth}{\centering\scriptsize with consistency\\PLACEHOLDER}}
+    \caption{With}
+  \end{subfigure}
+  \caption{Scene-consistency ablation on Story-14 (panel~2 shown).}
+  \label{fig:scene_ablation}
+  % USER: fig_story14_scene_consistency_ablation.pdf
+\end{figure}
+
+\subsection{Ablation: identity strength}
+At $\lambda=0.7$, faces match the anchor closely but poses become stiff; at $\lambda=0.1$, scene layout is flexible but hair and outfit drift.
+$\lambda=0.3$ is our recommended operating point for Story-14-style narratives.
+
+\begin{figure}[!t]
+  \centering
+  \fbox{\parbox[c][0.95in][c]{0.95\columnwidth}{\centering\scriptsize $\lambda{=}0.1$ / $0.3$ / $0.7$ comparison\\PLACEHOLDER}}
+  \caption{IP-Adapter strength ablation on Story-14 (same scene).}
+  \label{fig:lambda_ablation}
+  % USER: fig_story14_identity_scale.pdf
+\end{figure}
+
+\subsection{DiT exploratory comparison}
+Table~\ref{tab:dit_compare} contrasts the submitted U-Net hybrid with PixArt-$\alpha$ extensions.
+
+\begin{table}[!t]
+  \centering
+  \small
+  \caption{Submitted hybrid vs.\ exploratory PixArt-$\alpha$ DiT.}
+  \label{tab:dit_compare}
+  \begin{tabular}{p{0.22\columnwidth}p{0.34\columnwidth}p{0.34\columnwidth}}
+    \toprule
+    \textbf{Aspect} & \textbf{SDXL + IP-Adapter} & \textbf{PixArt + LoRA} \\
+    \midrule
+    Identity & Reference image injection & 4--8 train images + trigger \\
+    Cross-panel & Anchors + scene text; StoryDiff.\ for 2+ & Cross-scene attention blend \\
+    Maturity & Production hybrid router & Reproducible, lower quality \\
+    Bottleneck & Dual-subject single anchor & LoRA data; joint dilution \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Scene-level PixArt with LoRA can partially activate a character when the trigger token is present, but identity quality is highly sensitive to training data diversity and prompt format. When inference prompts use the LLM-generated generation prompt (35+ tokens with structural phrases like ``maintain the same location identity''), the trigger token is diluted and character identity becomes essentially random---three panels of the same story can produce three different people (Table~\ref{tab:results}, Story-01 DiT rows). When we switched to concise scoring prompts matching the training caption distribution, cross-scene color consistency improved by $19\times$ (RGB variance: 2781 $\to$ 145), confirming that prompt format mismatch was a major contributor.
+
+However, even with optimized prompts, the underlying DreamBooth-on-generated-data limitation prevents matching the SDXL + IP-Adapter baseline. The LoRA learns to reproduce the generator's rendering artifacts rather than stable subject identity, and the 10--16 augmented training images lack the pose, lighting, and context diversity needed for robust generalization. Story-joint cross-scene blending further reduced identity scores: the global context bias added at middle layers partially overwrites LoRA identity features, and early denoising steps inject noise through the cross-scene mean computation.
+
+We therefore treat the DiT effort as a documented negative result with specific, diagnosable failure modes---not a generic ``did not work'' but an analysis of \emph{why} generated training data fails to drive DreamBooth identity learning, \emph{why} cross-scene attention conflicts with adapter-based identity, and \emph{what} architectural gaps (lack of IP-Adapter, T5 trigger dilution) block the transformer pathway in the current ecosystem. Full details appear in Section~\ref{sec:dit_discussion}.
+
+\begin{figure}[!t]
+  \centering
+  \fbox{\parbox[c][1.0in][c]{0.95\columnwidth}{\centering\scriptsize SDXL+IP-Adapter vs PixArt+LoRA\\same story, three panels\\PLACEHOLDER}}
+  \caption{Side-by-side DiT comparison: SDXL+IP-Adapter hybrid (top) vs PixArt+LoRA scene-level (bottom), Story-01.}
+  \label{fig:dit_vs_sdxl}
+  % USER: fig_dit_vs_sdxl_sidebyside.pdf — combine SDXL panels from anchor_ipadapter_distilled_selected/ + PixArt panels from dit_lora_smoke_full_*/generation/
+\end{figure}

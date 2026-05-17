@@ -9,3 +9,5 @@ outputs_remote/*
 .cache/
 outputs_*/
 output_test/
+lora_checkpoints/
+training_data/

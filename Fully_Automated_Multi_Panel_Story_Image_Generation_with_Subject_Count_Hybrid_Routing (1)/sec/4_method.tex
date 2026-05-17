@@ -1,0 +1,149 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{System overview}
+Figure~\ref{fig:pipeline} summarizes our pipeline.
+All paths share deterministic story parsing and LLM-assisted structured planning; they diverge only at generation based on the number of distinct tagged entities.
+Table~\ref{tab:pipeline_comparison} contrasts the single-character anchor path, the multi-character StoryDiffusion path, and the exploratory DiT backend.
+
+\begin{table}[!t]
+  \centering
+  \small
+  \caption{Generation backends compared in this report.}
+  \label{tab:pipeline_comparison}
+  \begin{tabular}{p{0.2\columnwidth}p{0.25\columnwidth}p{0.2\columnwidth}p{0.2\columnwidth}}
+    \toprule
+    \textbf{Route} & \textbf{Planning} & \textbf{Identity} & \textbf{Generator} \\
+    \midrule
+    Single-entity & LLM structured planner & Anchor bank + IP-Adapter & SDXL-Turbo \\
+    Multi-entity & Same planner + native adapter & StoryDiffusion identity bank & Native StoryDiffusion \\
+    DiT (exploratory) & Rule/LLM prompts & DreamBooth LoRA & PixArt-$\alpha$ DiT \\
+    
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Shared LLM-direct prompt planning}
+\label{sec:prompt}
+
+All submitted backends share an LLM-direct prompt planner. Given a tagged multi-scene story, a deterministic parser first splits the text into ordered scenes and extracts explicit character tags. The LLM then produces a structured prompt payload with character identities, scene-level prompts, and backend-specific prompt fields.
+
+The payload contains three parts. The character block records each character's subject type, stable visual identity, and a clean single-subject reference prompt. The scene block contains one entry per story scene. For the Anchor/IP-Adapter backend, each scene includes a natural diffusion prompt and a short semantic scoring prompt. For native StoryDiffusion, each scene includes a concise prompt with exact \texttt{[Character]} tags. The StoryDiffusion block further provides a compact general identity prompt and front-loaded identity reference prompts.
+
+A lightweight validator checks scene count, required fields, valid tags, and basic prompt-boundary constraints. If repairable issues are found, the system asks the LLM to revise the payload once. The local code does not rewrite prompt semantics; it only validates, logs issues, and adapts the final payload to the selected backend.
+
+
+%simple and concise ver
+\subsection{Single-character path: Anchor Bank and IP-Adapter}
+\label{sec:single}
+
+For $|E|=1$, we use an Anchor Bank with IP-Adapter identity conditioning. The LLM-direct planner provides a clean reference prompt for the character and one generation prompt per scene. The reference prompt is used to generate candidate identity images under a single-subject, plain-background setting, from which a canonical anchor is selected.
+
+During panel generation, each scene uses the LLM-provided \texttt{anchor\_generation\_prompt}. When multiple candidates are generated, the corresponding \texttt{scoring\_prompt} provides a short semantic target for CLIP-based selection. IP-Adapter conditioning is applied only when the scene has exactly one clear identity-conditioned subject; otherwise, identity injection is disabled to avoid forcing one reference identity onto multiple characters.
+
+
+% \subsection{Single-character path: anchor bank and IP-Adapter}
+% \label{sec:single}
+
+% For $|E|=1$, the pipeline executes the following steps:
+% \begin{enumerate}
+%   \item Build an \textbf{anchor bank}: generate portrait and half-body identity candidates per character from the structured specification.
+%   \item Select a \textbf{canonical half-body anchor} using automatic quality and alignment criteria.
+%   \item Apply an \textbf{identity gate} per scene: inject the anchor through IP-Adapter only when exactly one clear subject should be conditioned.
+%   \item Generate panels with \textbf{SDXL-Turbo} (few-step, guidance-free distillation settings).
+%   \item Optionally score multiple candidates per scene with CLIP and select the best panel (Section~\ref{sec:clip}).
+% \end{enumerate}
+
+% \paragraph{Identity conditioning strength.}
+% IP-Adapter strength $\lambda$ trades identity lock against compositional freedom.
+% In our primary single-character evaluation (Story-14, a girl in the rain), we set $\lambda=0.3$: lower than a strong lock ($\lambda\approx 0.7$) to allow natural poses and scene layout while retaining recognizable hair, face, and clothing cues.
+
+% \paragraph{Story-level orchestration.}
+% The single-character backend consumes a full-story scene plan and anchor metadata before rendering each panel.
+% This orchestration layer prepares a consistent interface for future consistent-attention integration; in the submitted configuration, consistent self-attention is \emph{disabled}, and cross-panel identity relies on anchor conditioning and scene-consistency text rather than shared attention kernels.
+
+
+
+%simple and concise ver
+\subsection{Multi-character path: Native StoryDiffusion}
+\label{sec:dual}
+For $|E|\geq 2$, we use native StoryDiffusion rather than IP-Adapter. This avoids the failure mode where a single reference image biases multiple faces toward the same identity.
+
+The LLM-direct payload is adapted into the native StoryDiffusion prompt array. The array first contains one identity reference prompt per character, followed by one prompt for each story scene. Identity prompts describe stable visual appearance with exact \texttt{[Character]} tags, while scene prompts describe the current action, setting, and interaction without repeating full identity descriptions.
+
+For a two-character story, the prompt array has the form
+\begin{center}
+\small
+\begin{tabular}{@{}l@{}}
+\texttt{[A] identity, [B] identity,} \\
+\texttt{[A] and [B] scene 1,} \\
+\texttt{[A] and [B] scene 2, \ldots}
+\end{tabular}
+\end{center}
+Story frames are saved after the front-loaded identity prompts,
+preserving a direct mapping between saved images and story scenes.
+
+
+% \subsection{Multi-character path: native StoryDiffusion}
+% \label{sec:dual}
+
+% For $|E|\geq 2$, single-anchor IP-Adapter would bias both faces toward one reference, so the router invokes \textbf{native StoryDiffusion}.
+
+% \paragraph{Prompt structure.}
+% A natural prompt adapter converts structured metadata into:
+% \begin{itemize}
+%   \item a general identity block with stable \texttt{[Character]} tag lines;
+%   \item front-loaded \textbf{identity reference prompts} (single-subject, plain background) that initialize the identity bank;
+%   \item concise \textbf{scene prompts} focused on action, setting, and framing without repeating full identity text.
+% \end{itemize}
+% Story frames are saved after the identity reference indices; optional saving of skipped identity frames supports diagnosing whether failures originate in the bank or in later scene generation.
+
+% \paragraph{Dual-subject policy.}
+% For stories such as Jack and Sara in a park, cafe, and exhibition, both characters appear in every scene.
+% The planner sets no single identity-conditioning target; the native engine relies on paired identity references plus interaction-aware scene text.
+
+\subsection{Subject-count hybrid router}
+\label{sec:router}
+
+The submitted system uses a simple subject-count router.
+After parsing the story, it counts distinct tagged character names across all scenes.
+Single-character stories are sent to the Anchor Bank + IP-Adapter path, while stories with two or more tagged characters are sent to native StoryDiffusion.
+This avoids manual backend selection and prevents single-anchor IP-Adapter from being applied to multi-character scenes.
+
+\subsection{CLIP-based panel selection}
+\label{sec:clip}
+
+For the Anchor/IP-Adapter path, multiple candidates can be generated for each scene.
+When this option is enabled, a CLIP ViT-B/32 scorer selects the candidate that best matches the LLM-provided \texttt{scoring\_prompt}.
+The scoring prompt is short and semantic, focusing on the main subject and action.
+In our primary submitted configuration, one candidate is generated per scene, so selection is trivial.
+CLIP-based selection is mainly used in scene-level ablations and is not applied to native StoryDiffusion outputs.
+
+\subsection{Exploratory DiT backend: PixArt-$\alpha$ + DreamBooth LoRA}
+\label{sec:dit_method}
+
+Following presentation feedback suggesting transformer-based diffusion models, we implemented a full PixArt-$\alpha$ backend---a DiT (Diffusion Transformer) architecture that replaces the U-Net backbone with a Vision Transformer operating on latent patches. The implementation involved three coupled components described below.
+
+\subsubsection{Scene-level DiT text-to-image generator}
+
+The base component wraps the public PixArt-$\alpha$ checkpoint (PixArt-XL-2, 1024\,px) through the diffusers inference pipeline. The DiT architecture encodes text via a T5-XXL encoder and applies cross-attention conditioning inside each transformer block, using adaLN-single (adaptive layer normalization) to inject timestep and resolution information. We initially wrote a custom denoising loop to support batched multi-scene generation, but correctly handling the VAE resolution binning and adaLN conditioning proved fragile; we ultimately adopted the pipeline's native inference method to guarantee correctness. For LoRA inference, a prompt-mode switch selects the concise scoring prompt (which matches the training caption distribution) rather than the longer generation prompt containing structural tokens unseen during training.
+
+\subsubsection{Story-joint cross-scene self-attention blending}
+
+To exploit the transformer's native multi-token attention, we implemented a cross-scene self-attention wrapper that modifies selected DiT blocks. For $N$ scenes generated as a single batch, the wrapper reshapes hidden states to separate scene and group dimensions, computes a per-scene global context vector by mean-pooling all spatial tokens, averages these context vectors across scenes, and adds the shared global bias to every token before self-attention. This propagates overall color tone and lighting without disrupting the spatial structure that encodes character identity---a deliberate trade-off. Early prototypes using spatially-aligned blending (pooling tokens at identical $(h,w)$ positions across scenes) destroyed character faces because a face token at one position was averaged with background tokens from other scenes.
+
+The blending uses \textbf{layer-wise strength}: shallow layers (indices 0--8, responsible for texture and color) receive stronger blending ($\alpha=0.30$--$0.35$), middle layers (9--18, shape and composition) moderate blending ($\alpha=0.15$--$0.20$), and deep layers (19--27, semantic identity) zero blending ($\alpha=0.0$) to protect LoRA-learned character features.
+
+\subsubsection{DreamBooth LoRA for character identity}
+
+PixArt-$\alpha$ lacks IP-Adapter support: the diffusers pipeline does not implement the IP-Adapter mixin, and no community-trained PixArt-compatible IP-Adapter weights exist. We therefore adopted DreamBooth-style LoRA fine-tuning with three stages:
+
+\begin{enumerate}
+  \item \textbf{Reference generation.} The SDXL-Turbo + IP-Adapter pipeline (Anchor Bank) generates a canonical character portrait. This single image is then augmented with flips, crops, and brightness variations to produce 10--16 training images all depicting the same character. Using augmentations rather than independent text-to-image generation avoids the critical failure mode where PixArt text-to-image produces a \emph{different} person for each prompt---which would teach the LoRA a blurred average rather than a specific identity.
+
+  \item \textbf{LoRA training.} We fine-tune both the DiT transformer and the T5 text encoder using the standard LoRA fine-tuning procedure from the PixArt-$\alpha$ repository. The transformer receives LoRA adapters (rank $r=32$) on attention projections ($Q, K, V, O$) and feed-forward layers. The T5 encoder receives a smaller LoRA (rank $r=4$) on its self-attention layers, enabling the trigger token ``sks'' to acquire character-specific semantics in the embedding space. Training uses 800--1200 steps at $512^2$ resolution, batch size 1, learning rate $1\times10^{-6}$, and fp16 mixed-precision. The resulting adapter is 55\,MB per character.
+
+  \item \textbf{Inference.} LoRA weights are merged into the base model. The trigger token ``sks'' is prepended to every scene prompt (e.g., ``sks Lily, makes breakfast in the kitchen''). Inference uses classifier-free guidance scale $2.5$ (lower than PixArt's default $4.5$) and $12$ denoising steps, giving the LoRA adapter greater influence over the prediction relative to the text-conditioned path.
+\end{enumerate}
+
+The full training and inference pipeline is automated in a single invocation script, called once per story with no manual intervention.

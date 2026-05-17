@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +18,7 @@ DEFAULT_DOUBLE_STORIES = {
     "custom": (),
 }
 DEFAULT_CUSTOM_STORIES = ("test_setA/19.txt", "test_setA/03.txt", "test_set/06.txt")
+STORYDIFFUSION_APP = "gradio_app_sdxl_specific_id_low_vram.py"
 
 
 def _timestamp() -> str:
@@ -38,6 +40,12 @@ def _split_int_list(value: str | None) -> list[int | None]:
     if not values:
         return [None]
     return [int(item) for item in values]
+
+
+def _storydiffusion_root_arg(value: str) -> Path:
+    if not str(value or "").strip():
+        raise argparse.ArgumentTypeError("--storydiffusion-root cannot be empty")
+    return Path(value)
 
 
 def _story_path(value: str) -> Path:
@@ -88,6 +96,34 @@ def _native_args(args: argparse.Namespace, native_id_length: int | None = None) 
     if args.storydiffusion_prompt_mode != "current":
         argv.extend(["--storydiffusion-prompt-mode", args.storydiffusion_prompt_mode])
     return argv
+
+
+def _uses_native_storydiffusion(args: argparse.Namespace) -> bool:
+    methods = set(_split_list(args.methods, ("storygen", "native")))
+    return "native" in methods or args.native_id_length is not None or args.native_id_lengths is not None
+
+
+def _validate_storydiffusion_root_for_suite(args: argparse.Namespace) -> bool:
+    if not _uses_native_storydiffusion(args):
+        return True
+    if args.storydiffusion_root is None:
+        print(
+            "Native StoryDiffusion runs require --storydiffusion-root /path/to/StoryDiffusion.",
+            file=sys.stderr,
+        )
+        return False
+    root = args.storydiffusion_root.expanduser().resolve()
+    app_path = root / STORYDIFFUSION_APP
+    if app_path.exists():
+        return True
+    print(
+        "Native StoryDiffusion runs require the external official StoryDiffusion repo.\n"
+        f"Expected Gradio app file: {app_path}\n"
+        "Set STORYDIFFUSION_ROOT to the official repo and pass "
+        "--storydiffusion-root \"$STORYDIFFUSION_ROOT\".",
+        file=sys.stderr,
+    )
+    return False
 
 
 def _build_command(
@@ -292,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-root", type=Path, default=Path("outputs_ablation"))
     parser.add_argument("--single-env", default="ipadapter")
     parser.add_argument("--double-env", default="storydiffusion")
-    parser.add_argument("--storydiffusion-root", type=Path, default=None)
+    parser.add_argument("--storydiffusion-root", type=_storydiffusion_root_arg, default=None)
     parser.add_argument("--native-width", type=int, default=None)
     parser.add_argument("--native-height", type=int, default=None)
     parser.add_argument("--native-num-steps", type=int, default=None)
@@ -323,6 +359,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     args = parser.parse_args(argv)
+
+    if not args.dry_run and not _validate_storydiffusion_root_for_suite(args):
+        return 2
 
     suite_dir = (args.output_root / args.suite).resolve()
     manifest_path = suite_dir / "suite_manifest.jsonl"

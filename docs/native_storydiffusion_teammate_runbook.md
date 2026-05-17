@@ -80,13 +80,13 @@ conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
 Real run:
 
 ```bash
-conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
   python scripts/run_phase2_ablation_suite.py \
   --suite custom \
   --stories test_set/02.txt,test_set/04.txt,test_set/05.txt,test_set/06.txt,test_set/07.txt,test_set/17.txt \
   --methods native \
   --output-root outputs_teammate/native_storydiffusion_llm_direct_selected \
-  --single-env storygen \
+  --single-env ipadapter \
   --double-env storydiffusion \
   --storydiffusion-root "$STORYDIFFUSION_ROOT" \
   --storydiffusion-prompt-mode llm_direct \
@@ -170,25 +170,25 @@ done
 Real run:
 
 ```bash
-for story in 02 04 05 17; do
-  conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+for story in 02; do
+  PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
     python scripts/run_auto_story_pipeline_modular.py \
     --input "test_set/${story}.txt" \
     --run-name "anchor_ipadapter_distilled_test_set_${story}" \
     --output-root outputs_teammate/anchor_ipadapter_distilled_selected \
-    --single-env storygen \
-    --double-env storygen \
+    --single-env ipadapter \
+    --double-env storydiffusion \
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
     --set 'prompt.llm_direct.targets=["anchor"]' \
     --set prompt.llm.max_output_tokens=6000 \
-    --set model.scene_model_id=stabilityai/sdxl-turbo \
-    --set model.anchor_bank_model_id=stabilityai/sdxl-turbo \
+    --set model.scene_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
+    --set model.anchor_bank_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
     --set model.width=768 \
     --set model.height=768 \
-    --set model.num_inference_steps=4 \
-    --set model.guidance_scale=0.0 \
+    --set model.num_inference_steps=40 \
+    --set model.guidance_scale=1.0 \
     --set generation.candidate_count=3 \
     --set generation.identity_conditioning.scale=0.3
 done
@@ -206,6 +206,18 @@ outputs_teammate/anchor_ipadapter_distilled_selected/anchor_ipadapter_distilled_
 ## Batch C: Anchor Bank + IP-Adapter, Non-Distilled SDXL
 
 This uses the non-distilled SDXL base model with higher step count and normal CFG.
+
+### Batch B vs Batch C: Only These Parameters Differ
+
+All other args (prompt pipeline, env, route, width, height, candidate_count) are identical between B and C.
+
+| Parameter | Batch B (Turbo) | Batch C (Base) | Why different |
+|---|---|---|---|
+| `model.scene_model_id` | `sdxl-turbo` | `sdxl-base-1.0` | **Model** |
+| `model.anchor_bank_model_id` | `sdxl-turbo` | `sdxl-base-1.0` | Anchor generation uses same model |
+| `model.num_inference_steps` | 4 | 35 | Turbo distilled for 4 steps; Base needs 35+ |
+| `model.guidance_scale` | 0.0 | 5.0 | Turbo designed for CFG=0; Base must use CFG>3 |
+| `generation.identity_conditioning.scale` | 0.3 | 0.7 | CFG dilutes IP-Adapter: at CFG=5, uncond path contributes 1/6 weight → need ~2.3× stronger scale |
 
 Output root:
 
@@ -236,7 +248,7 @@ for story in 02 04 05 17; do
     --set model.num_inference_steps=35 \
     --set model.guidance_scale=5.0 \
     --set generation.candidate_count=3 \
-    --set generation.identity_conditioning.scale=0.3 \
+    --set generation.identity_conditioning.scale=0.7 \
     --dry-run
 done
 ```
@@ -244,14 +256,14 @@ done
 Real run:
 
 ```bash
-for story in 02 04 05 17; do
-  conda run -n storygen env PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
+for story in 02 extra_06; do
+  PYTHONPATH=src OPENAI_API_KEY="$OPENAI_API_KEY" \
     python scripts/run_auto_story_pipeline_modular.py \
     --input "test_set/${story}.txt" \
     --run-name "anchor_ipadapter_sdxl_base_test_set_${story}" \
     --output-root outputs_teammate/anchor_ipadapter_sdxl_base_selected \
-    --single-env storygen \
-    --double-env storygen \
+    --single-env ipadapter \
+    --double-env storydiffusion \
     --single-route storygen \
     --double-route storygen \
     --set prompt.pipeline=llm_direct \
@@ -261,13 +273,13 @@ for story in 02 04 05 17; do
     --set model.anchor_bank_model_id=stabilityai/stable-diffusion-xl-base-1.0 \
     --set model.width=768 \
     --set model.height=768 \
-    --set model.num_inference_steps=35 \
+    --set model.num_inference_steps=40 \
     --set model.guidance_scale=5.0 \
     --set generation.candidate_count=3 \
-    --set generation.identity_conditioning.scale=0.3
+    --set generation.identity_conditioning.scale=0.3;
 done
 ```
-
+--set generation.identity_conditioning.scale=0.1;
 Expected run folders:
 
 ```text

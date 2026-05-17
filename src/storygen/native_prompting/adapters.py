@@ -6,7 +6,13 @@ from storygen.native_prompting.types import NativePromptPayload
 from storygen.types import PromptBundle, PromptSpec, Story
 
 
-def build_anchor_prompt_bundle(payload: NativePromptPayload, story: Story, prompt_config: dict[str, Any]) -> PromptBundle:
+def build_anchor_prompt_bundle(
+    payload: NativePromptPayload,
+    story: Story,
+    prompt_config: dict[str, Any],
+    *,
+    metadata_source: str = "llm_direct",
+) -> PromptBundle:
     scene_by_id = {scene.scene_id: scene for scene in payload.scenes}
     scene_prompts: dict[str, PromptSpec] = {}
     for scene in story.scenes:
@@ -30,7 +36,7 @@ def build_anchor_prompt_bundle(payload: NativePromptPayload, story: Story, promp
             "subject_type": character.subject_type,
             "stable_identity": character.stable_identity,
             "anchor_reference_prompt": character.anchor_reference_prompt,
-            "metadata": {"source": "llm_direct"},
+            "metadata": {"source": metadata_source},
         }
         for character in payload.characters
     }
@@ -39,6 +45,11 @@ def build_anchor_prompt_bundle(payload: NativePromptPayload, story: Story, promp
             "primary_visible_character_ids": list(scene.visible_character_ids),
             "visible_character_ids": list(scene.visible_character_ids),
             "identity_conditioning_subject_id": scene.identity_conditioning_subject_id,
+            "scene_change_level": scene.scene_change_level,
+            "route_change_level": scene.scene_change_level,
+            "llm_route_change_level": scene.scene_change_level,
+            "action_critical": scene.action_critical,
+            "scene_visual_plan": dict(scene.scene_visual_plan),
         }
         for scene in payload.scenes
     }
@@ -51,6 +62,16 @@ def build_anchor_prompt_bundle(payload: NativePromptPayload, story: Story, promp
             "target_backends": list(payload.target_backends),
             "character_specs": character_specs,
             "scene_route_hints": scene_route_hints,
+            "visual_continuity_anchors": [
+                {
+                    "anchor_id": anchor.anchor_id,
+                    "type": anchor.type,
+                    "applies_to_scene_ids": list(anchor.applies_to_scene_ids),
+                    "prompt_phrase": anchor.prompt_phrase,
+                    "state_by_scene": dict(anchor.state_by_scene),
+                }
+                for anchor in payload.visual_continuity_anchors
+            ],
             "native_prompt_payload": payload.to_dict(),
         },
     )
@@ -88,6 +109,16 @@ def build_storydiffusion_prompt_payload(payload: NativePromptPayload, story: Sto
         "final_prompt_array": prompt_array,
         "identity_negative_prompt_extra": payload.storydiffusion.identity_negative_prompt_extra,
         "scene_negative_prompt_extra": payload.storydiffusion.scene_negative_prompt_extra,
+        "visual_continuity_anchors": [
+            {
+                "anchor_id": anchor.anchor_id,
+                "type": anchor.type,
+                "applies_to_scene_ids": list(anchor.applies_to_scene_ids),
+                "prompt_phrase": anchor.prompt_phrase,
+                "state_by_scene": dict(anchor.state_by_scene),
+            }
+            for anchor in payload.visual_continuity_anchors
+        ],
         "native_prompt_payload": payload.to_dict(),
     }
     return {

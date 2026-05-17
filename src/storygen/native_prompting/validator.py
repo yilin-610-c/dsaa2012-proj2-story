@@ -4,7 +4,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from storygen.native_prompting.types import ALLOWED_SUBJECT_TYPES, ALLOWED_TARGET_BACKENDS, NativePromptPayload
+from storygen.native_prompting.types import (
+    ALLOWED_CAMERA_FRAMINGS,
+    ALLOWED_SCENE_CHANGE_LEVELS,
+    ALLOWED_SUBJECT_TYPES,
+    ALLOWED_TARGET_BACKENDS,
+    NativePromptPayload,
+)
 from storygen.types import Scene, Story
 
 
@@ -94,8 +100,8 @@ class NativePromptValidationError(Exception):
 
 @dataclass(slots=True)
 class NativePromptValidationConfig:
-    max_scene_prompt_words: int = 40
-    max_scene_prompt_chars: int = 320
+    max_scene_prompt_words: int = 70
+    max_scene_prompt_chars: int = 520
     max_identity_prompt_words: int = 60
     max_identity_prompt_chars: int = 420
     min_unknown_identity_words: int = 4
@@ -235,6 +241,13 @@ def validate_native_prompt_payload(
                 character.anchor_reference_prompt,
                 story_scene_tokens=story_scene_tokens,
             )
+            _validate_anchor_prompt_has_no_tags(
+                issues,
+                f"{character_path}.anchor_reference_prompt",
+                character.anchor_reference_prompt,
+                code="anchor_reference_contains_storydiffusion_tag",
+                instruction="Remove bracket tags from Anchor Bank reference prompts; they are only for native StoryDiffusion prompts.",
+            )
             if character.subject_type == "unknown":
                 _validate_unknown_identity(
                     issues,
@@ -278,6 +291,20 @@ def validate_native_prompt_payload(
                 issues,
                 f"{scene_path}.anchor_generation_prompt",
                 scene.anchor_generation_prompt,
+            )
+            _validate_anchor_prompt_has_no_tags(
+                issues,
+                f"{scene_path}.anchor_generation_prompt",
+                scene.anchor_generation_prompt,
+                code="anchor_generation_contains_storydiffusion_tag",
+                instruction="Remove bracket tags from anchor_generation_prompt; use natural image prompt wording for standard diffusion.",
+            )
+            _validate_anchor_generation_identity_context(
+                issues,
+                f"{scene_path}.anchor_generation_prompt",
+                scene.anchor_generation_prompt,
+                scene.identity_conditioning_subject_id,
+                payload.characters,
             )
             _validate_text_field(
                 issues,
@@ -404,6 +431,20 @@ def validate_native_prompt_payload(
                     "Include the recurring character if they can naturally observe or experience the environment; use [NC] only for a true cutaway.",
                 )
             _validate_scene_prompt_mood_warning(issues, f"{scene_path}.storydiffusion_prompt", scene.storydiffusion_prompt)
+        _validate_stateful_scene_planning(
+            issues,
+            scene,
+            scene_index,
+            scene_path,
+            requested_targets=requested_targets,
+        )
+
+    _validate_visual_continuity_anchors(
+        issues,
+        payload,
+        expected_scene_ids=expected_scene_ids,
+        requested_targets=requested_targets,
+    )
 
     if "storydiffusion" in requested_targets:
         storydiffusion = payload.storydiffusion
@@ -552,9 +593,25 @@ def _validate_text_field(
         )
         return
     if len(text) > max_chars:
-        _add_issue(issues, "hard_error", "field_too_long_chars", field_name, f"{field_name} exceeds {max_chars} chars", text)
+        _add_issue(
+            issues,
+            "hard_error",
+            "field_too_long_chars",
+            field_name,
+            f"{field_name} exceeds {max_chars} chars",
+            text,
+            _length_limit_instruction(field_name),
+        )
     if len(_words(text)) > max_words:
-        _add_issue(issues, "hard_error", "field_too_long_words", field_name, f"{field_name} exceeds {max_words} words", text)
+        _add_issue(
+            issues,
+            "hard_error",
+            "field_too_long_words",
+            field_name,
+            f"{field_name} exceeds {max_words} words",
+            text,
+            _length_limit_instruction(field_name),
+        )
     lowered = text.lower()
     for placeholder in BAD_PLACEHOLDERS:
         if placeholder in lowered:
@@ -624,7 +681,7 @@ def _validate_anchor_reference_prompt(
     if not any(term in lowered for term in SINGLE_SUBJECT_TERMS):
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "anchor_reference_missing_single_subject",
             path,
             f"{path} must request a single subject",
@@ -634,12 +691,65 @@ def _validate_anchor_reference_prompt(
     if not any(term in lowered for term in REFERENCE_FRAMING_TERMS):
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "anchor_reference_missing_clean_background",
             path,
             f"{path} must include simple/centered reference framing",
             prompt,
             "Use plain/simple background and centered neutral identity framing.",
+        )
+
+
+def _validate_anchor_prompt_has_no_tags(
+    issues: list[ValidationIssue],
+    path: str,
+    prompt: str,
+    *,
+    code: str,
+    instruction: str,
+) -> None:
+    tags = TAG_PATTERN.findall(prompt)
+    if tags:
+        _add_issue(
+            issues,
+            "warning",
+            code,
+            path,
+            f"{path} contains StoryDiffusion-style bracket tag(s): {', '.join(f'[{tag}]' for tag in tags[:4])}",
+            " ".join(f"[{tag}]" for tag in tags[:4]),
+            instruction,
+        )
+
+
+def _validate_anchor_generation_identity_context(
+    issues: list[ValidationIssue],
+    path: str,
+    prompt: str,
+    identity_conditioning_subject_id: str | None,
+    characters: list[Any],
+) -> None:
+    if not identity_conditioning_subject_id:
+        return
+    character = next(
+        (item for item in characters if item.character_id == identity_conditioning_subject_id),
+        None,
+    )
+    if character is None or not character.stable_identity:
+        return
+    stable_words = set(_content_words(character.stable_identity))
+    prompt_words = set(_content_words(prompt))
+    stable_words.discard(identity_conditioning_subject_id.lower())
+    overlap = sorted(stable_words & prompt_words)
+    required_overlap = 2 if len(stable_words) >= 4 else 1
+    if len(overlap) < required_overlap:
+        _add_issue(
+            issues,
+            "warning",
+            "anchor_generation_missing_stable_identity",
+            path,
+            f"{path} does not include enough stable visual identity for {identity_conditioning_subject_id}",
+            prompt,
+            "Rewrite anchor_generation_prompt to include the character's stable visual identity while preserving the scene action, setting, and framing.",
         )
 
 
@@ -649,7 +759,7 @@ def _validate_identity_reference_prompt(issues: list[ValidationIssue], field_nam
         if term in lowered:
             _add_issue(
                 issues,
-                "repair_error",
+                "warning",
                 "identity_reference_banned_layout",
                 field_name,
                 f"{field_name} contains banned identity-reference term: {term}",
@@ -671,7 +781,7 @@ def _validate_identity_boundary(
         if term in lowered:
             _add_issue(
                 issues,
-                "repair_error",
+                "warning",
                 "identity_narrative_habit",
                 path,
                 f"{path} contains narrative habit/personality wording: {term}",
@@ -698,13 +808,225 @@ def _validate_scene_prompt_not_reference_only(issues: list[ValidationIssue], fie
         if term in lowered:
             _add_issue(
                 issues,
-                "repair_error",
+                "warning",
                 "scene_prompt_reference_only_phrase",
                 field_name,
                 f"{field_name} contains reference-only phrase: {term}",
                 term,
                 "Rewrite scene prompts as story scenes; keep reference-only constraints inside identity prompts.",
             )
+
+
+def _validate_stateful_scene_planning(
+    issues: list[ValidationIssue],
+    scene: Any,
+    scene_index: int,
+    scene_path: str,
+    *,
+    requested_targets: list[str],
+) -> None:
+    final_prompts = _final_scene_prompts(scene, requested_targets=requested_targets)
+    plan = scene.scene_visual_plan if isinstance(scene.scene_visual_plan, dict) else {}
+    visual_action = str(plan.get("visual_action", "")).strip()
+    action_visibility_cue = str(plan.get("action_visibility_cue", "")).strip()
+    camera_framing = str(plan.get("camera_framing", "")).strip()
+
+    if not plan:
+        _add_issue(
+            issues,
+            "repair_error",
+            "missing_scene_visual_plan",
+            f"{scene_path}.scene_visual_plan",
+            f"{scene.scene_id} is missing scene_visual_plan",
+            "",
+            "Return visual_action, action_visibility_cue, and camera_framing for this scene.",
+        )
+    else:
+        for field_name, value in (
+            ("visual_action", visual_action),
+            ("action_visibility_cue", action_visibility_cue),
+            ("camera_framing", camera_framing),
+        ):
+            path = f"{scene_path}.scene_visual_plan.{field_name}"
+            if not value:
+                _add_issue(
+                    issues,
+                    "repair_error",
+                    f"missing_scene_visual_plan_{field_name}",
+                    path,
+                    f"{path} is required",
+                    "",
+                    "Return concrete visual planning text and reflect it in final scene prompts.",
+                )
+            elif field_name == "camera_framing" and value not in ALLOWED_CAMERA_FRAMINGS:
+                _add_issue(
+                    issues,
+                    "repair_error",
+                    "invalid_camera_framing",
+                    path,
+                    f"{path} must use an allowed camera framing",
+                    value,
+                    "Use one of: wide shot, medium-wide shot, medium shot, medium close-up shot, close-up shot.",
+                )
+            elif field_name != "visual_action" and final_prompts and not _phrase_reflected(value, final_prompts):
+                _add_issue(
+                    issues,
+                    "warning",
+                    f"scene_visual_plan_{field_name}_not_reflected",
+                    path,
+                    f"{path} is not reflected in final scene prompt(s)",
+                    value,
+                    "Rewrite final generation prompts to include this planned visual action/cue/framing.",
+                )
+
+    if (
+        scene.action_critical
+        and scene.scene_change_level == "large"
+        and action_visibility_cue
+        and _mentions_support_separation_transition(f"{visual_action} {action_visibility_cue}")
+        and not _has_action_critical_physical_discriminators(action_visibility_cue)
+    ):
+        _add_issue(
+            issues,
+            "repair_error",
+            "action_critical_visibility_cue_lacks_physical_discriminators",
+            f"{scene_path}.scene_visual_plan.action_visibility_cue",
+            f"{scene.scene_id} action-critical cue needs multiple concrete physical discriminators",
+            action_visibility_cue,
+            (
+                "For action_critical=true, identify the near-miss and include 2-4 concrete physical discriminators "
+                "in scene_visual_plan.action_visibility_cue, anchor_generation_prompt, action_prompt, and scoring_prompt. "
+                "Use contact/separation, body or limb position, movement direction, subject-object placement, "
+                "foreground/background relation, visible state change, active object manipulation, or visible expression."
+            ),
+        )
+
+    if scene_index > 0 and scene.scene_change_level not in ALLOWED_SCENE_CHANGE_LEVELS:
+        _add_issue(
+            issues,
+            "repair_error",
+            "missing_or_invalid_scene_change_level",
+            f"{scene_path}.scene_change_level",
+            f"{scene.scene_id} must include scene_change_level for adaptive scoring",
+            scene.scene_change_level,
+            "Use small, medium, or large based on expected visual change from the previous panel.",
+        )
+    elif scene_index == 0 and scene.scene_change_level and scene.scene_change_level not in ALLOWED_SCENE_CHANGE_LEVELS:
+        _add_issue(
+            issues,
+            "repair_error",
+            "invalid_scene_change_level",
+            f"{scene_path}.scene_change_level",
+            f"{scene.scene_id} has invalid scene_change_level",
+            scene.scene_change_level,
+            "Use small, medium, or large.",
+        )
+
+    if not str(scene.action_prompt or "").strip():
+        _add_issue(
+            issues,
+            "warning",
+            "missing_action_prompt",
+            f"{scene_path}.action_prompt",
+            f"{scene.scene_id} must include action_prompt",
+            "",
+            "Return a short visible-action phrase with concrete cues.",
+        )
+    elif scene.action_critical and not _text_reflects_plan(scene.action_prompt, visual_action, action_visibility_cue):
+        _add_issue(
+            issues,
+            "warning",
+            "action_critical_action_prompt_too_generic",
+            f"{scene_path}.action_prompt",
+            f"{scene.scene_id} action_prompt is too generic for an action-critical scene",
+            scene.action_prompt,
+            "Include visible success criteria from scene_visual_plan.visual_action and action_visibility_cue.",
+        )
+
+    if scene.action_critical:
+        if not str(scene.scoring_prompt or "").strip():
+            _add_issue(
+                issues,
+                "warning",
+                "action_critical_missing_scoring_prompt",
+                f"{scene_path}.scoring_prompt",
+                f"{scene.scene_id} must include scoring_prompt for action-critical selection",
+                "",
+                "Return a short concrete scoring prompt with visible evidence for the key action.",
+            )
+        elif not _text_reflects_plan(scene.scoring_prompt, visual_action, action_visibility_cue):
+            _add_issue(
+                issues,
+                "warning",
+                "action_critical_scoring_prompt_too_generic",
+                f"{scene_path}.scoring_prompt",
+                f"{scene.scene_id} scoring_prompt is too generic for action-critical candidate selection",
+                scene.scoring_prompt,
+                "Include the key visible action evidence from scene_visual_plan, not just subject or nearby setting.",
+            )
+
+
+def _validate_visual_continuity_anchors(
+    issues: list[ValidationIssue],
+    payload: NativePromptPayload,
+    *,
+    expected_scene_ids: list[str],
+    requested_targets: list[str],
+) -> None:
+    scene_by_id = {scene.scene_id: scene for scene in payload.scenes}
+    known_scene_ids = set(expected_scene_ids)
+    for index, anchor in enumerate(payload.visual_continuity_anchors):
+        anchor_path = f"$.visual_continuity_anchors[{index}]"
+        if not anchor.anchor_id:
+            _add_issue(issues, "repair_error", "missing_visual_anchor_id", f"{anchor_path}.anchor_id", "visual continuity anchor missing anchor_id")
+        if not anchor.applies_to_scene_ids:
+            _add_issue(
+                issues,
+                "repair_error",
+                "visual_anchor_missing_scene_ids",
+                f"{anchor_path}.applies_to_scene_ids",
+                f"{anchor_path} must list applicable scene ids",
+                "",
+                "List every scene where this visual anchor should be reflected.",
+            )
+        for scene_id in anchor.applies_to_scene_ids:
+            if scene_id not in known_scene_ids:
+                _add_issue(
+                    issues,
+                    "hard_error",
+                    "visual_anchor_unknown_scene_id",
+                    f"{anchor_path}.applies_to_scene_ids",
+                    f"{anchor_path} references unknown scene id {scene_id}",
+                    scene_id,
+                    "Use exact scene ids from the parsed story.",
+                )
+                continue
+            scene = scene_by_id.get(scene_id)
+            if scene is None:
+                continue
+            phrase = anchor.state_by_scene.get(scene_id) or anchor.prompt_phrase
+            if not phrase:
+                _add_issue(
+                    issues,
+                    "repair_error",
+                    "visual_anchor_missing_prompt_phrase",
+                    anchor_path,
+                    f"{anchor_path} has no prompt_phrase or state_by_scene text for {scene_id}",
+                    "",
+                    "Provide prompt_phrase for persistent anchors or state_by_scene text for evolving anchors.",
+                )
+                continue
+            final_prompts = _final_scene_prompts(scene, requested_targets=requested_targets)
+            if final_prompts and not _phrase_reflected(phrase, final_prompts):
+                _add_issue(
+                    issues,
+                    "warning",
+                    "visual_anchor_not_reflected",
+                    anchor_path,
+                    f"{anchor_path} is not reflected in final prompt for {scene_id}",
+                    phrase,
+                    "Rewrite the final scene prompt so every applicable continuity anchor is directly visible.",
+                )
 
 
 def _validate_storydiffusion_scene_detail(
@@ -722,7 +1044,7 @@ def _validate_storydiffusion_scene_detail(
     if len(words) < min_words:
         _add_issue(
             issues,
-            "repair_error",
+            "warning",
             "storydiffusion_scene_prompt_too_short",
             path,
             f"scenes[{scene_id}].storydiffusion_prompt is too short for a visual frame prompt; expected at least {min_words} words after tags",
@@ -918,7 +1240,123 @@ def _words(value: str) -> list[str]:
 
 
 def _content_words(value: str) -> list[str]:
-    return [word.lower() for word in _words(value) if len(word) > 2 and word.lower() not in STOPWORDS]
+    return [_normalize_content_word(word) for word in _words(value) if len(word) > 2 and word.lower() not in STOPWORDS]
+
+
+def _normalize_content_word(word: str) -> str:
+    normalized = word.lower()
+    if len(normalized) > 5 and normalized.endswith("ing"):
+        normalized = normalized[:-3]
+        if len(normalized) >= 2 and normalized[-1] == normalized[-2]:
+            normalized = normalized[:-1]
+    elif len(normalized) > 4 and normalized.endswith("ed"):
+        normalized = normalized[:-2]
+        if len(normalized) >= 2 and normalized[-1] == normalized[-2]:
+            normalized = normalized[:-1]
+    elif len(normalized) > 4 and normalized.endswith("es"):
+        normalized = normalized[:-2]
+    elif len(normalized) > 3 and normalized.endswith("s"):
+        normalized = normalized[:-1]
+    return normalized
+
+
+def _length_limit_instruction(field_name: str) -> str:
+    if field_name.endswith(".anchor_generation_prompt") or field_name.endswith(".storydiffusion_prompt"):
+        return (
+            "Shorten this prompt to fit the length budget, but preserve the key action evidence, "
+            "continuity cue, important subject-object relation, and camera framing."
+        )
+    if field_name.endswith(".scoring_prompt") or field_name.endswith(".action_prompt"):
+        return "Shorten this prompt to fit the length budget without dropping the decisive action evidence."
+    return "Shorten this field to fit the length budget while preserving the most important required information."
+
+
+def _final_scene_prompts(scene: Any, *, requested_targets: list[str]) -> list[str]:
+    prompts: list[str] = []
+    if "anchor" in requested_targets and str(scene.anchor_generation_prompt or "").strip():
+        prompts.append(scene.anchor_generation_prompt)
+    if "storydiffusion" in requested_targets and str(scene.storydiffusion_prompt or "").strip():
+        prompts.append(TAG_PATTERN.sub(" ", scene.storydiffusion_prompt))
+    return prompts
+
+
+def _phrase_reflected(phrase: str, prompts: list[str]) -> bool:
+    phrase_words = set(_content_words(phrase))
+    if not phrase_words:
+        return True
+    for prompt in prompts:
+        prompt_lower = str(prompt or "").lower()
+        phrase_lower = str(phrase or "").lower().strip()
+        if phrase_lower and phrase_lower in prompt_lower:
+            return True
+        prompt_words = set(_content_words(prompt))
+        overlap = phrase_words & prompt_words
+        required = max(1, min(len(phrase_words), 2 if len(phrase_words) <= 4 else 3))
+        if len(overlap) >= required:
+            return True
+    return False
+
+
+def _text_reflects_plan(value: str, visual_action: str, action_visibility_cue: str) -> bool:
+    text_words = set(_content_words(value))
+    if len(text_words) < 4:
+        return False
+    plan_words = set(_content_words(f"{visual_action} {action_visibility_cue}"))
+    if not plan_words:
+        return True
+    overlap = text_words & plan_words
+    required = max(2, min(4, len(plan_words) // 3 or 2))
+    return len(overlap) >= required
+
+
+def _has_action_critical_physical_discriminators(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    content_words = _content_words(normalized)
+    if len(content_words) < 7:
+        return False
+    connector_count = sum(
+        token in normalized
+        for token in (
+            ",",
+            " and ",
+            " with ",
+            " while ",
+            " as ",
+            " from ",
+            " above ",
+            " below ",
+            " behind ",
+            " beside ",
+            " near ",
+            " away ",
+            " off ",
+            " on ",
+            " into ",
+            " out ",
+        )
+    )
+    return connector_count >= 1
+
+
+def _mentions_support_separation_transition(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    return any(
+        term in normalized
+        for term in (
+            "away",
+            "take off",
+            "taking off",
+            "lifted",
+            "lifting",
+            "clear of",
+            "not touching",
+            "separat",
+            "release",
+            "leaving",
+            "off the",
+            "off of",
+        )
+    )
 
 
 def _story_scene_tokens(story: Story) -> set[str]:

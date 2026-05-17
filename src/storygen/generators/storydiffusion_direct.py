@@ -75,7 +75,7 @@ class StoryDiffusionDirectGenerator(BaseStoryGenerator):
                 prompt_spec=plan.prompt_spec,
                 width=request.width,
                 height=request.height,
-                guidance_scale=0.0,
+                guidance_scale=float(self.model_config.get("guidance_scale", 0.0)),
                 num_inference_steps=int(self.model_config.get("num_inference_steps", 4)),
                 reference_image_path=reference_image_path,
                 previous_selected_image_path=None,

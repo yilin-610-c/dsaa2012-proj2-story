@@ -93,7 +93,7 @@ class PromptBuilder:
         character_prompt = self._build_character_prompt(story, scene, story_context)
         global_context_prompt = self._build_global_context_prompt(story, story_context)
         scoring_prompt = self._build_scoring_prompt(story, scene, scene_text, story_context)
-        negative_prompt = self._compose_negative_prompt(story, scene, story_context)
+        negative_prompt = self.prompt_config.get("negative_prompt", "").strip()
         full_prompt = self._compose_full_prompt(
             style_prompt=style_prompt,
             character_prompt=character_prompt,
@@ -241,7 +241,7 @@ class PromptBuilder:
         continuity_state = self._extract_scene_continuity_state(scene, story_context)
         semantic_completion = self._build_scene_semantic_completion(scene, story_context)
         scene_focus = self._extract_scene_focus(scene)
-        scene_setting = self._extract_scene_setting(scene.clean_text, story_context)
+        scene_setting = self._extract_scene_setting(scene.clean_text)
         parts = []
 
         if scene_setting:
@@ -297,7 +297,7 @@ class PromptBuilder:
         scene_focus = self._extract_scene_focus(scene)
         if scene_focus and scene_focus not in subject.lower():
             subject = f"{subject}, {scene_focus}" if subject else scene_focus
-        scene_setting = self._extract_scene_setting(scene_text, story_context)
+        scene_setting = self._extract_scene_setting(scene_text)
         setting_clause = ""
         if not scene_setting:
             setting_clause = self._extract_setting_clause(scene_text)
@@ -363,18 +363,11 @@ class PromptBuilder:
         if composition_clause:
             generation_prompt = ", ".join([generation_prompt, composition_clause.strip(", ")])
 
-        cinematography_clause = self._cinematography_clause(scene, story_context)
-        if cinematography_clause:
-            generation_prompt = ", ".join([generation_prompt, cinematography_clause])
-
-        shortened = self._shorten_prompt_text(
+        return self._shorten_prompt_text(
             generation_prompt,
             max_words=int(self.prompt_config.get("generation_max_words", 28)),
             max_chars=int(self.prompt_config.get("generation_max_chars", 220)),
         )
-        if self.prompt_config.get("generation_trim_truncation_artifacts", True):
-            return self._trim_truncation_artifacts(shortened)
-        return shortened
 
     def _build_scoring_prompt(
         self,
@@ -412,85 +405,6 @@ class PromptBuilder:
             max_words=int(self.prompt_config.get("scoring_max_words", 20)),
             max_chars=int(self.prompt_config.get("scoring_max_chars", 160)),
         )
-
-    def _compose_negative_prompt(
-        self,
-        story: Story,
-        scene: Scene,
-        story_context: dict[str, str | list[str] | None],
-    ) -> str:
-        base = str(self.prompt_config.get("negative_prompt", "") or "").strip()
-        dyn_cfg = self.prompt_config.get("dynamic_negative")
-        if not isinstance(dyn_cfg, dict) or not bool(dyn_cfg.get("enabled", False)):
-            return base
-
-        text_blob = f"{scene.clean_text} {story_context.get('location_anchor') or ''}".lower()
-        extras: list[str] = []
-
-        night_subs = dyn_cfg.get("night_substrings") or []
-        if isinstance(night_subs, list) and any(str(s).lower() in text_blob for s in night_subs if str(s).strip()):
-            chunk = str(dyn_cfg.get("night_extra", "") or "").strip()
-            if chunk:
-                extras.append(chunk)
-
-        if not bool(story_context.get("is_dual_subject_story", False)):
-            chunk = str(dyn_cfg.get("single_subject_extra", "") or "").strip()
-            if chunk:
-                extras.append(chunk)
-
-        if not extras:
-            return base
-
-        parts = [p.strip() for p in base.split(",") if p.strip()]
-        for block in extras:
-            for piece in block.split(","):
-                p = piece.strip()
-                if p and p.lower() not in {x.lower() for x in parts}:
-                    parts.append(p)
-        return ", ".join(parts)
-
-    def _cinematography_clause(
-        self,
-        scene: Scene,
-        story_context: dict[str, str | list[str] | None],
-    ) -> str:
-        cfg = self.prompt_config.get("cinematography")
-        if not isinstance(cfg, dict) or not bool(cfg.get("enabled", False)):
-            return ""
-        blob = f"{scene.clean_text} {story_context.get('location_anchor') or ''}".lower()
-        night_keywords = cfg.get("night_keywords") or []
-        if isinstance(night_keywords, list):
-            for kw in night_keywords:
-                if str(kw).lower() in blob:
-                    return str(cfg.get("night_phrase", "") or "").strip()
-        cozy_keywords = cfg.get("cozy_indoor_keywords") or []
-        if isinstance(cozy_keywords, list):
-            for kw in cozy_keywords:
-                if str(kw).lower() in blob:
-                    return str(cfg.get("cozy_phrase", "") or "").strip()
-        return str(cfg.get("default_phrase", "") or "").strip()
-
-    @staticmethod
-    def _trim_truncation_artifacts(text: str) -> str:
-        """Remove incomplete trailing clauses left by char/word limits (e.g. 'same vehicle context:')."""
-        t = text.rstrip(" ,.;")
-        if not t:
-            return t
-        lowered = t.lower()
-        bad_suffixes = (
-            "same vehicle context:",
-            "same vehicle context",
-            "new scene setting:",
-            "new scene setting",
-            "same setting:",
-        )
-        for bad in bad_suffixes:
-            if lowered.endswith(bad):
-                t = t[: -len(bad)].rstrip(" ,.;")
-                lowered = t.lower()
-        while t.endswith(":"):
-            t = t[:-1].rstrip(" ,.;")
-        return t
 
     def _compose_full_prompt(
         self,
@@ -585,6 +499,18 @@ class PromptBuilder:
             candidates.sort(key=lambda item: (item[0], len(item[1]), item[1]))
             return candidates[0][1]
         return self.prompt_config.get("default_setting_prompt", "").strip()
+
+    def _infer_vehicle_context(self, story: Story) -> str:
+        for scene in story.scenes:
+            text = scene.clean_text.lower()
+            explicit_vehicle = self._extract_vehicle_keyword(text)
+            if explicit_vehicle:
+                return explicit_vehicle
+            if any(keyword in text for keyword in ["drive", "drives", "driving", "rides", "riding"]):
+                return "car"
+            if "outside" in text and any(keyword in text for keyword in ["look", "looks", "looking", "scenery", "view"]):
+                return "car"
+        return ""
 
     def _infer_motion_anchor(self, text: str) -> str:
         if any(keyword in text for keyword in ["drive", "drives", "driving"]):
@@ -731,11 +657,7 @@ class PromptBuilder:
             return "museum"
         return ""
 
-    def _extract_scene_setting(
-        self,
-        text: str,
-        story_context: dict[str, str | list[str] | None] | None = None,
-    ) -> str:
+    def _extract_scene_setting(self, text: str) -> str:
         normalized = self._normalize_fragment(text).lower()
         if not normalized:
             return ""
@@ -756,34 +678,10 @@ class PromptBuilder:
         for anchor in anchors:
             if anchor in normalized:
                 return anchor.replace("  ", " ")
-        vehicle_context = str((story_context or {}).get("vehicle_context") or "").strip()
-        venue_markers = (
-            "building",
-            "house",
-            "home",
-            "room",
-            "cafe",
-            "store",
-            "shop",
-            "office",
-            "school",
-            "hospital",
-            "station",
-            "lobby",
-            "hall",
-        )
         for match in LOCATION_PATTERN.finditer(text):
-            raw_phrase = self._normalize_fragment(match.group(0))
-            phrase = raw_phrase.lower()
-            if not phrase:
-                continue
-            if vehicle_context and "door" in phrase and vehicle_context.lower() not in phrase:
-                if not any(m in phrase for m in venue_markers):
-                    continue
-            if vehicle_context and re.search(r"\b(at|by|near)\s+the\s+window\b", phrase):
-                if vehicle_context.lower() not in phrase and not any(m in phrase for m in venue_markers):
-                    continue
-            return phrase
+            phrase = self._normalize_fragment(match.group(0)).lower()
+            if phrase:
+                return phrase
         return ""
 
     def _build_scene_semantic_completion(

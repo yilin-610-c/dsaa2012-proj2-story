@@ -483,10 +483,17 @@ class LLMDirectPromptBuilder:
                 "- Because target_backends includes anchor, every scene must include final anchor_generation_prompt, "
                 "short semantic scoring_prompt, visible_character_ids, and identity_conditioning_subject_id. "
                 "Every character must include final anchor_reference_prompt.\n"
-                "- scoring_prompt should be short, objective, and semantic, focusing on the main subject and action; avoid mood words, style words, long identity details, camera jargon, and subjective adjectives.\n"
                 "- anchor_generation_prompt is for standard diffusion / Anchor / IP-Adapter and must not require StoryDiffusion tags.\n"
-                "- anchor_generation_prompt is a story scene prompt, not a reference image prompt; do not include reference-only constraints such as simple/plain/clean/centered background, single-subject, or one-person-in-image wording.\n"
+                "- Different prompt fields use different detail levels. anchor_generation_prompt should be the richest executable scene prompt. action_prompt should stay short but include the decisive visible action cue. scoring_prompt should stay short but include the key action evidence needed for candidate selection.\n"
+                "- anchor_generation_prompt is a story scene prompt, not a reference image prompt. It should include stable subject identity, the current action, body pose or object interaction, setting or persistent/evolving visual anchor, spatial relation between the subject and important objects, visible evidence that distinguishes the scene from a near-miss, and camera framing. Do not rely on the character name alone for identity.\n"
+                "- For action-heavy or visually changing scenes, anchor_generation_prompt should include 2-4 concrete visible cues chosen as needed from body pose, limb position, object contact or separation, direction of movement, subject-object spatial relation, foreground/background placement, environmental state change, or directly visible relevant facial expression.\n"
+                "- The prompt may add necessary visual realization details that make the story action drawable, as long as they do not change the story event or add unrelated narrative events.\n"
+                "- anchor_generation_prompt should use the same broad visual medium as anchor_reference_prompt, preferably naturalistic/cinematic story image unless the story clearly requires another medium.\n"
+                "- anchor_generation_prompt must not include reference-only constraints such as simple/plain/clean/centered background, single-subject, or one-person-in-image wording.\n"
+                "- scoring_prompt should be short, objective, and semantic, focusing on the main subject and action evidence; avoid mood words, style words, long identity details, camera jargon, and subjective adjectives.\n"
                 "- anchor_reference_prompt should show only the character, not a story scene: use neutral standing pose or simple half-body/full-body pose, plain/simple background, no story location, no temporary prop, no scene action, and no other people.\n"
+                "- For human anchor_reference_prompt, describe stable visual identity such as clothing, hairstyle, skin tone, build, and other durable appearance traits. Do not include facial expression, mood, emotion, or story-specific expression cues in anchor_reference_prompt.\n"
+                "- anchor_reference_prompt is for standard diffusion / Anchor Bank, so it must not contain StoryDiffusion bracket tags such as [Ben], [Character], or [NC].\n"
                 "- For dual-person scenes, identity_conditioning_subject_id should usually be null; do not over-engineer IP-Adapter conditioning for multi-character scenes.\n"
             )
         storydiffusion_rules = ""
@@ -512,17 +519,39 @@ class LLMDirectPromptBuilder:
             f"{story.all_entities}\n"
             "Scenes:\n"
             f"{scene_lines}\n\n"
+            "Stateful Visual Prompt Planning:\n"
+            "- Before writing final prompts, infer visual_continuity_anchors, one scene_visual_plan per scene, scene_change_level, and action_critical.\n"
+            "- Since every panel is generated independently with text2img, final prompts must be self-contained; encode both continuity and visual progression directly in each final prompt.\n"
+            "- visual_continuity_anchors capture persistent settings/objects/tasks or evolving visual states. Use prompt_phrase for persistent anchors and state_by_scene entries for evolving states. Every applicable anchor must appear in final scene prompts, and do not output anchors that are unused.\n"
+            "- Do not carry location-specific objects across a clear location change. Character identity/clothing can persist across locations.\n"
+            "- scene_visual_plan.visual_action must turn abstract verbs into visible actions. action_visibility_cue must say what visible evidence proves the action. camera_framing must be one of wide shot, medium-wide shot, medium shot, medium close-up shot, close-up shot.\n"
+            "- Final anchor_generation_prompt and storydiffusion_prompt must already include applicable continuity anchors, visual_action, action_visibility_cue, and camera_framing. Exact wording does not need to match scene_visual_plan, but the final prompt must express the same visual meaning. Local code will not combine these fields for you.\n"
+            "- scene_change_level describes how much the expected image differs from the previous panel: small for minor pose/action variation, medium for visible pose/interaction change in same context, large for major pose/action/location/composition change.\n"
+            "- Do not mark every scene as action_critical. Use action_critical=true only when a near-miss image could preserve the subject and setting but fail the core story action, pose, object interaction, or spatial relation.\n"
+            "- action_critical is true when scene success depends on a specific visible pose, movement, object interaction, or spatial relation rather than only the subject identity.\n"
+            "- For action_critical=true scenes, do not describe the action only with an abstract verb. Identify what a near-miss image would look like: same subject and setting, but wrong pose, wrong contact/separation, wrong spatial relation, or missing visible state change.\n"
+            "- For action_critical=true scenes, include 2-4 concrete physical discriminators that rule out that near-miss. Prefer contact or separation from a support/object, body or limb position, direction of movement, subject-object spatial relation, foreground/background relation, visible state change, object manipulation, or directly visible facial expression when relevant.\n"
+            "- These action-critical discriminators must appear in scene_visual_plan.action_visibility_cue, anchor_generation_prompt, action_prompt, and scoring_prompt. action_prompt and scoring_prompt may compress wording, but they must not drop the decisive visual evidence.\n"
+            "- If the action changes whether the subject is touching, leaving, holding, releasing, entering, exiting, lying on, standing on, or moving away from an object or surface, explicitly describe the contact or separation and the relative placement of the subject and object/surface.\n"
+            "- action_prompt is required and must be a short visible-action phrase focused on the decisive visible action cue. For action-critical scenes it must distinguish success from near-miss candidates. For non-action-critical scenes, keep it clear but do not over-expand it.\n"
+            "- scoring_prompt is used for CLIP-based candidate selection, not for image generation.\n"
+            "- Write scoring_prompt as a short compact visual query, usually about 8-18 words, not a full sentence.\n"
+            "- scoring_prompt should capture the minimal visible evidence needed to identify the intended scene: visible subject category, concrete action or pose, key object/setting relation when needed, visible state change when needed, and the strongest discriminator between a correct candidate and a near-miss.\n"
+            "- Avoid names unless visually necessary, long identity descriptions, style/cinematic/rendering words, camera terms, abstract story-summary wording, causal explanation, temporal explanation, or negative phrasing in scoring_prompt.\n"
+            "- scoring_prompt should not repeat the full generation prompt. Compress the scene into a compact visual query for candidate selection.\n"
+            "- For action-critical scenes, make scoring_prompt emphasize the visible action or pose over general identity or setting continuity, and include at least one physical near-miss discriminator rather than only the action verb. For continuity-preserving scenes, keep only the continuity evidence that is visually necessary for selecting the correct candidate.\n"
             "Rules:\n"
             "- Do not rely on local code to add hair, outfit, species, setting, action, framing, emotion, background, or reference constraints.\n"
             "- subject_type is your judgment and must be one of human, animal, robot, object, vehicle, unknown.\n"
             "- If subject_type is unknown, stable_identity and reference prompts must still be visually concrete and drawable.\n"
             "- stable_identity is short stable visual identity text for inspection and general prompt reasoning.\n"
             "- stable_identity, general_prompt, anchor_reference_prompt, and identity_reference_prompts must describe only stable visual identity. They must not include scene-specific locations, temporary props, actions, story events, personality, preferences, habits, or narrative background.\n"
-            "- anchor_reference_prompt is a final executable identity/reference prompt; include an exact [Character] tag plus single-subject and simple/centered-background reference constraints yourself.\n"
+            "- anchor_reference_prompt is a final executable identity/reference prompt for Anchor Bank; do not include bracket tags, and include single-subject and simple/centered-background reference constraints yourself.\n"
+            "- anchor_reference_prompt is identity-only. Avoid scene-specific poses, locations, props, or task equipment unless they are part of the character's stable visual identity. For humans, include clothing, hairstyle, skin tone, build, and other durable appearance traits, but do not include facial expression, mood, emotion, or story-specific expression cues.\n"
             "- Do not include banned layout terms such as character sheet, turnaround, multiple views, or duplicate subject in identity prompts.\n"
             "- Resolve pronouns from story context using exact character ids.\n"
             "- If a scene combines a pronoun with an explicit tagged character and describes an interaction, resolve the pronoun and include both participants in visible ids and scene prompts.\n"
-            "- Do not invent unrelated story events.\n"
+            "- Do not invent unrelated story events. However, adding visual realization details such as pose, contact/separation, spatial relation, lighting state, motion direction, or visible object interaction is allowed when it makes the given story action drawable.\n"
             "- Scene prompts should prioritize concrete visible content: subject, action, object, setting, spatial relation, and camera framing. Avoid inner thoughts, personality, or vague mood adjectives unless directly visible in the story.\n"
             "- negative prompt fields must not forbid content required by any story scene, such as multiple characters, crowds, traffic, complex backgrounds, vehicles, or props.\n"
             "- Keep reference-image constraints inside identity/reference prompts only; story scene prompts should describe the actual story environment.\n"
@@ -552,6 +581,19 @@ class LLMDirectPromptBuilder:
 
     def _json_schema(self) -> dict[str, Any]:
         string_or_null = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        scene_visual_plan_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["visual_action", "action_visibility_cue", "camera_framing"],
+            "properties": {
+                "visual_action": {"type": "string"},
+                "action_visibility_cue": {"type": "string"},
+                "camera_framing": {
+                    "type": "string",
+                    "enum": ["wide shot", "medium-wide shot", "medium shot", "medium close-up shot", "close-up shot"],
+                },
+            },
+        }
         character_properties: dict[str, Any] = {
             "character_id": {"type": "string"},
             "subject_type": {"type": "string"},
@@ -562,15 +604,28 @@ class LLMDirectPromptBuilder:
             character_properties["anchor_reference_prompt"] = {"type": "string"}
             character_required.append("anchor_reference_prompt")
 
-        scene_properties: dict[str, Any] = {"scene_id": {"type": "string"}}
-        scene_required = ["scene_id"]
+        scene_properties: dict[str, Any] = {
+            "scene_id": {"type": "string"},
+            "scene_visual_plan": scene_visual_plan_schema,
+            "scene_change_level": {"type": "string", "enum": ["small", "medium", "large"]},
+            "action_critical": {"type": "boolean"},
+            "action_prompt": {"type": "string"},
+            "scoring_prompt": {"type": "string"},
+        }
+        scene_required = [
+            "scene_id",
+            "scene_visual_plan",
+            "scene_change_level",
+            "action_critical",
+            "action_prompt",
+            "scoring_prompt",
+        ]
         if "anchor" in self.targets:
             scene_properties.update(
                 {
                     "visible_character_ids": {"type": "array", "items": {"type": "string"}},
                     "identity_conditioning_subject_id": string_or_null,
                     "anchor_generation_prompt": {"type": "string"},
-                    "scoring_prompt": {"type": "string"},
                 }
             )
             scene_required.extend(
@@ -578,7 +633,6 @@ class LLMDirectPromptBuilder:
                     "visible_character_ids",
                     "identity_conditioning_subject_id",
                     "anchor_generation_prompt",
-                    "scoring_prompt",
                 ]
             )
         if "storydiffusion" in self.targets:
@@ -587,6 +641,42 @@ class LLMDirectPromptBuilder:
 
         top_properties: dict[str, Any] = {
             "target_backends": {"type": "array", "items": {"type": "string"}},
+            "visual_continuity_anchors": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["anchor_id", "type", "applies_to_scene_ids", "prompt_phrase", "state_by_scene"],
+                    "properties": {
+                        "anchor_id": {"type": "string"},
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "persistent_setting",
+                                "persistent_object",
+                                "persistent_task_and_setting",
+                                "evolving_visual_state",
+                                "weather_or_lighting_state",
+                                "vehicle_or_transport_context",
+                            ],
+                        },
+                        "applies_to_scene_ids": {"type": "array", "items": {"type": "string"}},
+                        "prompt_phrase": {"type": "string"},
+                        "state_by_scene": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["scene_id", "prompt_phrase"],
+                                "properties": {
+                                    "scene_id": {"type": "string"},
+                                    "prompt_phrase": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
+                },
+            },
             "characters": {
                 "type": "array",
                 "items": {
@@ -616,7 +706,7 @@ class LLMDirectPromptBuilder:
                 },
             },
         }
-        top_required = ["target_backends", "characters", "scenes", "notes"]
+        top_required = ["target_backends", "visual_continuity_anchors", "characters", "scenes", "notes"]
         if "storydiffusion" in self.targets:
             top_properties["storydiffusion"] = {
                 "type": "object",
