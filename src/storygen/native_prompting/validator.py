@@ -100,8 +100,8 @@ class NativePromptValidationError(Exception):
 
 @dataclass(slots=True)
 class NativePromptValidationConfig:
-    max_scene_prompt_words: int = 40
-    max_scene_prompt_chars: int = 320
+    max_scene_prompt_words: int = 70
+    max_scene_prompt_chars: int = 520
     max_identity_prompt_words: int = 60
     max_identity_prompt_chars: int = 420
     min_unknown_identity_words: int = 4
@@ -879,6 +879,28 @@ def _validate_stateful_scene_planning(
                     "Rewrite final generation prompts to include this planned visual action/cue/framing.",
                 )
 
+    if (
+        scene.action_critical
+        and scene.scene_change_level == "large"
+        and action_visibility_cue
+        and _mentions_support_separation_transition(f"{visual_action} {action_visibility_cue}")
+        and not _has_action_critical_physical_discriminators(action_visibility_cue)
+    ):
+        _add_issue(
+            issues,
+            "repair_error",
+            "action_critical_visibility_cue_lacks_physical_discriminators",
+            f"{scene_path}.scene_visual_plan.action_visibility_cue",
+            f"{scene.scene_id} action-critical cue needs multiple concrete physical discriminators",
+            action_visibility_cue,
+            (
+                "For action_critical=true, identify the near-miss and include 2-4 concrete physical discriminators "
+                "in scene_visual_plan.action_visibility_cue, anchor_generation_prompt, action_prompt, and scoring_prompt. "
+                "Use contact/separation, body or limb position, movement direction, subject-object placement, "
+                "foreground/background relation, visible state change, active object manipulation, or visible expression."
+            ),
+        )
+
     if scene_index > 0 and scene.scene_change_level not in ALLOWED_SCENE_CHANGE_LEVELS:
         _add_issue(
             issues,
@@ -1285,6 +1307,56 @@ def _text_reflects_plan(value: str, visual_action: str, action_visibility_cue: s
     overlap = text_words & plan_words
     required = max(2, min(4, len(plan_words) // 3 or 2))
     return len(overlap) >= required
+
+
+def _has_action_critical_physical_discriminators(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    content_words = _content_words(normalized)
+    if len(content_words) < 7:
+        return False
+    connector_count = sum(
+        token in normalized
+        for token in (
+            ",",
+            " and ",
+            " with ",
+            " while ",
+            " as ",
+            " from ",
+            " above ",
+            " below ",
+            " behind ",
+            " beside ",
+            " near ",
+            " away ",
+            " off ",
+            " on ",
+            " into ",
+            " out ",
+        )
+    )
+    return connector_count >= 1
+
+
+def _mentions_support_separation_transition(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    return any(
+        term in normalized
+        for term in (
+            "away",
+            "take off",
+            "taking off",
+            "lifted",
+            "lifting",
+            "clear of",
+            "not touching",
+            "separat",
+            "release",
+            "leaving",
+            "off the",
+            "off of",
+        )
+    )
 
 
 def _story_scene_tokens(story: Story) -> set[str]:

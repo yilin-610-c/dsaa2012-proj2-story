@@ -111,6 +111,9 @@ The current instruction also distinguishes prompt detail levels explicitly:
 - `anchor_generation_prompt` is the richest executable scene prompt and should include stable identity, current action, pose or object interaction, relevant setting/continuity anchor, spatial relation, visible near-miss-disambiguating evidence, and camera framing.
 - `action_prompt` stays short and focuses on the decisive visible action cue.
 - `scoring_prompt` is a compact CLIP selection query rather than a scene summary. It stays short, focuses on the visible discriminator that separates the correct candidate from a near-miss, and avoids long identity descriptions or cinematic wording.
+- For `action_critical=true` scenes, the planner must explicitly reason about near-miss candidates and include 2-4 concrete physical discriminators in `scene_visual_plan.action_visibility_cue`, `anchor_generation_prompt`, `action_prompt`, and `scoring_prompt`. These discriminators should describe visible contact/separation, limb or body position, motion direction, subject-object spatial relation, foreground/background relation, visible state change, active object manipulation, or directly visible expression when relevant.
+- Support/contact transitions must be explicit. If an action changes whether the subject is touching, leaving, holding, releasing, entering, exiting, lying on, standing on, or moving away from an object or surface, the prompt should describe the contact/separation and relative placement.
+- Scene generation prompts may now be up to 70 words before length validation triggers repair. This avoids shortening prompts by deleting decisive action evidence; `scoring_prompt` remains compact.
 
 Minimal sanity-check command for the Anchor scene profile:
 

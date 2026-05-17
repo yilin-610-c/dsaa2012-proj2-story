@@ -572,6 +572,13 @@ def test_llm_direct_instruction_mentions_anchor_detail_policy() -> None:
     assert "short compact visual query, usually about 8-18 words" in user_prompt
     assert "Compress the scene into a compact visual query for candidate selection" in user_prompt
     assert "make scoring_prompt emphasize the visible action or pose over general identity or setting continuity" in user_prompt
+    assert "Identify what a near-miss image would look like" in user_prompt
+    assert "include 2-4 concrete physical discriminators" in user_prompt
+    assert "contact or separation from a support/object" in user_prompt
+    assert "must appear in scene_visual_plan.action_visibility_cue, anchor_generation_prompt, action_prompt, and scoring_prompt" in user_prompt
+    assert "explicitly describe the contact or separation and the relative placement" in user_prompt
+    assert "clothing, hairstyle, skin tone, build" in user_prompt
+    assert "Do not include facial expression, mood, emotion" in user_prompt
 
 
 def test_visual_action_not_reflected_no_longer_emits_warning() -> None:
@@ -584,12 +591,34 @@ def test_visual_action_not_reflected_no_longer_emits_warning() -> None:
     assert not any(issue.code == "scene_visual_plan_visual_action_not_reflected" for issue in issues)
 
 
+def test_large_action_critical_support_transition_needs_physical_discriminators() -> None:
+    payload = _payload(("anchor",))
+    scene = payload["scenes"][0]
+    scene["scene_change_level"] = "large"
+    scene["action_critical"] = True
+    scene["scene_visual_plan"] = {
+        "visual_action": "flying away from a branch",
+        "action_visibility_cue": "bird taking off from branch",
+        "camera_framing": "medium-wide shot",
+    }
+    scene["anchor_generation_prompt"] = "a small colorful bird flying away from a branch, medium-wide shot"
+    scene["action_prompt"] = "bird flying away"
+    scene["scoring_prompt"] = "bird flying away from branch"
+
+    issues = validate_native_prompt_payload(NativePromptPayload.from_dict(payload), _story_single(), targets=["anchor"])
+    issue = next(issue for issue in issues if issue.code == "action_critical_visibility_cue_lacks_physical_discriminators")
+    assert issue.severity == "repair_error"
+    assert "2-4 concrete physical discriminators" in issue.instruction
+    assert "anchor_generation_prompt, action_prompt, and scoring_prompt" in issue.instruction
+
+
 def test_length_limit_instruction_preserves_key_scene_information() -> None:
     payload = _payload(("anchor",))
     payload["scenes"][0]["anchor_generation_prompt"] = (
         "a young man with short brown hair and a blue jacket flips pancakes at the stove in a cozy kitchen while morning light "
         "fills the same room through the window, holding a spatula, pancakes visible in the pan, medium shot with the stove and "
-        "window both clearly visible"
+        "window both clearly visible, one hand gripping the spatula, body leaning toward the pan, pancake lifting above the pan, "
+        "countertop and cooking tools visible around the stove, same warm kitchen setting maintained from the previous panel"
     )
     issues = validate_native_prompt_payload(NativePromptPayload.from_dict(payload), _story_single(), targets=["anchor"])
     length_issue = next(issue for issue in issues if issue.code == "field_too_long_words")
@@ -597,6 +626,19 @@ def test_length_limit_instruction_preserves_key_scene_information() -> None:
     assert "preserve the key action evidence" in length_issue.instruction
     assert "continuity cue" in length_issue.instruction
     assert "camera framing" in length_issue.instruction
+
+
+def test_anchor_generation_prompt_allows_action_evidence_above_old_40_word_limit() -> None:
+    payload = _payload(("anchor",))
+    payload["scenes"][0]["anchor_generation_prompt"] = (
+        "a young man with short brown hair and a blue jacket flips pancakes at the stove in the same warm kitchen, "
+        "one hand gripping the spatula, pancake lifted above the pan, body leaning toward the stove, medium shot"
+    )
+    issues = validate_native_prompt_payload(NativePromptPayload.from_dict(payload), _story_single(), targets=["anchor"])
+    assert not any(
+        issue.code == "field_too_long_words" and issue.path.endswith(".anchor_generation_prompt")
+        for issue in issues
+    )
 
 
 def test_repair_runs_until_valid_and_records_field_diff() -> None:
